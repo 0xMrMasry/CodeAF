@@ -114,7 +114,8 @@ Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps
 | pause / resume | `Stream.Paused`; unheld resume → `queued` | `hold {yes}` | `Runner.Hold` |
 | answer | `AnswerHeld` (question down, an approve step passed on yes); unheld → `KeepAnswer` + `queued`; ask-first yes → run | `answer {yes, words}` | `Runner.Answer` |
 | steer | — | `steer {words}` | `Runner.Steer` |
-| approve (proof) / request changes | `Runner.SignOff` on the store / `SendBackItem` → `queued` | — | request changes: pulls, goes on |
+| approve (proof) | the record's approval read as the trailer (none: refused); `PublishItem` → `queued` (held: stays landed until done, which re-queues) | `publish {words: trailer}` (on the pull) | `Runner.Publish`: commit the worktree with the trailer, push the branch (never force), open the PR (a `pr` job: one comment); reports `pr`, done `done` → shipped beside the recorded approval, record `posted` |
+| request changes | `SendBackItem` → `queued` | — | pulls, goes on |
 | recheck | `RecheckItem` → `queued` | `recheck` (on the pull) | `Runner.Reverify` |
 
 Signals are dropped with the lease (expiry, stop, done). Because the doors only write files under the desk's flock, every process with the store hangs them; there is no mailbox.
