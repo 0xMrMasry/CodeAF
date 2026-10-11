@@ -194,66 +194,42 @@ and this page together. (This page used to say this rule lived in
   `MaxStaleSnoozes` records, or over about 600 KB) reads as no snoozes: at worst a suggestion
   repeats. The next "Not now" keeps the bytes aside as `.damaged-<unix>` and starts fresh.
 
-## 5. What is wired and what is not
+## 5. What is wired
 
 | Piece | State |
 | --- | --- |
-| Policy, recommender, ledger (`places-ai.json` beside the graph) | built and tested |
-| Settings page sections, live/inherits lines, policy rows | built; policy rows read and write `/places/policy` |
-| `/models/roles` `category`, `live`, `inherits`, `categories` | built |
-| Engine model door for the place roles (`internal/session/placeadvice.go`, `Agent.AskPlaces`) | built; registers `placefile` and `placesuggest` on the low tier, so both rows are live |
-| The wire door (`Places.Ask`, `Welcome.PlaceAsk`, `internal/remote/placeask.go`) | built; the bridge asks through an open conversation's engine, which answers on the role's own model and bills it as a background errand |
-| `/places/policy`, `/places/proposals` routes and the background scheduler (`internal/desktopbridge/places_policy.go`, `places_advice.go`) | built (see below) |
-| UI that shows offers (suggestion line/card) | the UI lane's; nothing is drawn yet |
+| Policy, store and proposal ledger | Built; settings read and write `/places/policy`. |
+| Engine model and wire doors | Built; `Agent.AskPlaces` and `Places.Ask` carry `placefile`, `placesuggest` and the six organiser roles (`placename`, `placecharter`, `placefacet`, `placereview`, `placesteer`, `placekind`) at the low tier. `Agent.EmbedPlaces` carries text comparison through the same engine account, billed as `placeembed`. |
+| Organizing run and desktop startup | Built; `WireOrganizer` installs the stages, state and journal. `/places/organize` starts or reads a run, `/places/organize/cancel` cancels it, and `placesOrganizing` publishes progress. |
+| Desktop organizing and offers | Built; Settings has Organize now, mode selection, progress, Cancel, Review with unchecked operations, Accept, Not now and one-receipt Undo. All places draws real suggestion lines and cards; absent proposals draw nothing. |
+| Draft guesses, views and steering | Built; `/places/guess`, `/places/{id}/lenses` and `/places/steer` back the composer guess and place Home views and steering. Guessing changes no membership and asks no model. |
 
-**When the bridge asks.** Three triggers, none of them a read:
+**When the bridge asks.** Settled replies queue filing after the existing settle wait.
+Folder matches are answered by rules; other arrivals use the organiser, with model
+questions reserved for close cross-branch choices. The idle pass runs add-on mode.
+Explicit Organize now starts add-on or refresh mode. Reads and stream reconnects never
+ask a model. One run can proceed at a time, and cancellation applies nothing.
 
-- a turn of a conversation the bridge holds **settles** (the engine said the turn was
-  done): that chat is weighed for an existing place eight seconds later, once ever;
-- the Home page **asks** with `POST /places/proposals/organize` (once per opening; a
-  second request inside a minute is not queued);
-- the bridge has been **idle** (no turn running anywhere) for `organizeEveryMinutes`.
+**Evidence and homes.** Comparison uses the title and first message, and separately
+an end drawn from the last two later user messages and last assistant reply (about
+600 characters). A single-message chat has no end. Saved comparisons are reused for
+unchanged text. Additional homes are earned at either end, without a fixed count cap;
+weak fits stay in Now. The recorded main place is preserved during drift, with a
+change to it proposed rather than silently applied.
 
-`GET /places/proposals` and an SSE reconnect never ask a model. One job runs at a time
-per bridge; at most 32 chats wait to be weighed; every ask has a 60-second deadline and
-is cancelled when the bridge closes.
+**Approval and costs.** New places and structural changes wait for approval. Eligible
+filings into existing places may apply when `autoFile` is on; views and correction
+examples change no structure. Accepted plan operations validate together and create
+one receipt; Undo restores that plan. The run defaults to 150 model calls and five US
+cents; exhausting either budget continues with rules and a provisional summary.
+The paid comparison call uses `openai/text-embedding-3-small`, 256 dimensions, billed
+separately as `placeembed`. Live draft guesses run locally.
 
-**With no conversation tab open** — the ordinary state at app start, when Home shows —
-the ask rides ONE reading connection (`Hello.Watch`) onto an existing saved conversation
-of this desktop's workspace: one the engine host already holds, else the newest one
-somebody spoke in. A reader never drives, is refused every write, starts no turn and is
-never `New`, so it cannot mint a conversation; a welcome naming any other transcript is
-refused. It opens only when a job actually asks (a job the rules answer opens nothing),
-is cached once, and closes after two idle minutes, on a failed ask and with the bridge;
-a failed attach waits five minutes. The engine's watcher allow-list carries
-`Places.Ask` by name and no other model ask. An empty library opens and asks nothing.
-The call is billed to that conversation's background errands.
-
-**Evidence** is the conversation's own title, its first message, its settled replies,
-its saved **recap** (the Summaries role's `recap.line` and `recap.discussed` from
-`meta.json`, at most 600 characters) and its folder — except the folder every desktop
-conversation runs in (the bridge's `--workspace`), which says nothing about what a chat is
-and would make the folder rule offer every chat the same place. Nothing is written or
-asked for here: no recap is no summary, an unreadable `meta.json` is no recap, and a stale
-recap is still the conversation's own account of what it covers. A recap of an exchange
-(two or more messages) proves one reply and never more.
-
-**Grouping chats in no place.** Measured on thirteen real chats whose titles and recaps
-deepseek/deepseek-v4.1-flash wrote (`internal/placegraph/testdata/`), the pairwise rule
-(shared words ≥ a third) linked none of the twenty same-group pairs, and adding recap text
-made it worse. No threshold was moved. Chats now also group around ONE topic word that
-reaches at least `minClusterChats` of them (title, recap or opening message) and that at
-least half of them carry in their TITLE — so a recap can bring in a chat titled another
-way, while a recap's own vocabulary ("discussed", "recommended") anchors nothing. The
-pairwise rule and the words matched against place names read titles and opening messages
-only. "Wi-Fi" counts as "wifi". On that corpus the garden group of five is found and
-nothing else; the five Wi-Fi chats share no single topic word (one never says Wi-Fi or
-router), so they are not offered — the model is never asked about a group the rules
-cannot see.
-
-**Accepting** may carry the `offerVersion` the window read; an offer that changed since
-is refused (`409 stale_offer`), one already decided or overtaken by the graph is `409
-gone`, and a cap that filled is `409 policy_limit`. Declining is `POST /places/proposals/{id}/decline`.
+**Existing single offers.** Accepting a ledger offer may carry its `offerVersion`;
+a changed offer is `409 stale_offer`, an already decided or overtaken offer is
+`409 gone`, and a filled creation cap is `409 policy_limit`. Declining is
+`POST /places/proposals/{id}/decline`. Plan review uses
+`POST /places/proposals/{id}/accept` with optional `skip` indexes.
 
 ## 6. Questions for the designer
 
