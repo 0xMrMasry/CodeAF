@@ -138,6 +138,18 @@ hand-edited file is clamped to the bounds.
 | `filingCallsPerDay` | 40 | 0–1000 | provisional |
 | `clusterCallsPerDay` | 6 | 0–200 | provisional |
 | `organizeEveryMinutes` | 60 | 5–1440 | provisional |
+| `organizeMode` | `add-on` | `add-on`, `refresh` | owner algorithm |
+| `organizeCallsPerRun` | 150 | 0–10000 | owner algorithm |
+| `organizeUSDPerRun` | 5 US cents ($0.05) | 0–10000 whole cents | owner algorithm |
+| `liveGuess` | on | — | owner algorithm |
+
+`organizeUSDPerRun` is stored as whole US cents, not floating-point dollars.
+Past a run budget, the organiser continues without further model calls. `add-on`
+keeps existing places; `refresh` prepares a rebuild for approval. These rows
+configure the port; this store lane alone enables neither the organising
+scheduler nor draft guesses. `ProposalPlan` acceptance validates every selected
+operation before one graph commit and one receipt, and tracks every plan-created
+place in `AIPlaces`. See `docs/PLACES-STORE.md` for the store contract.
 
 Related, owned elsewhere: the ≥3-tab group suggestion in the shell
 (`t-d5-sh-group-suggest-model`).
