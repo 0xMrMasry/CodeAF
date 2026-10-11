@@ -33,6 +33,9 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | pipeline | `factory.Recipe` | |
 | claim | `factory.Claim` | `Item.Proof` |
 | question | `Item.Question` + `QKind` | one open question; `Item.AnsweredQuestions` keeps the latest 100 answers `{by, text, at, event}` |
+| needs_you | derived | `{kind, since, who_can_answer, question?}`. Kinds: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. The queue's `needs_you` groups job ids by that kind |
+| failure | `Item.Failure` | a step that errored: `{step, code, detail, next, at}`. `next` is `requeued` or `stopped`. Not a question |
+| ask | `Item.Ask`, or the issue | `{text, by, at, source}` for work typed in the app or the TUI; `{issue:{number,url,title}, text}` for a GitHub issue |
 | state | `Item.State` | `new`→**backlog**, `queued`, `running`, `needs you`→**needs_you**, `landed`→**needs_you** (sub-state `ready`), `shipped`→**done**, `dismissed`→**dropped** |
 | worker | — (new) | |
 | record / audit | — (new, `events.jsonl`) | |
@@ -86,7 +89,7 @@ A signed-in GitHub viewer sees only repositories `GET https://api.github.com/rep
 | `run` | optional `expect` | `Launch` |
 | `stop` · `pause` · `resume` | optional `expect` | `Stop` · `Hold(on)` · `Hold(off)` |
 | `drop` | `{words?, expect?}` | `Dismiss`; words are the audit detail; a holder is signaled `stop` and the branch is kept |
-| `answer` | `{yes?: bool, words?: string, commit?, expect?}` | `Answer` |
+| `answer` | `{yes?: bool, words?: string, commit?, choice?, reason?, expect?}` | `Answer`. `choice` is `continue`, `try_once_more`, `send_back` or `cancel_job`. `send_back` requires `reason`. An affirmative plan answer names `commit` |
 | `steer` | `{words, expect?}` | `Steer` (reply-level; records in the thread) |
 | `approve` | `{commit, edited?: bool, expect?}` → `{event: "evt_…"}` | `SignOff` (proof gate) or `Answer(yes)` (plan gate). A claim not shown refuses before any receipt. The proof receipt is written after that check and before the publish door, which reads it. A plan receipt is written only after the answer door accepts |
 | `retry_publish` | optional `expect` | Reuses the same commit's proof receipt after a failed publish; the job's person only; no new approval event |
@@ -98,6 +101,18 @@ A signed-in GitHub viewer sees only repositories `GET https://api.github.com/rep
 | `reply` | `{words, expect?}` | store a pending message; `reply {id, words}` signal on heartbeat/pull; worker acknowledgment changes it to delivered |
 
 `expect` is `{state?, step?, version?}`. A field that no longer matches is HTTP 409 `{error, reason: "stale", by?, at?, now_state}`. The sentence is `already approved by @raj at 11:58`, `already taken by @mei`, or `job moved on while you looked`.
+
+**Needs you (additive, Contract 1).** `job.needs_you` is `{kind, since, who_can_answer, question?}`. The six kinds are fixed: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. Adding one is a code change. `GET /v1/queue` groups waiting jobs as `needs_you: [{kind, jobs}]` in that order, and leaves out a kind with nothing in it. `questions[]` is unchanged.
+
+`question` is `{id, kind, text, options?, from_step?, asks?, who_can_answer, answered?}`. `kind` is `text`, `yes_no` or `options`. A free question's `who_can_answer` is `anyone_with_repo`. The other five kinds are `job_person`: when the job has a person, anyone else gets HTTP 403 `only @raj can answer this`. A job with no person yet can still be answered.
+
+`spending_limit` is `{limit, spent, next_limit, currency}`. `currency` is `USD`. Answering `continue` (or yes) raises this one job's cap to `next_limit`, which is the cap doubled in codeaf. The app does not send the number. The raise is an `answered` event, not a setting. Stop does not raise it.
+
+`out_of_attempts` is a question, options `try_once_more`, `send_back` and `cancel_job`. The run asks `try once more, send it back, or cancel the job?`. `send_back` needs a reason and returns to the previous step. `cancel_job` stops the job. A step that errored is `job.failure` (`tool_error`, `provider_error`, `crash`, or `machine_lost` when a lease expires), shown as a failure, and the job does not ask to skip it.
+
+A publish that fails stays landed with `publishing.state` `failed`, `publish_error` set, and `needs_you.kind` `publish_failed`. `POST /v1/jobs/{id}/retry_publish` uses the approval already recorded and does not write a second one.
+
+A job typed in the app or the TUI carries `ask: {text, by, at, source}` with `source` `app` or `tui`. A job from a GitHub issue carries `ask: {issue: {number, url, title}, text}`. The pull request body starts with that ask.
 
 Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/repos {watched[]}` → `SetRepos`; `POST /v1/github/connect {token}` → `ConnectGitHub`.
 
