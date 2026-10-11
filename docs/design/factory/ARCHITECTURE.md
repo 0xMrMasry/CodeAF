@@ -60,7 +60,7 @@ All JSON. Errors: `{error: "sentence", request_id}` with the HTTP status. `reque
 
 | method path | returns | from |
 |---|---|---|
-| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today` | `Seam.Load` plus the claims desk; `spent_today` is the runner's day figure |
+| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me, reason?}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today` | `Seam.Load` plus the claims desk, then the caller's visible repositories; `spent_today` is the runner's day figure |
 | `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
 | `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
 | `GET /v1/events` | SSE: `changed` (job id or `*`), `job` (a `Job` delta), `question`, `needs_you` | store watch |
@@ -72,8 +72,12 @@ All JSON. Errors: `{error: "sentence", request_id}` with the HTTP status. `reque
 | `GET /v1/audit?since=` | `[]Event` | `record` |
 | `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}, access, polling_every, served_by}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
 | `PUT /v1/me/takes_unassigned` | `{repo: bool}` saved for that same handle; later pulls by that handle use it | the factory store. No store answers 501 |
+| `GET /v1/members` | `{members: [{handle, name, avatar_url, joined_at, last_seen, invited_by?, sessions}]}` | live GitHub sign-ins, plus invite rows that have bound a profile |
+| `GET /v1/me/sessions` | `{sessions: [{id, device, created, last_seen, current}]}` | this caller's sign-ins; `device` is the User-Agent captured at sign-in |
 
 Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
+
+A signed-in GitHub viewer sees only repositories `GET https://api.github.com/repos/{owner}/{repo}` accepts for their token. The answer is cached for 10 minutes. Queue jobs, repositories, the strip, queued count, daily total, audit rows, `GET /v1/repos`, pipeline, dry run and a changed tick that names a job all use that set. Daily for a partial view is the sum of visible job costs, and since-counters are cleared because they are not stored per repository. `machines_online`, `busy` and `spent_today` stay floor-wide only when the viewer can see every repository; a narrower view leaves them at zero. A viewer who can see every repository still receives the factory-wide totals. A viewer who can see none receives HTTP 200 with an empty queue and `reason: "no_visible_repos"`. Loopback without a signed-in profile, and the host access token, are not filtered. A hidden job or repository answers 404.
 
 ### Verbs (`POST /v1/jobs/{id}/<verb>`, body as noted)
 
@@ -159,13 +163,17 @@ handles; others receive 403. The host token retains owner access.
 |---|---|---|
 | `POST /v1/auth/device` | absent or `{}` | `{factory, device_code, user_code, verification_uri, interval, expires_in}` |
 | `POST /v1/auth/device/poll` | `{device_code}` with the original credential | 202 `{factory, error, interval}` while pending; 200 `{factory, access_token, token_type, expires_in, me}` plus HttpOnly cookie after GitHub `/user` succeeds |
+| `DELETE /v1/me/sessions/{id}` | — | `{factory}`; 404 `session not found` when the id is not this caller's |
+| `POST /v1/me/sessions/signout-others` | — | `{factory, signed_out}` — the calling session stays; an invite token is not revoked |
 
 The opaque device code belongs to the requesting credential and expires on
 GitHub's schedule. Polling honors `interval`; `slow_down` adds five seconds.
 Expired codes return 410, declined sign-in or an excluded handle returns 403,
-and foreign/replayed codes return 400. The factory requests `read:user`; the
-returned scopes are GitHub's granted scopes. GitHub access tokens are used only
-for profile validation, never returned or persisted.
+and foreign/replayed codes return 400. The factory requests `read:user` and
+`repo` (classic device flow has no read-only private-repository scope). The
+returned scopes are GitHub's granted scopes. The GitHub access token stays in
+process memory for the visibility check; it is never returned and never written
+to `tokens.json`.
 
 Each sign-in creates a 30-day cookie/bearer session with a separate public id.
 Restart/revoke-sessions drops sessions. Invites retain their expiry/revocation
@@ -173,7 +181,7 @@ rules and their `invited_by`; their first signed-in profile is persisted in
 `tokens.json` under the invite/revoke lock. Until then their handle is
 `invited:<by>` in reads and non-approval audit events; an unsigned invite
 cannot approve (403 `GitHub sign-in is required to approve`). The original invite bearer resolves to that profile afterward,
-including across restarts. Machine facts and preferences stay empty.
+including across restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned` map.
 
 ## 5. Events and SSE
 
@@ -215,4 +223,4 @@ The dashboard lives in `Agent-Field/codeaf-desk` (the codeaf app), not in this b
 
 ## 9. Not in this wave
 
-GitHub App, session management/listing, member lists, per-viewer filtering, overlap warnings, routed questions, relay/compute, hosted. The API shape leaves room (`handle` on every event and lease; `repo` on every job) and nothing else.
+GitHub App, overlap warnings, routed questions, relay/compute, hosted. The API shape leaves room (`handle` on every event and lease; `repo` on every job) and nothing else.
