@@ -77,7 +77,7 @@ The product fixes the primitives of the loop and nothing else; everything else i
 
 No step kinds, no condition language, no block schema, no risk model, no plugin API. A security gate, a migration check, a performance budget, a docs step — each is a prompt, and its result shows up where every result shows up. The pipeline file is specified in `FACTORY-YAML.md`.
 
-## 6. Surfaces — the desk and the wall
+## 5. Surfaces — the desk and the wall
 
 | | **desk** — codeaf TUI | **wall** — the factory's floor (browser) |
 |---|---|---|
@@ -213,21 +213,21 @@ Rules that hold everywhere:
 
 ## 9. Policy
 
-`.codeaf/factory.md`, committed and reviewed like code, read from the main branch (a PR can never change the law for its own review):
+`.codeaf/factory.yaml`, committed and reviewed like code, read from the main branch (a PR can never change the rules for its own run). The full file is specified in `FACTORY-YAML.md`; in short:
 
-```
-## start        — what may begin without a person: labels · size · per-run cap · never-auto paths
-## steps        — the recipe per item kind: plan · approve · write · test · review · security · proof
-## rules        — fixed stages and policy sentences (tests pass before anything posts, …)
+```yaml
+start:     # what may begin without a person: labels · size · cost · never paths · ask-first sentences
+pipeline:  # the step names per kind of job: issue · pr · ci
+steps:     # a step is a prompt (+ until, max); same name overrides a built-in
+fixed:     # steps the job's manager may never drop
+rules:     # sentences every job obeys
 ```
 
-Two layers: **repo rules bind everyone; a personal file may only be stricter.** Automatic inside the envelope the repo defined; anything outside it — over a person's cap, risky paths, strangers' PRs — becomes a question on the floor, never a claim.
+Two layers: **repo rules bind everyone; a personal `~/.codeaf/factory.yaml` may only be stricter.** Automatic inside what `start` allows; anything outside it — over a person's cap, `never` paths, `ask_first` matches, strangers' PRs — becomes a question, never a claim.
 
 Two gates: **start = policy** (automatic), **publish = a person** (always).
 
-The factory's own config lives on its host (`factory.yaml`: sources, door, optional `team:`), edited by whoever runs the box.
-
----
+The factory's own config lives on its host (`~/.codeaf/factory/config.yaml`: port, access, repos, optional member allowlist), edited by whoever runs the box.
 
 ## 10. Sequences
 
