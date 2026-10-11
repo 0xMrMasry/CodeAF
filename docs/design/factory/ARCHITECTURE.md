@@ -69,7 +69,7 @@ All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job id
 | `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[]}` | `pipeline` + `Seam.Load` |
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{codeaf_version, contract, handle, machines[], takes_unassigned{}}` | `Seam.PersonHandle`; machines and preferences remain empty until viewer sessions |
+| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[], takes_unassigned{}}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`; machine facts stay empty |
 
 Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
 
@@ -126,12 +126,35 @@ Signals are dropped with the lease (expiry, stop, done). Because the doors only 
 
 ### Access
 
-- Loopback: open. Off loopback: `Authorization: Bearer <access token>` (from `~/.codeaf/factory/config.yaml`), then sessions (later wave: GitHub device flow).
-- The dashboard holds a session cookie after the token once.
+Loopback stays open as the owner. Remote sign-in requires an existing host/invite
+access token or `/access` cookie; GitHub sign-in does not bypass that gate.
+Host config `github_client_id` enables the OAuth app's device flow (which must
+also be enabled at GitHub). Optional `team: [priya, "@sam"]` restricts signed-in
+handles; others receive 403. The host token retains owner access.
+
+| method path | body | returns |
+|---|---|---|
+| `POST /v1/auth/device` | absent or `{}` | `{factory, device_code, user_code, verification_uri, interval, expires_in}` |
+| `POST /v1/auth/device/poll` | `{device_code}` with the original credential | 202 `{factory, error, interval}` while pending; 200 `{factory, access_token, token_type, expires_in, me}` plus HttpOnly cookie after GitHub `/user` succeeds |
+
+The opaque device code belongs to the requesting credential and expires on
+GitHub's schedule. Polling honors `interval`; `slow_down` adds five seconds.
+Expired codes return 410, declined sign-in or an excluded handle returns 403,
+and foreign/replayed codes return 400. The factory requests `read:user`; the
+returned scopes are GitHub's granted scopes. GitHub access tokens are used only
+for profile validation, never returned or persisted.
+
+Each sign-in creates a 30-day cookie/bearer session with a separate public id.
+Restart/revoke-sessions drops sessions. Invites retain their expiry/revocation
+rules and their `invited_by`; their first signed-in profile is persisted in
+`tokens.json` under the invite/revoke lock. Until then their handle is
+`invited:<by>` in reads and non-approval audit events; an unsigned invite
+cannot approve (403 `GitHub sign-in is required to approve`). The original invite bearer resolves to that profile afterward,
+including across restarts. Machine facts and preferences stay empty.
 
 ## 5. Events and SSE
 
-`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail}` appended to `events.jsonl`. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
+`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail}` appended to `events.jsonl`. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
 
 ## 6. Launch logic (`codeaf`, ordinary start)
 
@@ -169,4 +192,4 @@ The dashboard lives in `Agent-Field/codeaf-desk` (the codeaf app), not in this b
 
 ## 9. Not in this wave
 
-GitHub App and device-flow sessions, per-viewer filtering, overlap warnings, routed questions, relay/compute, hosted. The API shape leaves room (`handle` on every event and lease; `repo` on every job) and nothing else.
+GitHub App, session management/listing, member lists, per-viewer filtering, overlap warnings, routed questions, relay/compute, hosted. The API shape leaves room (`handle` on every event and lease; `repo` on every job) and nothing else.
