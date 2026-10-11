@@ -70,9 +70,9 @@ All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason`
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
 | `GET /v1/about` | `{name, codeaf_version, contract, needs, access, polling_every, served_by}` before any token. `needs` is `token`, `device` or `none`. `access` is `loopback`, `token` or `tailnet`. `served_by` is `tui` or `factory` | host config |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}, access, polling_every, served_by}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
+| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}, access, polling_every, served_by}` | caller session; a token with no signed-in profile, the host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
 | `PUT /v1/me/takes_unassigned` | `{repo: bool}` saved for that same handle; later pulls by that handle use it | the factory store. No store answers 501 |
-| `GET /v1/members` | `{members: [{handle, name, avatar_url, joined_at, last_seen, invited_by?, sessions}]}` | live GitHub sign-ins, plus invite rows that have bound a profile |
+| `GET /v1/members` | `{members: [{handle, name, avatar_url, joined_at, last_seen, sessions}]}` | live GitHub sign-ins, plus access-token rows that have bound a profile |
 | `GET /v1/me/sessions` | `{sessions: [{id, device, created, last_seen, current}]}` | this caller's sign-ins; `device` is the User-Agent captured at sign-in |
 
 Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
@@ -158,7 +158,7 @@ Signals are dropped with the lease (expiry, stop, done). Because the doors only 
 
 ### Access
 
-Loopback stays open as the owner. Remote sign-in requires an existing host/invite
+Loopback stays open as the owner. Remote sign-in requires an existing host or
 access token or `/access` cookie; GitHub sign-in does not bypass that gate.
 Host config `github_client_id` enables the OAuth app's device flow (which must
 also be enabled at GitHub). Optional `team: [priya, "@sam"]` restricts signed-in
@@ -169,7 +169,7 @@ handles; others receive 403. The host token retains owner access.
 | `POST /v1/auth/device` | absent or `{}` | `{factory, device_code, user_code, verification_uri, interval, expires_in}` |
 | `POST /v1/auth/device/poll` | `{device_code}` with the original credential | 202 `{factory, error, interval}` while pending; 200 `{factory, access_token, token_type, expires_in, me}` plus HttpOnly cookie after GitHub `/user` succeeds |
 | `DELETE /v1/me/sessions/{id}` | — | `{factory}`; 404 `session not found` when the id is not this caller's |
-| `POST /v1/me/sessions/signout-others` | — | `{factory, signed_out}` — the calling session stays; an invite token is not revoked |
+| `POST /v1/me/sessions/signout-others` | — | `{factory, signed_out}` — the calling session stays; an access-token row is not revoked |
 
 The opaque device code belongs to the requesting credential and expires on
 GitHub's schedule. Polling honors `interval`; `slow_down` adds five seconds.
@@ -181,12 +181,11 @@ process memory for the visibility check; it is never returned and never written
 to `tokens.json`.
 
 Each sign-in creates a 30-day cookie/bearer session with a separate public id.
-Restart/revoke-sessions drops sessions. Invites retain their expiry/revocation
-rules and their `invited_by`; their first signed-in profile is persisted in
-`tokens.json` under the invite/revoke lock. Until then their handle is
-`invited:<by>` in reads and non-approval audit events; an unsigned invite
-cannot approve (403 `GitHub sign-in is required to approve`). The original invite bearer resolves to that profile afterward,
-including across restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned` map.
+Restart/revoke-sessions drops sessions. Access-token rows retain their expiry
+and revocation. Their first signed-in profile is persisted in `tokens.json`
+under the same lock as add and revoke. Until then reads use `Seam.PersonHandle`.
+The original bearer resolves to that profile afterward, including across
+restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned` map.
 
 ## 5. Events and SSE
 
