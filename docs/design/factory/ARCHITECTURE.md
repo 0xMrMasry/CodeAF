@@ -142,6 +142,15 @@ worker loop           → attach to the same url, pull, run, report   (unless --
 
 `run.lock` and the file mailbox are retired: every process's verbs go through `lease.Doors`, and execution happens wherever a worker pulls. The worker loop dials through the same order each time, so a worker whose serving window closed follows the factory to whoever serves next. Its credentials are cached per factory url and slot in `~/.codeaf/v3/factory/worker.json`; a 401 re-attaches. On loopback a worker takes every unassigned job (`takes_unassigned: {"*": true}`); attached elsewhere, only repos it has a checkout of. A process that serves in-process removes `serve.json` and releases `serve.lock` when its surface or session host ends.
 
+**Local job doors on an attached floor.** `api.ComposeJobs` leaves TUI-only
+job-id doors nil outside loopback unless `Seam.Job(id)` finds a live lease on
+this machine. Workers keep a factory-URL-bound lease receipt beside each job
+mirror, renew it on heartbeat, and remove it when they let go. `Load` discovers
+these mirrors off the UI loop; job selection reads cached capabilities, and
+each captured door checks its receipt again before acting on the mirror.
+Matching ids on this machine's own floor grant nothing. Repository-local
+doors remain local, and wired actions still reach the attached factory.
+
 ## 7. The dashboard build
 
 `internal/factory/serve/web/`: `package.json`, `vite.config.ts`, `src/`. `make web` runs `npm ci && npm run build` → `dist/`, which is **committed** (like `pack.gz`) so Go CI needs no Node; a law test fails if `src/` is newer than `dist/`. Served at `/` by `serve`; API base is same-origin `/v1`. Stock shadcn, zinc, no theme; `data-testid` on every verb for the Playwright smoke.
