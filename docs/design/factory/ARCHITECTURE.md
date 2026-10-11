@@ -70,7 +70,7 @@ All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job id
 | `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[]}` | `pipeline` + `Seam.Load` |
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{handle, machines[], takes_unassigned{}}` | sessions + workers |
+| `GET /v1/me` | `{handle, machines[], takes_unassigned{}}` | `Seam.PersonHandle`; machines and preferences remain empty until viewer sessions |
 
 ### Verbs (`POST /v1/jobs/{id}/<verb>`, body as noted)
 
@@ -93,7 +93,7 @@ Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/r
 
 | method path | who | what |
 |---|---|---|
-| `POST /v1/workers/attach {name, handle}` | a codeaf | → `{worker_id, credential}`; loopback: no access token needed; off-loopback: the access token |
+| `POST /v1/workers/attach {name, handle}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
 | `GET /v1/workers/pull` | a worker (bearer credential) | long-poll (≤ 30s): `{lease, job}` or `204`. A lease is one job for one worker, with `expires_at`; heartbeat renews. Jobs are offered only to workers of the job's person, or any worker that opted into unassigned for that repo. |
 | `POST /v1/workers/leases/{id}/heartbeat` | worker | renews; expired leases re-queue |
 | `POST /v1/workers/leases/{id}/report` | worker | step results, log lines, cost, claims, questions, PR facts — the runner's writes, over the wire |
