@@ -33,6 +33,8 @@ Many people (or one person with several machines) running codeaf against one cod
 | **memory** | the record (starts, approvals, publishes, overrides, spend per item); lessons proposed as PRs to the rules | a rejected PR's reason stays on one laptop |
 | **attention** | one ordering; one pipeline view | nobody can see twelve items stuck at approve across four people |
 
+**Who runs a job: its person, not a pool.** A job runs only on the machines of its person — the forge assignee, or whoever started it. A worker takes other people's unassigned jobs only when its owner opted in (`codeaf attach --take-unassigned`). This keeps money personal, keeps presence quiet, and makes "assigned to me" mean what it already means on the forge.
+
 **Money is not a shared scarcity in open source.** Every worker runs on a person's machine with that person's own model keys and forge access. Caps and the day rail are personal settings in codeaf. The factory only *records* what each item cost. A team budget needs one payer and one key, which is the hosted product.
 
 Everything abundant — execution, worktrees, conversations, model calls — stays at the edge, in codeaf.
@@ -85,11 +87,11 @@ The line:
 | screen | shows | verbs | solo | team |
 |---|---|---|---|---|
 | **Door** | "this floor is private" → floor token or tailnet; then "link your GitHub to view" (device flow) when watched repos differ in access | link · continue | never shown at loopback | first visit per device |
-| **Floor** | handover line (since you last looked) · pipeline strip (`read 3 · plan 2 · approve 4 ⚑ · write 5 · review 1 · ship 2 · stuck 1`) · sections NEEDS YOU / LANDED / STREAMS / NEW / SHIPPED · repo chips · capacity line (`2 queued · no workers on`) · your handle chip | open · approve · answer · prioritize · drop · add | yes | filtered per viewer; rows carry who holds the claim |
+| **Queue** | since you last looked · pipeline strip (`plan 2 · approve 4 ⚑ · write 5 · review 1 · proof 2`) · groups Needs you / Queued / Running / Backlog / Done · repo chips · your capacity line (`2 queued for you · your laptop busy`) · the factory address | open · approve · answer · prioritize · drop · add | yes | filtered per viewer; a job says who it is assigned to and what it waits for (`waiting for @raj's worker (offline)`); no roster on the page |
 | **Item** | header (kind, repo, number, title, state, holder) · stage rail · tabs: proof · diff · checks · log · conversation · spend | approve · request changes · re-run checks · answer · reply · prioritize · drop | yes | the conversation shows who asked and who answered |
 | **Add work** | repo · title · text → a `new` item | add | yes | yes |
 | **Record** | what ran, who approved what, when, at what cost; export | export | yes | filtered per viewer |
-| **Settings** | connect forge · watched repos · policy rendered + dry run ("these N would start today") · roster (workers and viewers by handle) · sessions · the factory's URL and the join command | connect · watch · (roster and sessions are read-only here; revoke is CLI) | yes | yes |
+| **Settings** | connect forge · watched repos · the pipeline file rendered + dry run ("these N would start today") · roster (members and workers by handle, online/offline — the only place presence is shown) · sessions · the factory's address and the attach command | connect · watch · (roster and sessions are read-only here; revoke is CLI) | yes | yes |
 
 Phone-first, one column; on a wide screen the floor becomes rows + a peek, like the TUI's 120-column layout. Every row, count, chip, event and export is computed *after* the viewer filter — aggregates leak as surely as diffs do.
 
@@ -308,6 +310,8 @@ sequenceDiagram
 A forge replacement. A platform for others to build on. A chat app in the browser. A notification inbox. A per-seat SaaS. A team budget in open source.
 
 ## 14. Open
+
+- **One codeaf attaches to one factory at a time.** Personal repos while attached to a team's factory means `codeaf detach`, or a second factory later. Multi-factory is a later point, not this branch.
 
 - Floor conversation depth: reply-level now; deep steering stays in the TUI.
 - Local env for self-hosted runs: documentation and tooling, or managed env as hosted-only.
