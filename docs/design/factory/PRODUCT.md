@@ -1,4 +1,4 @@
-# The CodeAF Factory — product document
+# The codeaf factory — product document
 
 Status: goal agreed 2026-10-10; screens and open-source money model settled the same day (supersedes every earlier draft)
 Scope: the factory service, its web face, and the factory-related changes to codeaf. Chat and personal tooling in codeaf are out of scope.
@@ -26,7 +26,7 @@ Many people (or one person with several machines) running codeaf against one cod
 
 | scarcity | the factory holds | the problem it removes |
 |---|---|---|
-| **work** | one claim per item, with expiry and re-queue; files in flight | two factories start the same issue; two change the same files blind |
+| **work** | one lease per job (one worker, expiry, re-queue); files in flight | two factories start the same issue; two change the same files blind |
 | **policy** | one interpreter of `.codeaf/factory.md` | everyone's rules differ; automatic intake starts the wrong thing |
 | **judgment** | questions routed to whoever owns that code, answerable by any qualified person | my factory asks me about code I do not own |
 | **voice** | one presence on the forge; the trailer bound to the approval event | two bots talk on one issue; nobody can tell who approved |
@@ -223,7 +223,7 @@ fixed:     # steps the job's manager may never drop
 rules:     # sentences every job obeys
 ```
 
-Two layers: **repo rules bind everyone; a personal `~/.codeaf/factory.yaml` may only be stricter.** Automatic inside what `start` allows; anything outside it — over a person's cap, `never` paths, `ask_first` matches, strangers' PRs — becomes a question, never a claim.
+Two layers: **repo rules bind everyone; a personal `~/.codeaf/factory.yaml` may only be stricter.** Automatic inside what `start` allows; anything outside it — over a person's cap, `never` paths, `ask_first` matches, strangers' PRs — becomes a question, never a lease.
 
 Two gates: **start = policy** (automatic), **publish = a person** (always).
 
@@ -313,7 +313,8 @@ sequenceDiagram
 | **desk** | the TUI/CLI side of codeaf |
 | **worker** | the executing side of codeaf; pulls claims; runs with its person's keys |
 | **item** | a unit of work: issue, PR, red CI run, chore, or work a chat split off |
-| **claim** | one worker's lease on an item |
+| **lease** | one worker's hold on a job; in the UI: *taken by* / *Take* |
+| **claim** | a statement a step asserts with evidence; what a person approves |
 | **envelope** | what `## start` lets begin without a person |
 | **door** | what a browser needs off loopback: tailnet or a floor token |
 | **link** | a viewer's one-time read-only forge link → session + credential row keyed by handle |
