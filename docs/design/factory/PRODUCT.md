@@ -77,26 +77,71 @@ The product fixes the primitives of the loop and nothing else; everything else i
 
 No step kinds, no condition language, no block schema, no risk model, no plugin API. A security gate, a migration check, a performance budget, a docs step — each is a prompt, and its result shows up where every result shows up. The pipeline file is specified in `FACTORY-YAML.md`.
 
-## 5. Surfaces — the desk and the wall
+## 5. Surfaces: the binary and the app
 
-| | **desk** — codeaf TUI | **wall** — the factory's floor (browser) |
+**The binary is me and my machine; the app is us.** The TUI shows Mine; the app shows Everything. That is the one product-level difference, and it is deliberate, not a rendering limit. Team view is free in the app.
+
+The public model is three lines:
+
+- **codeaf** — a coding agent in your terminal. You talk, it works.
+- **codeaf factory** — the same codeaf running your repo's work unattended, for you or your team. You approve.
+- **codeaf app** — talk and factory in one window, for you and the people you work with.
+
+One engine, one vocabulary. Nobody hears "worker", "control plane" or "mode": your codeaf is a worker when attached; that is plumbing.
+
+Two verbs on one engine: **talk** (chat, steer, terminal) and **run** (factory: jobs that run unattended; you approve). Every surface can do both; they differ in what they are best at.
+
+```mermaid
+flowchart TB
+    GH["GitHub<br/>issues · PRs · checks"]
+    FAC["codeaf factory<br/>intake · auto-start rules · leases · record · API"]
+    ENG(("one engine<br/>codeaf"))
+    TUI["codeaf<br/>TUI: talk + Mine"]
+    APP["codeaf app<br/>talk + Everything"]
+    M1["your machine<br/>codeaf runs your jobs"]
+    M2["teammate's machine<br/>codeaf runs their jobs"]
+    GH <-->|"poll · publish"| FAC
+    TUI -->|"local engine (chat)"| ENG
+    APP -->|"bundled engine (chat)"| ENG
+    TUI <-->|"/v1 HTTP + SSE"| FAC
+    APP <-->|"/v1 HTTP + SSE"| FAC
+    M1 -->|"/v1/workers pull"| FAC
+    M2 -->|"/v1/workers pull"| FAC
+```
+
+| responsibility | binary `codeaf` | app |
 |---|---|---|
-| is for | working inside one item | looking and deciding across items, machines, people, time |
-| holds | every conversation: the manager, step chats, steering; logs; keyboard approval | floor sections, item page with proof and evidence, pipeline, record, roster, capacity |
-| verbs | all of them | judgment only: approve · request changes · answer · add · prioritize · drop |
-| not here | — | process control · machine administration · policy editing · rich chat · money settings |
+| chat with codeaf, steer, terminal | TUI — home | yes, same engine (bundled) |
+| **my** jobs: take, approve, answer, steer, caps | TUI (Mine) | yes |
+| **team**: everyone's jobs, who has what, needs-you across the team, proof media, the record | — | yes (Everything) |
+| run the factory: GitHub intake, auto-start rules, leases, record, API | `codeaf factory` | — (attaches to one) |
+| run jobs (be a worker) | yes | yes, via bundled engine, if the person turns it on |
+| ops: attach, invite, repos, pipeline, revoke | CLI | attach + invite in UI; the rest read-only |
+| policy | `.codeaf/factory.yaml` in the repo | read-only |
 
-The line:
+Boundaries that never move:
 
-- **Conversation lives in the TUI.** The wall takes reply-level answers to questions only.
-- **Policy lives in git.** The wall renders and dry-runs `.codeaf/factory.md`; it never edits it.
-- **Money lives in codeaf.** Caps and the day rail are the person's; the wall shows spend, never sets it.
-- **Operations live in the CLI** (`factory serve`, connect, join, sessions). A stolen browser session can judge, never administer or execute.
-- **The floor is not an inbox.** "Needs you" is the list of gates the policy created (approve steps, cap questions, step questions) — the same group the TUI floor already shows. No feed, no read marks.
+- The TUI never grows team views, proof media or the record browser.
+- The app never grows running a factory, editing policy, or ops.
+
+**Capability rule:** anything you can say to codeaf, you can say in both; anything you need to see, you see in the app. Steering a job that runs on a teammate's machine is reply-level everywhere in v1; deep steering happens on that machine.
+
+### App v1
+
+- **attach** — sign in to a factory: URL + GitHub handle (device flow) or token. Without it, the app is codeaf chat on your laptop with your own loopback factory.
+- **factory view** — Mine / Unassigned / Everything; Needs you / Running / Queued / Backlog / Done; the job brief with claims and proof; the record.
+- **job conversations** — one job's thread: answer, approve, request changes, steer. Full depth on my jobs (my engine), reply-level on a teammate's.
+- **general chat** — the TUI's chat, in a window. Not a factory feature; it is why the app is opened daily.
+- **terminal** — the app's existing terminal tab. Optional for v1.
+- **bundled engine** — the app ships `codeaf`, so an invited teammate installs nothing else. It can put `codeaf` on PATH (like VS Code's `code`).
+
+The app opens on the factory view when attached, on chat when not. The invited teammate lands on work; the solo user lands on talk.
 
 ---
 
 ## 6. Screens
+
+The screens below describe the factory view; the app renders it. The small page the factory itself serves is the same view and stands in until the app ships.
 
 ### 5.1 The floor (browser, served by `factory`)
 
@@ -281,25 +326,68 @@ sequenceDiagram
 
 ## 11. Business logic and strategy
 
-**The delta over the forge is the product.** The forge holds artifacts: code, issues, PRs, identity, permissions. The factory holds what the forge has no concept of: live run state, claims, pending approvals, ordering, the record.
+**The goal now is user growth.** Revenue comes later. It only needs to stay possible: a hosted factory, memory, a relay, compute. Nothing we build now may close those doors, and nothing we build now waits for them.
 
-**Open is complete.** One binary, self-hostable, forge-neutral; whatever works on localhost ships open. The open factory is the audience engine: `factory.md` in repos, the trailer on every PR the factory touched, shareable proof sheets. No paid tier at launch.
+**The delta over the forge is the product.** The forge holds artifacts: code, issues, PRs, identity, permissions. The factory holds what the forge has no concept of: live job state, leases, pending approvals, ordering, the record.
 
-**Paid is one product: the factory, hosted.** Our service, always on, webhooks, cloud players in the pool, one team bill with one meter. The assignee becomes a judgment role: approve from a browser, no machine needed. The hybrid — rent cloud players for a self-hosted floor — is the bridge, the first dollar from existing self-hosters, and the sovereignty answer.
+### Growth shape
 
-**The moat is the night shift, not the join.** Registering a machine is one command (as it is for any CI runner). What is hard is keeping machines awake, patched, env-managed and secrets-clean, and paying one bill for all of it. We sell ops, compute and the team meter, never features, never login.
+1. **Acquire — the TUI.** One install, two reasons: chat, and "it does labeled issues while you are away" with `codeaf factory` on loopback.
+2. **Spread — the factory is the multiplier.** One dev attaches a repo and invites a reviewer, a PM, a lead. They are not terminal people, so they need the app. The app's onboarding starts from "you were invited to @handle's factory", not from an empty chat.
+3. **Retain — chat is the daily habit; the record and memory are the stake.**
 
-**The honest nudge is a fact the open floor shows itself:** `2 items queued · no workers online — a cloud player would have started them by now.`
+```mermaid
+flowchart TB
+    A["install codeaf (TUI)"] --> B["chat with codeaf"]
+    B --> C["codeaf factory on your own repo"]
+    C --> D["codeaf factory invite"]
+    D --> E["teammate opens the invite link"]
+    E --> F["the app installs and attaches"]
+    F --> G["approves on the factory view"]
+    G --> H["discovers chat in the app"]
+    H --> I["starts their own factory"]
+    I --> D
+```
+
+### Invites
+
+A factory invite is the app invite. It is a link that carries the factory address, a token and "invited by". It downloads the app, attaches it, and shows the queue. Invites are unlimited and minted by the factory owner (`codeaf factory invite`).
+
+Nothing on the invited teammate's path is gated: no waitlist between an invite and the queue. Early access (signed builds, a waitlist for the first weeks) is for quality, not scarcity; a factory invite skips the line.
+
+### Open and closed
+
+Open or closed is a packaging decision. It can change at any time and it does not shape the product: there is one binary either way. A second binary would only ever follow a license split, never a product split. If we want exclusivity later, the hosted founding-teams program is the place for it.
+
+### What would break the clean story
+
+- A separate "factory app" brand or binary.
+- A feature that lives only in the app for product reasons (a crippled terminal path).
+- Different names for one thing across surfaces.
+- An app without chat.
+- A waitlist between the invited teammate and the queue.
 
 ---
 
 ## 12. Rollout
 
-1. **This branch — solo on one laptop.** The factory as a loopback service; the TUI rewired as a client of the factory API (today the floor is disabled over `--host`/`--at` and reads the store in-process); the floor at localhost: §6.1 screens minus the door; the claims desk replacing `run.lock` and the file mailbox; automatic intake from `## start`; the append-only record with bound approval events.
-2. **Service packaging.** `factory serve`, door, host config, deploy notes, forge connect from the browser.
-3. **Team reach.** Link-to-view sessions, per-viewer filtering with scope tags, handle-bound worker join, overlap warnings, routed questions, lessons as PRs.
-4. **Compute.** Relay and personal pools — its own branch.
-5. **Hosted.** Tenant credential, the team meter, webhooks, cloud players, hybrid attach, GitHub App identity, per-run secret injection.
+A milestone is a journey that works end to end, not a set of components. Each milestone exits after one week of dogfood without a manual bypass. The one number we track: jobs completed through the factory per week; later, teams attached.
+
+```mermaid
+flowchart LR
+    M0["M0 · solo<br/>labeled issue → PR,<br/>approved in the TUI"]
+    M1["M1 · two people<br/>one factory, two machines,<br/>leases hold"]
+    M2["M2 · app attaches<br/>factory view, approve + chat,<br/>internal use"]
+    M3["M3 · early access<br/>invite link, signed builds,<br/>~20 teams"]
+    M4["M4 · public"]
+    M0 --> M1 --> M2 --> M3 --> M4
+```
+
+- **M0 — solo.** Factory + TUI on one laptop. One labeled issue becomes a PR; you approve it from the TUI.
+- **M1 — two people.** One factory, two machines; leases hold. TUI only. Dogfood on the CodeAF repo.
+- **M2 — the app attaches.** It shows the factory view; approve and chat through the bundled engine. Internal use.
+- **M3 — early access.** The designer's design applied, the invite link, signed builds. About 20 teams.
+- **M4 — public.**
 
 ---
 
