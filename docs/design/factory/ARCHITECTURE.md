@@ -70,7 +70,9 @@ All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job id
 | `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[]}` | `pipeline` + `Seam.Load` |
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{handle, machines[], takes_unassigned{}}` | `Seam.PersonHandle`; machines and preferences remain empty until viewer sessions |
+| `GET /v1/me` | `{codeaf_version, contract, handle, machines[], takes_unassigned{}}` | `Seam.PersonHandle`; machines and preferences remain empty until viewer sessions |
+
+Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
 
 ### Verbs (`POST /v1/jobs/{id}/<verb>`, body as noted)
 
