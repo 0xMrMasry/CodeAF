@@ -32,7 +32,7 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | step | `factory.Stage` (definition) · `factory.Phase` (run state) | |
 | pipeline | `factory.Recipe` | |
 | claim | `factory.Claim` | `Item.Proof` |
-| question | `Item.Question` + `QKind` | one open question at a time today; the thread carries history |
+| question | `Item.Question` + `QKind` | one open question; `Item.AnsweredQuestions` keeps the latest 100 answers `{by, text, at, event}` |
 | state | `Item.State` | `new`→**backlog**, `queued`, `running`, `needs you`→**needs_you**, `landed`→**needs_you** (sub-state `ready`), `shipped`→**done**, `dismissed`→**dropped** |
 | worker | — (new) | |
 | record / audit | — (new, `events.jsonl`) | |
@@ -62,7 +62,7 @@ All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job id
 |---|---|---|
 | `GET /v1/queue` | `Queue{since, jobs[], repos[], strip, capacity, me}` | `Seam.Load` |
 | `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
-| `GET /v1/jobs/{id}/thread` | `[]Message` (the manager thread) | `Seam.Talk` transcript, read-only |
+| `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
 | `GET /v1/events` | SSE: `changed` (job id or `*`), `job` (a `Job` delta), `question`, `needs_you` | store watch |
 | `GET /v1/repos` | watched + available | `Seam.Repos` |
 | `GET /v1/repos/{owner}/{repo}/pipeline` | `Pipeline` (the parsed file, or defaults + `source: "defaults"`) | `pipeline` |
@@ -86,7 +86,7 @@ Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`,
 | `recheck` | — | `Reverify` |
 | `take` | — | `lease.Assign(me)` |
 | `prioritize` | `{to: "top"}` | `Mark` |
-| `reply` | `{words}` | `Say` |
+| `reply` | `{words}` | store a pending message; `reply {id, words}` signal on heartbeat/pull; worker acknowledgment changes it to delivered |
 
 Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/repos {watched[]}` → `SetRepos`; `POST /v1/github/connect {token}` → `ConnectGitHub`.
 
@@ -95,14 +95,16 @@ Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/r
 | method path | who | what |
 |---|---|---|
 | `POST /v1/workers/attach {name, handle}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
-| `GET /v1/workers/pull` | a worker (bearer credential) | long-poll (≤ 30s): `{lease, job}` or `204`. A lease is one job for one worker, with `expires_at`; heartbeat renews. Jobs are offered only to workers of the job's person, or any worker that opted into unassigned for that repo. |
-| `POST /v1/workers/leases/{id}/heartbeat` | worker | renews; expired leases re-queue |
-| `POST /v1/workers/leases/{id}/report` | worker | step results, log lines, cost, claims, questions, PR facts — the runner's writes, over the wire |
-| `POST /v1/workers/leases/{id}/done` | worker | final state |
+| `GET /v1/workers/pull` | a worker (bearer credential) | long-poll (≤ 30s): `{lease, job}` or `204`. A lease is one job for one worker, with `expires_at`; heartbeat renews. Jobs are offered only to workers of the job's person, or any worker that opted into unassigned for that repo. Pending replies can lend an idle manager with `lease.thread_only: true`; the existing machine affinity still applies. |
+| `POST /v1/workers/leases/{id}/heartbeat` | worker | renews and returns signals, including unacknowledged manager replies; expired leases re-queue |
+| `POST /v1/workers/leases/{id}/report` | worker | step results, log lines, cost, claims, questions, PR facts, `thread` messages and `delivered` reply IDs — the worker's writes |
+| `POST /v1/workers/leases/{id}/done` | worker | final state; a `thread_only` lease releases the manager without changing job state or steps |
 
 Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps its state machine; its *store writes* become reports, and its *ownership* becomes a lease.
 
 **The worker's write path.** The worker's Runner runs over a mirror store on the worker's machine holding only the jobs it leased. Every `ReportEvery` (500 ms) the worker diffs the mirror against what it last sent (`run.Diff`) and posts the difference: changed steps (state, round, result), new log lines, new cost, changed claims, a new question for the person, the PR, the manager conversation, added notes, and `pipeline` when the runner reshaped the steps (the server refuses one that removes an approve step). Two things never ride a report: the job's state (the server moves it on a person's verb and on `done`) and an approve step passing (only the person's answer passes it). The final report leaves out the landing line, which `done` writes.
+
+**Replicated manager thread.** Workers read spoken manager lines on their own machine and report stable IDs in batches of at most 32. The factory merges repeated IDs once, bounds the thread to 200 messages (16 KiB per text), and never evicts pending replies. Reply writes directly to the job before signaling; heartbeat/pull offers it until `delivered` acknowledges its ID. A manager-only lease permits thread writes but no step results or costs, and done preserves the job. Offline managers keep replies pending; the pending words survive process restarts and lease expiry. `/answer` keeps the question in `questions` with `state: answered` and its answer receipt, clock and person (latest 100). All existing fields remain; Contract stays 1.
 
 **Starting a pulled job.** A pull carrying `recheck` re-runs a landed job's checks (`Runner.Reverify`); a job whose run has not begun is launched (`Runner.Launch`, so the manager shapes it); one whose run had begun — a resume, a request for changes, a worker that went away — goes on at its step (`Runner.Hold(off)` → revive).
 
