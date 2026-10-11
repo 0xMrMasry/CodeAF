@@ -117,8 +117,9 @@ Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps
 | approve (proof) | the record's approval read as the trailer (none: refused); `PublishItem` → `queued` (held: stays landed until done, which re-queues) | `publish {words: trailer}` (on the pull) | `Runner.Publish`: commit the worktree with the trailer, push the branch (never force), open the PR (a `pr` job: one comment); reports `pr`, done `done` → shipped beside the recorded approval, record `posted` |
 | request changes | `SendBackItem` → `queued` | — | pulls, goes on |
 | recheck | `RecheckItem` → `queued` | `recheck` (on the pull) | `Runner.Reverify` |
+| shape | — when a worker holds the job. Nobody holding it: the server's Shape door runs the turn where that job's worker lives | `shape` | `Runner.ShapeAsked` (one turn, nothing launched) |
 
-Signals are dropped with the lease (expiry, stop, done). Because the doors only write files under the desk's flock, every process with the store hangs them; there is no mailbox.
+Signals are dropped with the lease (expiry, stop, done). Because the doors only write files under the desk's flock, every process with the store hangs them; there is no mailbox. Shape is the one verb that is not only a lease door: a job nobody holds is shaped by the process serving the floor.
 
 ### Access
 
