@@ -18,7 +18,7 @@ Companion documents: `PRODUCT.md` (what and why), `FACTORY-YAML.md` (the pipelin
                    (desk)           (the wall)        (executes, with its person's keys)
 ```
 
-One binary. `codeaf factory` runs the server. Plain `codeaf` is the desk and the worker, **always a client of a factory**: the one it starts itself on loopback, or the one it is attached to. There is no solo code path: the TUI never reads the store directly, and the worker loop never takes `run.lock`.
+One binary. `codeaf factory` runs the server. Plain `codeaf` is the desk and the worker, **always a client of a factory**: the one it starts itself on loopback, or the one it is attached to. There is no solo code path: the TUI never reads the store directly, and no process owns execution (`run.lock` and the store mailbox are gone).
 
 What stays where it is: `internal/factory` (types, LocalSeam, recipe, policy), `internal/factory/run` (the runner and the stage executors), `internal/factory/store` (JSON files), `internal/factory/github` (the source), `internal/tui3/factory*` (the page). The page keeps calling `factory.Seam`; only *which* Seam it is given changes.
 
@@ -46,7 +46,8 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | `internal/factory/serve` | `http.Handler` over a `factory.Seam` + a `store.Store`: `/v1/*`, SSE, the worker endpoints, the record, access check; mounts the dashboard at `/` | `api`, `store` |
 | `internal/factory/client` | a `factory.Seam` over HTTP (+ SSE for change ticks) | `api` |
 | `internal/factory/serve/web` | the dashboard: Vite + React + TypeScript + Tailwind + shadcn; `dist/` committed and `go:embed`ded | — |
-| `internal/factory/lease` | the claims desk: one lease per job, expiry, re-queue, `leases.json` | `store` |
+| `internal/factory/lease` | the claims desk: one lease per job, expiry, re-queue, the signal channel, `leases.json`; `Doors`, the runner doors every seam hangs | `store`, `run` |
+| `internal/factory/worker` | the worker loop: attach, pull, run with this machine's Runner over a mirror store, report the runner's writes (`run.Diff`), heartbeat, carry signals, done | `client`, `run`, `lease` |
 | `internal/factory/record` | append-only `events.jsonl`, bound approval ids (`evt_…`), export | `store` |
 | `internal/factory/pipeline` | `.codeaf/factory.yaml` reader, `.md` conversion, `start:` evaluation, dry run | `internal/factory` (Recipe) |
 
@@ -100,6 +101,24 @@ Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/r
 
 Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps its state machine; its *store writes* become reports, and its *ownership* becomes a lease.
 
+**The worker's write path.** The worker's Runner runs over a mirror store on the worker's machine holding only the jobs it leased. Every `ReportEvery` (500 ms) the worker diffs the mirror against what it last sent (`run.Diff`) and posts the difference: changed steps (state, round, result), new log lines, new cost, changed claims, a new question for the person, the PR, the manager conversation, added notes, and `pipeline` when the runner reshaped the steps (the server refuses one that removes an approve step). Two things never ride a report: the job's state (the server moves it on a person's verb and on `done`) and an approve step passing (only the person's answer passes it). The final report leaves out the landing line, which `done` writes.
+
+**Starting a pulled job.** A pull carrying `recheck` re-runs a landed job's checks (`Runner.Reverify`); a job whose run has not begun is launched (`Runner.Launch`, so the manager shapes it); one whose run had begun — a resume, a request for changes, a worker that went away — goes on at its step (`Runner.Hold(off)` → revive).
+
+**The signal channel (server → worker).** A person's verb reaches the server, never the worker. The server's runner doors are `lease.Doors`: each changes the job's state in the store under the desk's lock and, when a worker holds the job, appends a signal to `leases.json` (`signals: {job: [{verb, yes, words}]}`). The heartbeat answer `{factory, lease, signals}` drains them (a worker beats every 2 s); a pull drains the ones left on a job before it was leased. The verbs:
+
+| person's verb | server's write (`run` helpers) | signal to the holder | worker does |
+|---|---|---|---|
+| run | `QueueItem` → `queued` (a paused job: as resume) | — | pulls, `Launch` |
+| stop | `StopItem` → `backlog`; the lease is **released** | — (the next beat or report answers 409) | `Runner.Stop`, lets go |
+| pause / resume | `Stream.Paused`; unheld resume → `queued` | `hold {yes}` | `Runner.Hold` |
+| answer | `AnswerHeld` (question down, an approve step passed on yes); unheld → `KeepAnswer` + `queued`; ask-first yes → run | `answer {yes, words}` | `Runner.Answer` |
+| steer | — | `steer {words}` | `Runner.Steer` |
+| approve (proof) / request changes | `Runner.SignOff` on the store / `SendBackItem` → `queued` | — | request changes: pulls, goes on |
+| recheck | `RecheckItem` → `queued` | `recheck` (on the pull) | `Runner.Reverify` |
+
+Signals are dropped with the lease (expiry, stop, done). Because the doors only write files under the desk's flock, every process with the store hangs them; there is no mailbox.
+
 ### Access
 
 - Loopback: open. Off loopback: `Authorization: Bearer <access token>` (from `~/.codeaf/factory/config.yaml`), then sessions (later wave: GitHub device flow).
@@ -121,7 +140,7 @@ worker loop           → attach to the same url, pull, run, report   (unless --
 
 `codeaf factory [--listen 127.0.0.1:7420] [--config ~/.codeaf/factory/config.yaml]` runs the server alone (a team box). `codeaf attach <url> [--name]` / `codeaf detach` write `attach.json`. `codeaf factory token|revoke|steps` are the ops verbs.
 
-`run.lock` and the file mailbox are retired once leases land (P3); until then the in-process server owns the runner as today.
+`run.lock` and the file mailbox are retired: every process's verbs go through `lease.Doors`, and execution happens wherever a worker pulls. The worker loop dials through the same order each time, so a worker whose serving window closed follows the factory to whoever serves next. Its credentials are cached per factory url and slot in `~/.codeaf/v3/factory/worker.json`; a 401 re-attaches. On loopback a worker takes every unassigned job (`takes_unassigned: {"*": true}`); attached elsewhere, only repos it has a checkout of. A process that serves in-process removes `serve.json` and releases `serve.lock` when its surface or session host ends.
 
 ## 7. The dashboard build
 
