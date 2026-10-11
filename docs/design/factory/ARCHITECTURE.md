@@ -271,16 +271,43 @@ GitHub's schedule. Polling honors `interval`; `slow_down` adds five seconds.
 Expired codes return 410, declined sign-in or an excluded handle returns 403,
 and foreign/replayed codes return 400. The factory requests `read:user` and
 `repo` (classic device flow has no read-only private-repository scope). The
-returned scopes are GitHub's granted scopes. The GitHub access token stays in
-process memory for the visibility check; it is never returned and never written
-to `tokens.json`.
+returned scopes are GitHub's granted scopes. GitHub access and refresh tokens
+are encrypted with AES-GCM in `sessions.json` beside `tokens.json`; a random
+32-byte `sessions.key` and the session file both use mode 0600, as does the host
+config. The credential hash is authenticated associated data. Neither token is
+returned on the wire or written to `tokens.json`. Hosts without a configured
+home keep ephemeral sessions; production uses the directory of `TokensPath`
+(or `Root`/`Store.Root` when no token path is supplied).
 
 Each sign-in creates a 30-day cookie/bearer session with a separate public id.
-Restart/revoke-sessions drops sessions. Access-token rows retain their expiry
+Restart loads saved sessions and prunes expired or revoked ones. Session maps
+and files index by SHA-256 credential hash; the bearer/cookie secret is never
+persisted. Sign-out and revoke-sessions replace the file immediately by private
+temp file and rename. Access-token rows retain their expiry
 and revocation. A presented bearer or `/access` token that is refused answers 401 `{reason: expired|revoked|unknown, invited_by?, created_at?}`. A request with no secret keeps the sign-in sentence. Revoke retires the row: the secret becomes a hash, list hides it, and a later use is `revoked`. Their first signed-in profile is persisted in `tokens.json`
 under the same lock as add and revoke. Until then reads use `Seam.PersonHandle`.
 The original bearer resolves to that profile afterward, including across
 restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned` map.
+
+Expiring device exchanges retain `refresh_token`, `expires_in` and
+`refresh_token_expires_in`. On first use within five minutes of expiry, refresh
+posts to `https://github.com/login/oauth/access_token` with `grant_type=refresh_token`,
+`client_id` and `refresh_token`, without a client secret. Rotation is serialized
+and persisted before admitting the request. Exchanges without expiry work unchanged.
+GitHub HTTP 401, `bad_refresh_token`, or refresh expiry ends the session and
+returns 401 `{factory, error:"GitHub sign-in has expired; sign in again",
+reason:"github_expired", request_id}`. A hash-only ended-session record preserves
+that reason until the factory session's expiry, including across restart. GitHub
+transport and 5xx refresh failures return 502 and retain the sign-in for retry.
+Repository 403/404 remain visibility denials; 401 is a sign-in failure. An active
+SSE connection closes if its GitHub credential becomes unusable; the next read
+receives the same 401. Contract remains 1.
+
+`GET /v1/queue` includes watched repositories even with no jobs, before applying
+the viewer filter. This supplies the new-job repository picker and Settings as
+required by PRODUCT's watched-repository visibility and DESIGN-BRIEF's Send job
+repository field. A valid sign-in with access to a watched empty repository does
+not receive `no_visible_repos`.
 
 ## 5. Events and SSE
 
