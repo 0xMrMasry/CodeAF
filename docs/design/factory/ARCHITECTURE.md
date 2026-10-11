@@ -34,7 +34,7 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | claim | `factory.Claim` | `Item.Proof` |
 | question | `Item.Question` + `QKind` | one open question; `Item.AnsweredQuestions` keeps the latest 100 answers `{by, text, at, event}` |
 | needs_you | derived | `{kind, since, who_can_answer, question?}`. Kinds: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. The queue's `needs_you` groups job ids by that kind |
-| failure | `Item.Failure` | a step that errored: `{step, code, detail, next, at}`. `next` is `requeued` or `stopped`. Not a question |
+| failure | `Item.Failure` | a step that errored: `{step, code, detail, attempts, machine, next, at}` on the job and on that step. `next` is `requeued` or `stopped`. Not a question |
 | ask | `Item.Ask`, or the issue | `{text, by, at, source}` for work typed in the app or the TUI; `{issue:{number,url,title}, text}` for a GitHub issue |
 | state | `Item.State` | `new`→**backlog**, `queued`, `running`, `needs you`→**needs_you**, `landed`→**needs_you** (sub-state `ready`), `shipped`→**done**, `dismissed`→**dropped**. **done** stays the published job. PR open and Merged are `pr.state` (`open`, `merged`, `closed`), not a new job state |
 | worker | — (new) | |
@@ -128,7 +128,9 @@ factory without a store. A keepalive has no id and is not a change.
 | `prioritize` | `{to: "top", expect?}` | `Mark` |
 | `reply` | `{words, expect?}` | store a pending message; `reply {id, words}` signal on heartbeat/pull; worker acknowledgment changes it to delivered |
 
-`expect` is `{state?, step?, version?}`. A field that no longer matches is HTTP 409 `{error, reason: "stale", by?, at?, now_state}`. The sentence is `already approved by @raj at 11:58`, `already taken by @mei`, or `job moved on while you looked`.
+`expect` is `{state?, step?, version?}`. A field that no longer matches is HTTP 409 `{error, reason: "stale", by?, at?, now_state}`. The sentence is `already approved by @raj at 11:58` (also `approved_by`, `event`, `commit`), `already taken by @mei` (also `taker`, `at`, `machine`), or `job moved on while you looked`. A moved head is `{reason:"changed_since_opened", head_commit, by, at, commit, current_commit}`.
+
+Every job carries `can` for this caller: `{approve, run_again, cancel_job, retry_publish, answer, assign_to_me, reply}`. Approve, run again, cancel job and retry publishing are the job's person. A plain question is anyone who can see the repository. Reply is anyone who can see the job. `assign_to_me` is true only when the job has no person. A false verb answers HTTP 403 `{reason:"not_job_person", job_person}`. A wrong state stays 409. Take of someone else's job stays 409. Release of someone else's take stays `not_allowed`.
 
 **Needs you (additive, Contract 1).** `job.needs_you` is `{kind, since, who_can_answer, question?}`. The six kinds are fixed: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. Adding one is a code change. `GET /v1/queue` groups waiting jobs as `needs_you: [{kind, jobs}]` in that order, and leaves out a kind with nothing in it. `questions[]` is unchanged.
 
@@ -136,7 +138,9 @@ factory without a store. A keepalive has no id and is not a change.
 
 `spending_limit` is `{limit, spent, next_limit, currency}`. `currency` is `USD`. Answering `continue` (or yes) raises this one job's cap to `next_limit`, which is the cap doubled in codeaf. The app does not send the number. The raise is an `answered` event, not a setting. Stop does not raise it.
 
-`out_of_attempts` is a question, options `try_once_more`, `send_back` and `cancel_job`. The run asks `try once more, send it back, or cancel the job?`. `send_back` needs a reason and returns to the previous step. `cancel_job` stops the job. A step that errored is `job.failure` (`tool_error`, `provider_error`, `crash`, or `machine_lost` when a lease expires), shown as a failure, and the job does not ask to skip it.
+`out_of_attempts` is a question, options `try_once_more`, `send_back` and `cancel_job`. The run asks `try once more, send it back, or cancel the job?`. `send_back` needs a reason and returns to the previous step. `cancel_job` stops the job. A loop step keeps `rounds: [{round, summary, at}]`, bounded by the step's max (or the round a try-once-more reached) and never more than 32.
+
+A step that errored is `job.failure` and the same object on that step (`tool_error`, `provider_error`, `crash`, or `machine_lost` when a lease expires), with `attempts` and `machine`. `next` `requeued` leaves the step runnable. `stopped` ends the run. The record kind is `step_failed`. It is not a question, and the job does not ask to skip it.
 
 A publish that fails stays landed with `publishing.state` `failed`, `publish_error` set, and `needs_you.kind` `publish_failed`. `POST /v1/jobs/{id}/retry_publish` uses the approval already recorded and does not write a second one.
 
@@ -268,14 +272,14 @@ to `tokens.json`.
 
 Each sign-in creates a 30-day cookie/bearer session with a separate public id.
 Restart/revoke-sessions drops sessions. Access-token rows retain their expiry
-and revocation. Their first signed-in profile is persisted in `tokens.json`
+and revocation. A presented bearer or `/access` token that is refused answers 401 `{reason: expired|revoked|unknown, invited_by?, created_at?}`. A request with no secret keeps the sign-in sentence. Revoke retires the row: the secret becomes a hash, list hides it, and a later use is `revoked`. Their first signed-in profile is persisted in `tokens.json`
 under the same lock as add and revoke. Until then reads use `Seam.PersonHandle`.
 The original bearer resolves to that profile afterward, including across
 restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned` map.
 
 ## 5. Events and SSE
 
-`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail, commit?}` appended to `events.jsonl`. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle <commit>` as the PR trailer. A poll that first sees a factory-opened pull request merge or close appends `pr_merged` or `pr_closed`. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
+`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail, commit?}` appended to `events.jsonl`. Kinds include `step_failed` when a step errors or a hold expires, and `pr_merged` or `pr_closed` when a poll first sees a factory-opened pull request merge or close. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle <commit>` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
 
 ## 6. Launch logic (`codeaf`, ordinary start)
 
