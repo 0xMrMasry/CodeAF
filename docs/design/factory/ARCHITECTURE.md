@@ -86,9 +86,10 @@ A signed-in GitHub viewer sees only repositories `GET https://api.github.com/rep
 | `run` | optional `expect` | `Launch` |
 | `stop` · `pause` · `resume` | optional `expect` | `Stop` · `Hold(on)` · `Hold(off)` |
 | `drop` | `{words?, expect?}` | `Dismiss`; words are the audit detail; a holder is signaled `stop` and the branch is kept |
-| `answer` | `{yes?: bool, words?: string, expect?}` | `Answer` |
+| `answer` | `{yes?: bool, words?: string, commit?, expect?}` | `Answer` |
 | `steer` | `{words, expect?}` | `Steer` (reply-level; records in the thread) |
-| `approve` | `{edited?: bool, expect?}` → `{event: "evt_…"}` | `SignOff` (proof gate) or `Answer(yes)` (plan gate). A claim not shown refuses before any receipt. The proof receipt is written after that check and before the publish door, which reads it. A plan receipt is written only after the answer door accepts |
+| `approve` | `{commit, edited?: bool, expect?}` → `{event: "evt_…"}` | `SignOff` (proof gate) or `Answer(yes)` (plan gate). A claim not shown refuses before any receipt. The proof receipt is written after that check and before the publish door, which reads it. A plan receipt is written only after the answer door accepts |
+| `retry_publish` | optional `expect` | Reuses the same commit's proof receipt after a failed publish; the job's person only; no new approval event |
 | `request_changes` | `{words, expect?}` | `SendBack` |
 | `recheck` | optional `expect` | `Reverify` |
 | `take` | optional `expect` | `lease.Assign(me)` |
@@ -99,6 +100,36 @@ A signed-in GitHub viewer sees only repositories `GET https://api.github.com/rep
 `expect` is `{state?, step?, version?}`. A field that no longer matches is HTTP 409 `{error, reason: "stale", by?, at?, now_state}`. The sentence is `already approved by @raj at 11:58`, `already taken by @mei`, or `job moved on while you looked`.
 
 Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/repos {watched[]}` → `SetRepos`; `POST /v1/github/connect {token}` → `ConnectGitHub`.
+
+### Publishing (V1, additive Contract 1)
+
+`job.head_commit` is the full SHA reported by the holding worker. The proof gate
+commits outstanding work before opening, so a person approves an existing object.
+`approve {commit}` and affirmative plan `answer {commit,yes:true}` must name the
+head the person saw. A missing commit for a reported head is 422; a mismatch is
+409 `{reason:"changed_since_opened",head_commit}`. Legacy jobs without a reported
+head keep the earlier approval body. The record's approval event and PR trailer
+carry the commit. The client seam uses its last loaded head, never a fresh read
+inside SignOff. A publishing worker checks both HEAD and cleanliness before pushing.
+
+Optional `job.publishing` is `{state,code?,detail?,pr?:{number,url},attempt,at}`.
+Transitions are approval → queued → pushing → opened or failed; retry moves failed
+→ queued and increments attempt. The older `desk.publishing` flag is retained.
+Worker reports carry head and publishing snapshots through Diff and ApplyReport.
+A failure stays landed (`needs_you`, `gate:"publish_failed"`, red in the app), with
+its same-commit approval intact. `retry_publish` queues its publish signal without
+recording new consent. A changed commit requires approval again. Queued publishing
+on an offline holding machine exposes `machine_offline` and waits for that machine.
+`GET /v1/publish/codes` returns `{factory,codes:[{code,next}]}` from the fixed table
+in `internal/factory/publish/codes.go`. Connectivity and rate-limit failures are
+retried by a person; machine-offline waiting resumes through the existing lease path.
+
+Every POST accepts `Idempotency-Key`: the same credential, route and key within
+24 hours replay the first status, headers and body, including errors. Store-backed
+responses are locked across processes and persisted before being returned; handlers
+without a store use memory. Keys are hashed with the credential and route, so tokens
+never enter the file name. Approval and retry additionally share a consent lock:
+two simultaneous approvals cannot mint two receipts even with different keys.
 
 ### Workers
 
@@ -148,7 +179,7 @@ Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps
 | pause / resume | `Stream.Paused`; unheld resume → `queued` | `hold {yes}` | `Runner.Hold` |
 | answer | `AnswerHeld` (question down, an approve step passed on yes); unheld → `KeepAnswer` + `queued`; ask-first yes → run | `answer {yes, words}` | `Runner.Answer` |
 | steer | — | `steer {words}` | `Runner.Steer` |
-| approve (proof) | the record's approval read as the trailer (none: refused); `PublishItem` → `queued` (held: stays landed until done, which re-queues) | `publish {words: trailer}` (on the pull) | `Runner.Publish`: commit the worktree with the trailer, push the branch (never force), open the PR (a `pr` job: one comment); reports `pr`, done `done` → shipped beside the recorded approval, record `posted` |
+| approve (proof) | the record's approval read as the trailer (none: refused); `PublishItem` → `queued` (held: stays landed until done, which re-queues) | `publish {words: trailer}` (on the pull) | `Runner.Publish`: check the approved head and a clean worktree, push that commit on the branch (never force), open the PR (a `pr` job: one comment); reports `pr`, done `done` → shipped beside the recorded approval, record `posted` |
 | request changes | `SendBackItem` → `queued` | — | pulls, goes on |
 | recheck | `RecheckItem` → `queued` | `recheck` (on the pull) | `Runner.Reverify` |
 | shape | — when a worker holds the job. Nobody holding it: the server's Shape door runs the turn where that job's worker lives | `shape` | `Runner.ShapeAsked` (one turn, nothing launched) |
@@ -189,7 +220,7 @@ restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned`
 
 ## 5. Events and SSE
 
-`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail}` appended to `events.jsonl`. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
+`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail, commit?}` appended to `events.jsonl`. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle <commit>` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
 
 ## 6. Launch logic (`codeaf`, ordinary start)
 
