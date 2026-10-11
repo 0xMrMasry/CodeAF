@@ -54,22 +54,23 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 
 ## 4. The API (`/v1`)
 
-All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job ids (`int`). Every response carries `factory: {address, version}`.
+All JSON. Errors: `{error: "sentence", request_id}` with the HTTP status. `request_id` is eight hex characters. Ids are the job ids (`int`). Every response carries `factory: {address, version}`.
 
 ### Read
 
 | method path | returns | from |
 |---|---|---|
-| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me}` | `Seam.Load` plus the claims desk |
+| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today` | `Seam.Load` plus the claims desk; `spent_today` is the runner's day figure |
 | `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
 | `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
 | `GET /v1/events` | SSE: `changed` (job id or `*`), `job` (a `Job` delta), `question`, `needs_you` | store watch |
 | `GET /v1/repos` | watched + available | `Seam.Repos` |
-| `GET /v1/repos/{owner}/{repo}/pipeline` | `Pipeline` (the parsed file, or defaults + `source: "defaults"`) | `pipeline` |
-| `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[]}` | `pipeline` + `Seam.Load` |
+| `GET /v1/repos/{owner}/{repo}/pipeline` | `Pipeline` plus `text`, `personal_text`, `personal`, `origin` (`main`, `working tree`, `defaults`), `start`, `size`, and each step's `until_sentence`. `until` stays `done`, `clean`, `green` or `proven` | `pipeline` |
+| `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[], would_wait[]}`. `would_wait[]` is `{job, reason}` | `pipeline` + `Seam.Load` |
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
+| `GET /v1/about` | `{name, codeaf_version, contract, needs, access, polling_every, served_by}` before any token. `needs` is `token`, `device` or `none`. `access` is `loopback`, `token` or `tailnet`. `served_by` is `tui` or `factory` | host config |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
+| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}, access, polling_every, served_by}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
 | `PUT /v1/me/takes_unassigned` | `{repo: bool}` saved for that same handle; later pulls by that handle use it | the factory store. No store answers 501 |
 
 Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
