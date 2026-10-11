@@ -94,6 +94,27 @@ Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/r
 
 ### Workers
 
+**Change facts (V7, additive Contract 1).** Every job may carry
+`change: {files: [{path, added?, removed?, status}], stat?: {files, added?, removed?}, branch?, tests?: [{step, passed?, failed?, skipped?}]}`.
+The holding machine reads its worktree after completed rounds, including failed
+checks and rechecks. Files include committed, staged, unstaged and untracked
+paths, sorted by path without the GitHub detail list's twenty-file limit.
+Statuses are `added`, `modified`, `removed`; renames report both paths. Binary
+files have no line counts. The comparison is pinned before the first round:
+an issue's initial HEAD, a PR's merge base with its target. `desk.change_base`
+and worker `change_base` preserve that commit across leases and restarts.
+
+Check counts come from explicit Go verbose/JSON outcomes, TAP outcomes, or a
+pytest summary, read before the output tail is cut. A package's `ok`, green CI,
+or exit 0 alone does not establish test counts. Each check's latest counts also
+appear at `steps[].tests`; a later count-free run removes its previous counts.
+No counts, zero totals, an empty stat or an unread change are omitted. A failed
+worktree read keeps the last successful snapshot. The factory never reads a
+remote machine's files itself; reports travel through the existing live lease
+check, `run.Diff`, codecs and store. Jobs and queue reads expose identical facts.
+Source PR jobs have optional `draft` (known true or false); published receipts
+carry `pr.draft`. Existing fields and their meaning stay intact.
+
 | method path | who | what |
 |---|---|---|
 | `POST /v1/workers/attach {name, handle, os?, codeaf_version?}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
