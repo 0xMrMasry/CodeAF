@@ -54,7 +54,7 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 
 ## 4. The API (`/v1`)
 
-All JSON. Errors: `{error: "sentence", request_id}` with the HTTP status. `request_id` is eight hex characters. Ids are the job ids (`int`). Every response carries `factory: {address, version}`.
+All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason` is `not_allowed` (403), `not_found` (404), `conflict` or `stale` (409), or `bad_input` (422). A crash is 500 and has no `reason`. `request_id` is eight hex characters. Ids are the job ids (`int`). Every response carries `factory: {address, version}`. A job read includes `version` when a store holds the document.
 
 ### Read
 
@@ -83,16 +83,20 @@ A signed-in GitHub viewer sees only repositories `GET https://api.github.com/rep
 
 | verb | body | Seam |
 |---|---|---|
-| `run` | — | `Launch` |
-| `stop` · `pause` · `resume` · `drop` | — | `Stop` · `Hold(on)` · `Hold(off)` · `Dismiss` |
-| `answer` | `{yes?: bool, words?: string}` | `Answer` |
-| `steer` | `{words}` | `Steer` (reply-level; records in the thread) |
-| `approve` | `{edited?: bool}` → `{event: "evt_…"}` | `SignOff` (proof gate) or `Answer(yes)` (plan gate); the record writes the event first |
-| `request_changes` | `{words}` | `SendBack` |
-| `recheck` | — | `Reverify` |
-| `take` | — | `lease.Assign(me)` |
-| `prioritize` | `{to: "top"}` | `Mark` |
-| `reply` | `{words}` | store a pending message; `reply {id, words}` signal on heartbeat/pull; worker acknowledgment changes it to delivered |
+| `run` | optional `expect` | `Launch` |
+| `stop` · `pause` · `resume` | optional `expect` | `Stop` · `Hold(on)` · `Hold(off)` |
+| `drop` | `{words?, expect?}` | `Dismiss`; words are the audit detail; a holder is signaled `stop` and the branch is kept |
+| `answer` | `{yes?: bool, words?: string, expect?}` | `Answer` |
+| `steer` | `{words, expect?}` | `Steer` (reply-level; records in the thread) |
+| `approve` | `{edited?: bool, expect?}` → `{event: "evt_…"}` | `SignOff` (proof gate) or `Answer(yes)` (plan gate). A claim not shown refuses before any receipt. The proof receipt is written after that check and before the publish door, which reads it. A plan receipt is written only after the answer door accepts |
+| `request_changes` | `{words, expect?}` | `SendBack` |
+| `recheck` | optional `expect` | `Reverify` |
+| `take` | optional `expect` | `lease.Assign(me)` |
+| `release` | optional `expect` | `lease.Release(me)` — un-take; the branch is kept; audit `released` |
+| `prioritize` | `{to: "top", expect?}` | `Mark` |
+| `reply` | `{words, expect?}` | store a pending message; `reply {id, words}` signal on heartbeat/pull; worker acknowledgment changes it to delivered |
+
+`expect` is `{state?, step?, version?}`. A field that no longer matches is HTTP 409 `{error, reason: "stale", by?, at?, now_state}`. The sentence is `already approved by @raj at 11:58`, `already taken by @mei`, or `job moved on while you looked`.
 
 Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/repos {watched[]}` → `SetRepos`; `POST /v1/github/connect {token}` → `ConnectGitHub`.
 
@@ -148,6 +152,7 @@ Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps
 | request changes | `SendBackItem` → `queued` | — | pulls, goes on |
 | recheck | `RecheckItem` → `queued` | `recheck` (on the pull) | `Runner.Reverify` |
 | shape | — when a worker holds the job. Nobody holding it: the server's Shape door runs the turn where that job's worker lives | `shape` | `Runner.ShapeAsked` (one turn, nothing launched) |
+| drop | `Dismiss` → `dropped` | `stop` | `Runner.Stop` (the branch is kept); the worker does not report the job back as backlog |
 
 Signals are dropped with the lease (expiry, stop, done). Because the doors only write files under the desk's flock, every process with the store hangs them; there is no mailbox. Shape is the one verb that is not only a lease door: a job nobody holds is shaped by the process serving the floor.
 
