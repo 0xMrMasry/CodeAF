@@ -13,7 +13,7 @@ Two artifacts, nothing else:
 
 | artifact | what it is | what it never does |
 |---|---|---|
-| **`factory`** | the service. Holds what is shared and scarce: claims, policy, routing of judgment, one voice on the forge, the record, continuity. Serves its own web face, the **floor**. | execute work · hold code · hold accounts · hold money |
+| **`factory`** | the service. Holds what is shared and scarce: claims, policy, routing of judgment, one voice on the forge, the record, continuity. Serves its own web face, the **factory view**. | execute work · hold code · hold accounts · hold money |
 | **`codeaf`** | one binary a person installs. The **desk** (CLI + TUI: chat with a run, steer, approve at the keyboard) and the **worker** (pulls claims from a factory, runs them in worktrees with the person's own access and keys, returns proofs). | act outward on its own |
 
 Same two artifacts in every deployment. The deployment decides capacity and reach, never features.
@@ -30,12 +30,12 @@ Many people (or one person with several machines) running codeaf against one cod
 | **policy** | one interpreter of `.codeaf/factory.md` | everyone's rules differ; automatic intake starts the wrong thing |
 | **judgment** | questions routed to whoever owns that code, answerable by any qualified person | my factory asks me about code I do not own |
 | **voice** | one presence on the forge; the trailer bound to the approval event | two bots talk on one issue; nobody can tell who approved |
-| **memory** | the record (starts, approvals, publishes, overrides, spend per item); lessons proposed as PRs to the rules | a rejected PR's reason stays on one laptop |
-| **attention** | one ordering; one pipeline view | nobody can see twelve items stuck at approve across four people |
+| **memory** | the record (starts, approvals, publishes, overrides, spend per job); lessons proposed as PRs to the rules | a rejected PR's reason stays on one laptop |
+| **attention** | one ordering; one pipeline view | nobody can see twelve jobs stuck at approve across four people |
 
-**Who runs a job: its person, not a pool.** A job runs only on the machines of its person — the forge assignee, or whoever started it. A worker takes other people's unassigned jobs only when its owner opted in (`codeaf attach --take-unassigned`). This keeps money personal, keeps presence quiet, and makes "assigned to me" mean what it already means on the forge.
+**Who runs a job: its person, not a pool.** A job runs only on the machines of its person — the forge assignee, or whoever started it. Your codeaf takes other people's unassigned jobs only when you opted in (`codeaf attach --take-unassigned`). This keeps money personal, keeps presence quiet, and makes "assigned to me" mean what it already means on the forge.
 
-**Money is not a shared scarcity in open source.** Every worker runs on a person's machine with that person's own model keys and forge access. Caps and the day rail are personal settings in codeaf. The factory only *records* what each item cost. A team budget needs one payer and one key, which is the hosted product.
+**Money is not a shared scarcity in open source.** Every worker runs on a person's machine with that person's own model keys and forge access. Caps and the day rail are personal settings in codeaf. The factory only *records* what each job cost. A team budget needs one payer and one key, which is the hosted product.
 
 Everything abundant — execution, worktrees, conversations, model calls — stays at the edge, in codeaf.
 
@@ -50,12 +50,12 @@ The factory at scale one is the same engine with a queue of one, a pool of one, 
 What a solo person gets, without being forced into anything:
 
 - **Automatic intake.** Write once what may start (labels, size, cap, paths that never auto-start). Work begins without pressing go; you approve outcomes. Intake and polling need a service awake, not a window open.
-- **Evidence, not text.** The floor renders what the run produced: the proof sheet when the recipe has a `proof` stage (default on; the model may never skip it; a person may remove it from their recipe), the diff, checks, log, spend.
+- **Evidence, not text.** The factory view renders what the run produced: the proof sheet when the pipeline has a `proof` step (default on; the model may never skip it; a person may remove it from their pipeline), the diff, checks, log, spend.
 - **Glance moments.** Any browser on the same network: what needs you, approve, answer, add work, reprioritize.
 - **Breadth.** Pipeline across repos, what is stuck, spend over time, the record of what ran and what it cost.
-- **Rules you can see.** The policy file rendered, with a dry run: "under these rules, these items would start today."
-- **More than one machine.** Laptop and desktop are two workers on one floor and one claims desk — the solo form of the team problem.
-- **Growth without migration.** A teammate points their codeaf at your factory's URL. Hosted is the same floor with our machines in the pool.
+- **Rules you can see.** The policy file rendered, with a dry run: "under these rules, these jobs would start today."
+- **More than one machine.** Laptop and desktop run your codeaf against one factory and one claims desk — the solo form of the team problem.
+- **Growth without migration.** A teammate points their codeaf at your factory's URL. Hosted is the same factory view with our machines in the pool.
 
 What the factory does **not** give a solo laptop: continuity while the lid is closed. A sleeping machine runs nothing, factory or not. Continuity comes from where the factory and a worker run — an always-on box, a relay (its own branch), or hosted.
 
@@ -119,23 +119,33 @@ flowchart TB
 | ops: attach, invite, repos, pipeline, revoke | CLI | attach + invite in UI; the rest read-only |
 | policy | `.codeaf/factory.yaml` in the repo | read-only |
 
+The app reaches this table at R2; R1 is the factory half.
+
 Boundaries that never move:
 
 - The TUI never grows team views, proof media or the record browser.
 - The app never grows running a factory, editing policy, or ops.
 
-**Capability rule:** anything you can say to codeaf, you can say in both; anything you need to see, you see in the app. Steering a job that runs on a teammate's machine is reply-level everywhere in v1; deep steering happens on that machine.
+**Capability rule:** anything you can say to codeaf, you can say in both; anything you need to see, you see in the app. Steering a job that runs on a teammate's machine is reply-level everywhere; deep steering happens on that machine.
 
-### App v1
+### App R1 — the factory half
 
-- **attach** — sign in to a factory: URL + GitHub handle (device flow) or token. Without it, the app is codeaf chat on your laptop with your own loopback factory.
-- **factory view** — Mine / Unassigned / Everything; Needs you / Running / Queued / Backlog / Done; the job brief with claims and proof; the record.
-- **job conversations** — one job's thread: answer, approve, request changes, steer. Full depth on my jobs (my engine), reply-level on a teammate's.
-- **general chat** — the TUI's chat, in a window. Not a factory feature; it is why the app is opened daily.
-- **terminal** — the app's existing terminal tab. Optional for v1.
-- **bundled engine** — the app ships `codeaf`, so an invited teammate installs nothing else. It can put `codeaf` on PATH (like VS Code's `code`).
+A `/v1` client (HTTP + SSE). No engine, no chat.
 
-The app opens on the factory view when attached, on chat when not. The invited teammate lands on work; the solo user lands on talk.
+- **attach** — sign in to a factory through an invite link ("invited by") or URL + GitHub handle (device flow) or token.
+- **factory view** — Mine / Unassigned / Everything; Needs you / Running / Queued / Backlog / Done; the record.
+- **job thread** — the job brief with claims, proof media and diff summary; answer, approve, request changes, steer by reply. Reply-level on every job.
+- **new job** — repo, title, text.
+- **record** — what ran, who approved what, at what cost.
+- **settings** — This factory (read-only) and You.
+- **invites** — mint and share the link.
+
+### App R2 — adds talk
+
+- **general chat** — the TUI's chat, in a window, at TUI parity.
+- **bundled engine** — the app ships `codeaf`, so my machine can be a worker and steering on my jobs gets full depth. It can put `codeaf` on PATH (like VS Code's `code`).
+- **terminal** — the app's existing terminal tab.
+- **opening rule** — the app opens on the factory view when attached, on chat when not. The invited teammate lands on work; the solo user lands on talk.
 
 ---
 
@@ -143,33 +153,33 @@ The app opens on the factory view when attached, on chat when not. The invited t
 
 The screens below describe the factory view; the app renders it. The small page the factory itself serves is the same view and stands in until the app ships.
 
-### 5.1 The floor (browser, served by `factory`)
+### 5.1 The factory view (served by `factory`; the app renders the same view)
 
 | screen | shows | verbs | solo | team |
 |---|---|---|---|---|
-| **Door** | "this floor is private" → floor token or tailnet; then "link your GitHub to view" (device flow) when watched repos differ in access | link · continue | never shown at loopback | first visit per device |
+| **Sign-in** | "this factory is private" → factory token or tailnet; then "link your GitHub to view" (device flow) when watched repos differ in access | link · continue | never shown at loopback | first visit per device |
 | **Queue** | since you last looked · pipeline strip (`plan 2 · approve 4 ⚑ · write 5 · review 1 · proof 2`) · groups Needs you / Queued / Running / Backlog / Done · repo chips · your capacity line (`2 queued for you · your laptop busy`) · the factory address | open · approve · answer · prioritize · drop · add | yes | filtered per viewer; a job says who it is assigned to and what it waits for (`waiting for @raj's worker (offline)`); no roster on the page |
-| **Item** | header (kind, repo, number, title, state, holder) · stage rail · tabs: proof · diff · checks · log · conversation · spend | approve · request changes · re-run checks · answer · reply · prioritize · drop | yes | the conversation shows who asked and who answered |
-| **Add work** | repo · title · text → a `new` item | add | yes | yes |
+| **Job** | header (kind, repo, number, title, state, holder) · step rail · tabs: proof · diff · checks · log · conversation · spend | approve · request changes · re-run checks · answer · reply · prioritize · drop | yes | the conversation shows who asked and who answered |
+| **Add work** | repo · title · text → a `new` job | add | yes | yes |
 | **Record** | what ran, who approved what, when, at what cost; export | export | yes | filtered per viewer |
 | **Settings** | connect forge · watched repos · the pipeline file rendered + dry run ("these N would start today") · roster (members and workers by handle, online/offline — the only place presence is shown) · sessions · the factory's address and the attach command | connect · watch · (roster and sessions are read-only here; revoke is CLI) | yes | yes |
 
-Phone-first, one column; on a wide screen the floor becomes rows + a peek, like the TUI's 120-column layout. Every row, count, chip, event and export is computed *after* the viewer filter — aggregates leak as surely as diffs do.
+Phone-first, one column; on a wide screen the factory view becomes rows + a peek, like the TUI's 120-column layout. Every row, count, chip, event and export is computed *after* the viewer filter — aggregates leak as surely as diffs do.
 
 ### 5.2 The desk (codeaf TUI) — changes only
 
-- The existing factory page stays; it becomes a client of the factory API. Locally it attaches to the loopback factory; `codeaf --floor <url>` attaches to a team's.
+- The existing factory page stays; it becomes a client of the factory API. Locally it attaches to the loopback factory; `codeaf attach <url>` attaches to a team's.
 - Settings gains one line: the factory it is attached to, and `join` when it is not yet a worker there.
 - `codeaf factory serve` (and the `factory` alias) starts a service; `codeaf worker --join <url>` joins one; `factory sessions revoke @handle` and the other ops verbs are CLI only.
 - Nothing is removed. Conversations, steering, keyboard approval stay where they are.
 
 ### 5.3 Uses
 
-1. **Solo, day one.** Install codeaf → `/factory` → connect GitHub, pick repos → items stream in, triaged → `r` runs one, or `## start` starts it → approve the plan, approve the proof → the PR opens as you. Open `http://127.0.0.1:<port>` on the phone to approve from the couch.
-2. **Solo, second machine.** `codeaf worker --join http://laptop:<port>` from the desktop. One floor, one claims desk; the desktop takes the next item.
-3. **Team.** One person runs `factory serve` on a box, connects the forge, commits `.codeaf/factory.md`. Teammates open the floor (door, link GitHub), run `codeaf worker --join <url>`. Nobody takes the same item twice; a plan's file list warns of overlap; a question about billing goes to whoever owns billing.
-4. **Judging from a phone.** A landed item shows its proof; approve as `@handle`; the factory posts with the trailer bound to that approval.
-5. **A lesson.** A reviewer rejects a PR for a reason → the floor offers "add to the rules" → a PR to `.codeaf/factory.md`.
+1. **Solo, day one.** Install codeaf → `/factory` → connect GitHub, pick repos → jobs stream in, triaged → `r` runs one, or `## start` starts it → approve the plan, approve the proof → the PR opens as you. Open `http://127.0.0.1:<port>` on the phone to approve from the couch.
+2. **Solo, second machine.** `codeaf worker --join http://laptop:<port>` from the desktop. One factory, one claims desk; the desktop takes the next job.
+3. **Team.** One person runs `factory serve` on a box, connects the forge, commits `.codeaf/factory.md`. Teammates open the factory view (sign-in, link GitHub), run `codeaf worker --join <url>`. Nobody takes the same job twice; a plan's file list warns of overlap; a question about billing goes to whoever owns billing.
+4. **Judging from a phone.** A landed job shows its proof; approve as `@handle`; the factory posts with the trailer bound to that approval.
+5. **A lesson.** A reviewer rejects a PR for a reason → the factory view offers "add to the rules" → a PR to `.codeaf/factory.md`.
 
 ---
 
@@ -179,26 +189,26 @@ Phone-first, one column; on a wide screen the floor becomes rows + a peek, like 
 flowchart TB
     subgraph FORGE["FORGE — GitHub · GitLab · local"]
         R1[repos · issues · PRs]
-        R2[".codeaf/factory.md<br/>rules + recipe — code, reviewed in PRs"]
+        R2[".codeaf/factory.md<br/>rules + pipeline — code, reviewed in PRs"]
         R3[identity · permissions]
     end
 
     subgraph FACTORY["FACTORY — one service (never executes)"]
         direction TB
         SRC[sources<br/>poll · webhook when hosted]
-        PG[policy gate<br/>start = rules · outside the envelope = a question]
-        CD[claims desk<br/>one lease per item · files in flight · one ordering]
+        PG[policy gate<br/>start = rules · outside the start rules = a question]
+        CD[claims desk<br/>one lease per job · files in flight · one ordering]
         WR[worker registry<br/>join tokens bound to a handle · pull dispatch]
-        ST[run state<br/>items · stages · proofs · spend]
+        ST[run state<br/>jobs · steps · proofs · spend]
         REC[record<br/>append-only events · export]
         PUB[publisher<br/>approval event → trailer → post as person or app]
-        SES[sessions<br/>door · link-to-view · per-viewer filtering]
-        FLOOR[the floor — web face<br/>served by this process]
+        SES[sessions<br/>sign-in · link-to-view · per-viewer filtering]
+        VIEW[the factory view — web face<br/>served by this process]
     end
 
     subgraph CODEAF["CODEAF — one binary per person"]
         TUI[desk · TUI/CLI<br/>conversations · steering · keyboard approval · caps]
-        WK[worker<br/>pulls claims · runs stages in worktrees<br/>with the person's keys and forge access]
+        WK[worker<br/>pulls claims · runs steps in worktrees<br/>with the person's keys and forge access]
     end
 
     BR[browser · phone<br/>no install]
@@ -207,22 +217,22 @@ flowchart TB
     SRC --> PG --> CD --> WR
     WR <-->|"pull claims · return proofs — never pushed"| WK
     WK --> ST --> PUB -->|trailer-bound posts| FORGE
-    ST --> FLOOR
-    CD --> FLOOR
-    REC --> FLOOR
-    SES --> FLOOR
-    TUI <-->|"factory API — loopback or --floor url"| ST
-    FLOOR <-->|HTTPS| BR
+    ST --> VIEW
+    CD --> VIEW
+    REC --> VIEW
+    SES --> VIEW
+    TUI <-->|"factory API — loopback or codeaf attach url"| ST
+    VIEW <-->|HTTPS| BR
 ```
 
-The contract in one line: **the factory decides and records; codeaf executes and converses; the floor is where people judge.**
+The contract in one line: **the factory decides and records; codeaf executes and converses; the factory view is where people judge.**
 
 ### Deployments
 
 | deployment | factory runs on | workers are | reach |
 |---|---|---|---|
-| **solo** | your laptop, loopback | your codeaf, auto-joined | TUI; the floor in a browser on your network |
-| **team, self-hosted** | a box the team owns | teammates' codeafs, joined once, each with its person's keys | TUI with `--floor <url>`; the floor behind a door |
+| **solo** | your laptop, loopback | your codeaf, auto-joined | TUI; the factory view in a browser on your network |
+| **team, self-hosted** | a box the team owns | teammates' codeafs, joined once, each with its person's keys | TUI with `codeaf attach <url>`; the factory view behind a sign-in |
 | **hosted** (paid) | our infra, one tenant per company | cloud players + any registered machine; one payer, one key | the browser is enough |
 
 Hosted changes capacity, tenancy and money — webhooks, always on, a pool that never sleeps, one team bill — never features.
@@ -239,20 +249,20 @@ The ladder, by deployment:
 
 | | solo (loopback) | team (off loopback) |
 |---|---|---|
-| open the floor | nothing | **door**: tailnet, or one shared floor token |
+| open the factory view | nothing | **sign-in**: tailnet, or one shared factory token |
 | who am I | the factory already holds your forge token | **link the forge** once per device (device flow, read-only) → a session + a credential row keyed by `@handle` |
 | what I see | everything | only repos *your* token can see (`GET /repos/{o}/{r}` × watched repos, cached with a short TTL); an optional `team:` allowlist in the **factory's host config** (never a repo's file) narrows further — admission = listed **and** visible |
 | approvals | as you | as your handle, recorded as a bound event |
 | worker | your codeaf, in-process credential | `codeaf worker --join <url>` with a join token minted **for a linked handle**; a claim is only offered to a worker whose person can see that repo |
-| leaving | — | remove repo access on the forge → the next refresh empties their floor; `factory sessions revoke @handle` drops the session; sessions expire |
+| leaving | — | remove repo access on the forge → the next refresh empties their factory view; `factory sessions revoke @handle` drops the session; sessions expire |
 
 Rules that hold everywhere:
 
-- **Pulled, never pushed.** Workers dial out. The factory never opens a connection into any machine. A compromised floor session can queue intent at worst.
+- **Pulled, never pushed.** Workers dial out. The factory never opens a connection into any machine. A compromised factory view session can queue intent at worst.
 - **Agents never attest.** Approvals are server-side events; the factory writes the trailer; publishing happens as the person (linked token) or the app (unattended, hosted).
-- **Scope tag on everything.** Items, proofs (they contain diffs), logs, spend lines, events, notifications, counts, the pipeline strip, exports — every derived artifact carries its repo and passes the same one filter.
+- **Scope tag on everything.** Jobs, proofs (they contain diffs), logs, spend lines, events, notifications, counts, the pipeline strip, exports — every derived artifact carries its repo and passes the same one filter.
 - **Token posture.** Self-hosted viewers' tokens are browser-held by default; hosted stores them encrypted and injects run secrets per run, never at rest.
-- **Blast radius.** Ops verbs exist only in the CLI; the floor holds no execution channel.
+- **Blast radius.** Ops verbs exist only in the CLI; the factory view holds no execution channel.
 
 ---
 
@@ -290,7 +300,7 @@ sequenceDiagram
     P->>F: connect GitHub (token or gh), pick repos
     F->>G: poll
     G-->>F: issues · PRs · checks
-    F->>F: triage · policy gate: inside the envelope → claim
+    F->>F: triage · policy gate: inside the start rules → lease
     C->>F: pull claim
     C->>C: plan → approve → write → test → review → proof (person's keys)
     C-->>F: proof sheet · spend
@@ -311,14 +321,14 @@ sequenceDiagram
     participant C as teammate's codeaf
     O->>F: factory serve · connect the forge
     O->>G: commit .codeaf/factory.md
-    T->>F: open the floor → door → link GitHub (device flow)
+    T->>F: open the factory view → sign-in → link GitHub (device flow)
     T->>C: codeaf worker --join <url> (token minted for @T)
-    G->>F: item inside the envelope
+    G->>F: job inside the start rules
     F->>F: one claim, offered only to workers whose person can see the repo
     C->>F: pull (only one codeaf ever gets it)
     C->>F: planned files → overlap check against files in flight
     C->>F: a step's question → routed to the code's owner
-    F-->>O: approve from the floor or the TUI
+    F-->>O: approve from the factory view or the TUI
     F->>G: one voice · trailer bound to the approval
 ```
 
@@ -364,30 +374,52 @@ Open or closed is a packaging decision. It can change at any time and it does no
 - A separate "factory app" brand or binary.
 - A feature that lives only in the app for product reasons (a crippled terminal path).
 - Different names for one thing across surfaces.
-- An app without chat.
+- A public app that never gets chat. (R1 is invite-only and factory-only on purpose; chat arrives at parity in R2.)
 - A waitlist between the invited teammate and the queue.
 
 ---
 
-## 12. Rollout
+## 12. Release plan
 
-A milestone is a journey that works end to end, not a set of components. Each milestone exits after one week of dogfood without a manual bypass. The one number we track: jobs completed through the factory per week; later, teams attached.
+Three releases, in order. **R0** is the open binary with the factory merged, public first and alone. **R1** is the invite-only app as a pure factory controller: no chat, no bundled engine, a `/v1` client only. **R2** is chat in the app when it is at parity with the TUI, never at 60–70%. The invited app ships one thing done completely; the half-done chat stays on its branch behind a flag.
+
+| | R0 — binary, open, `dev` | R1 — app, invite-only | R2 — app, chat |
+|---|---|---|---|
+| **has** | `codeaf` chat; `codeaf factory` (intake, start rules, yaml, leases, record, `/v1`, served page); `codeaf attach`; TUI factory view: Mine, take, approve, answer, caps; worker loop; `codeaf factory invite` | attach via invite link ("invited by"); Mine/Unassigned/Everything; Needs you/Running/Queued/Backlog/Done; job brief: claims, proof media, diff summary, thread (answer / approve / request changes / reply-steer); new job; record; Settings: This factory (read) / You; invites; signed builds + updater | general chat at TUI parity; bundled engine (my machine as a worker, deep steer on my jobs); terminal; opens on chat when not attached |
+| **does not have** | team views (never) | chat, engine, terminal, policy editing, ops | — |
+| **talks to** | GitHub, its own loopback or an attached factory | `/v1` only (HTTP + SSE) | `/v1` + local engine |
+| **needs first** | the open e2e tasks + one week of dogfood | R0 public; the factory design implemented in the app shell with chat UI flagged off | the app branch's engine landed on `dev` (bridge first) |
+| **gate to ship** | M1: two people, two machines, a week without a manual bypass | 20 hand-picked teams, nobody from us beside them, 10 jobs each | we use the app instead of the TUI for chat for a week |
+
+**Chat in the invite app? No.** The test is "does a team run a factory". Chat does not test it. A 60% chat beside the existing chat apps would be the first thing reviewers write about. The job thread (answer, approve, request changes, steer by reply) is in R1: that is factory, not chat. Deep steering stays in the TUI.
+
+**The TUI is public, with the factory merged, before R1.** The binary is what the team runs: `codeaf factory` on one machine, `codeaf` + `attach` on each dev's. Without it the app has nothing to attach to. R0 two to four weeks before R1 hardens leases and intake on strangers' repos before the app's first impression depends on them.
+
+**The app as controller has less than the TUI in one way and more in another.** The TUI has Mine and deep steering. The app has Everything, proof, the record and invites. Neither is a subset. Open users without the app see their team through GitHub and the factory's small served page. That is acceptable for the test phase.
+
+**Why R1 without the engine is the simplification.** A pure `/v1` client needs none of the app branch's engine code, so landing that code on `dev` leaves the critical path. R1 = the existing app shell + the factory design + the `/v1` client already written for the served page (`types.ts`, the API client and the SSE hook are shared). Chat and the bridge continue on the branch toward R2.
+
+### Gates, in order
+
+A gate is a journey that works end to end, not a set of components. Every gate exits after a week of dogfood without a manual bypass.
 
 ```mermaid
 flowchart LR
-    M0["M0 · solo<br/>labeled issue → PR,<br/>approved in the TUI"]
-    M1["M1 · two people<br/>one factory, two machines,<br/>leases hold"]
-    M2["M2 · app attaches<br/>factory view, approve + chat,<br/>internal use"]
-    M3["M3 · early access<br/>invite link, signed builds,<br/>~20 teams"]
-    M4["M4 · public"]
-    M0 --> M1 --> M2 --> M3 --> M4
+    M0["M0 · solo<br/>5 jobs on a demo repo,<br/>zero hand edits"]
+    M1["M1 · two people<br/>two machines, a week<br/>of our own issues"]
+    R0["R0 · binary public<br/>a week without<br/>a manual bypass"]
+    R1["R1 · app, invite-only<br/>20 teams,<br/>10 jobs each"]
+    R2["R2 · app chat<br/>we chat in the app<br/>instead of the TUI"]
+    M0 --> M1 --> R0 --> R1 --> R2
 ```
 
-- **M0 — solo.** Factory + TUI on one laptop. One labeled issue becomes a PR; you approve it from the TUI.
-- **M1 — two people.** One factory, two machines; leases hold. TUI only. Dogfood on the CodeAF repo.
-- **M2 — the app attaches.** It shows the factory view; approve and chat through the bundled engine. Internal use.
-- **M3 — early access.** The designer's design applied, the invite link, signed builds. About 20 teams.
-- **M4 — public.**
+- **M0 — solo, one laptop.** Factory + TUI. 5 jobs on a demo repo become PRs with zero hand edits.
+- **M1 — two people, two machines.** One factory; leases hold. One week on the CodeAF repo's own issues.
+- **R0 — the binary is public.** After M1 and the open e2e tasks.
+- **R1 — the app, invite-only.** 20 hand-picked teams, 10 jobs each, nobody from us beside them.
+- **R2 — chat parity.** We use the app instead of the TUI for chat for a week.
+
+The one number: jobs completed through the factory per week. After R1, teams attached and active at day 30.
 
 ---
 
@@ -396,15 +428,16 @@ flowchart LR
 | term | meaning |
 |---|---|
 | **factory** | the service; also the product |
-| **floor** | the factory's web face (and the name of the TUI page that shows the same floor) |
+| **factory view** | the factory's web face; the app and the TUI's factory page render the same view |
 | **codeaf** | the person's binary: desk + worker |
 | **desk** | the TUI/CLI side of codeaf |
 | **worker** | the executing side of codeaf; pulls claims; runs with its person's keys |
-| **item** | a unit of work: issue, PR, red CI run, chore, or work a chat split off |
+| **job** | a unit of work: issue, PR, red CI run, chore, or work a chat split off |
 | **lease** | one worker's hold on a job; in the UI: *taken by* / *Take* |
 | **claim** | a statement a step asserts with evidence; what a person approves |
-| **envelope** | what `## start` lets begin without a person |
-| **door** | what a browser needs off loopback: tailnet or a floor token |
+| **start rules** | what `start` lets begin without a person |
+| **pipeline** | the steps a job runs, in order; a step is a prompt |
+| **sign-in** | what a browser needs off loopback: tailnet or a factory token |
 | **link** | a viewer's one-time read-only forge link → session + credential row keyed by handle |
 | **record** | the append-only event log |
 
@@ -418,7 +451,7 @@ A forge replacement. A platform for others to build on. A chat app in the browse
 
 - **One codeaf attaches to one factory at a time.** Personal repos while attached to a team's factory means `codeaf detach`, or a second factory later. Multi-factory is a later point, not this branch.
 
-- Floor conversation depth: reply-level now; deep steering stays in the TUI.
+- Factory view conversation depth: reply-level now; deep steering stays in the TUI.
 - Local env for self-hosted runs: documentation and tooling, or managed env as hosted-only.
 - Notifications: web push + digest first; every notification carries a scope tag.
 - Hosted only: per-run injection of push credentials and model keys for machines nobody owns.
