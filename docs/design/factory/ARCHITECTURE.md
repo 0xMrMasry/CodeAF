@@ -50,7 +50,8 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | `internal/factory/client` | a `factory.Seam` over HTTP (+ SSE for change ticks) | `api` |
 | `internal/factory/lease` | the claims desk: one lease per job, expiry, re-queue, the signal channel, `leases.json`; `Doors`, the runner doors every seam hangs | `store`, `run` |
 | `internal/factory/worker` | the worker loop: attach, pull, run with this machine's Runner over a mirror store, report the runner's writes (`run.Diff`), heartbeat, carry signals, done | `client`, `run`, `lease` |
-| `internal/factory/record` | append-only `events.jsonl`, bound approval ids (`evt_…`), export | `store` |
+| `internal/factory/live` | bounded `live-events.json` notification record; write-time transitions and replay ids | `internal/factory` |
+| `internal/factory/record` | append-only `events.jsonl`, bound approval ids (`evt_…`), export; accepted approval/take notifications | `store`, `live` |
 | `internal/factory/pipeline` | `.codeaf/factory.yaml` reader, `.md` conversion, `start:` evaluation, dry run | `internal/factory` (Recipe) |
 
 `cmd/codeaf` gains `factory.go` dispatch for `codeaf factory …` and `attach`/`detach`, and the launch logic in §6.
@@ -66,7 +67,7 @@ All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason`
 | `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me, reason?}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today`, `merged_today`, `merged_week` | `Seam.Load` plus the claims desk, then the caller's visible repositories; `spent_today` is the runner's day figure. Merge counts are pull requests this factory opened whose `merged_at` falls today or this Monday-start week |
 | `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
 | `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
-| `GET /v1/events` | SSE: `changed` (job id or `*`), `job` (a `Job` delta), `question`, `needs_you` | store watch |
+| `GET /v1/events` | SSE: `changed` (job id or `*`), plus typed `needs_you`, `question`, `approved`, `taken`, `publishing`, `published`, `publish_failed`, `machine`; 20s comment keepalive; `Last-Event-ID` replays the last 200 typed events | store watch + durable notification record |
 | `GET /v1/repos` | watched + available | `Seam.Repos` |
 | `GET /v1/repos/{owner}/{repo}/pipeline` | `Pipeline` plus `text`, `personal_text`, `personal`, `origin` (`main`, `working tree`, `defaults`), `start`, `size`, and each step's `until_sentence`. `until` stays `done`, `clean`, `green` or `proven` | `pipeline` |
 | `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[], would_wait[]}`. `would_wait[]` is `{job, reason}` | `pipeline` + `Seam.Load` |
@@ -81,6 +82,33 @@ All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason`
 Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
 
 A signed-in GitHub viewer sees only repositories `GET https://api.github.com/repos/{owner}/{repo}` accepts for their token. The answer is cached for 10 minutes. Queue jobs, repositories, the strip, queued count, daily total, audit rows, `GET /v1/repos`, pipeline, dry run and a changed tick that names a job all use that set. Daily for a partial view is the sum of visible job costs, and since-counters are cleared because they are not stored per repository. `machines_online`, `busy` and `spent_today` stay floor-wide only when the viewer can see every repository; a narrower view leaves them at zero. A viewer who can see every repository still receives the factory-wide totals. A viewer who can see none receives HTTP 200 with an empty queue and `reason: "no_visible_repos"`. Loopback without a signed-in profile, and the host access token, are not filtered. A hidden job or repository answers 404.
+
+### Live notifications (additive Contract 1)
+
+`changed` keeps its plain job id or `*` body and no id. Typed events carry a
+monotonic `id: live_<number>` and small JSON `data`:
+
+| event | payload |
+|---|---|
+| `needs_you` | `{job, kind, since}`; kinds match `job.needs_you.kind`: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`; empty kind clears the need |
+| `question` | `{job, kind}`; free asks use `text`, `yes_no` or `options`, approval asks use their Needs you kind |
+| `approved` · `taken` | `{job, by}` from accepted audit receipts, including actions in another process |
+| `publishing` | `{job, state}` for every `queued`, `pushing`, `opened`, `failed` transition |
+| `published` · `publish_failed` | `{job, pr}` (`pr` is `{number,url}`, null for a comment) · `{job, reason}` (stable failure code, or detail when no code) |
+| `machine` | `{name, status}` (`busy`, `idle`, `offline`); own idle machines or a machine attached to a visible job |
+
+Store writers record each transition in `live-events.json` under a flock before
+returning. The record retains 200 typed events across restarts. The filesystem
+watch flushes within a 100ms window even during continuous writes; its 2s scan is
+only a fallback for a missing watch. SSE reads that record on a push tick, rather
+than polling jobs. Rapid transitions remain distinct, and a slow subscriber
+catches up from the retained record. Reconnect with `Last-Event-ID` to replay
+strictly later events. An unknown/expired cursor replays the retained window and
+sends `changed` with `*` to refresh current state. A first connection starts live.
+Every job event is filtered by the viewer's repository access. Machine events
+tied to a job use the same filter; idle machines without a job reach their owner. Silence becomes an offline machine event at
+its heartbeat deadline. `: keepalive` comments arrive every 20s, including on a
+factory without a store. A keepalive has no id and is not a change.
 
 ### Verbs (`POST /v1/jobs/{id}/<verb>`, body as noted)
 
