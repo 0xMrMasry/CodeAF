@@ -36,7 +36,7 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | needs_you | derived | `{kind, since, who_can_answer, question?}`. Kinds: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. The queue's `needs_you` groups job ids by that kind |
 | failure | `Item.Failure` | a step that errored: `{step, code, detail, next, at}`. `next` is `requeued` or `stopped`. Not a question |
 | ask | `Item.Ask`, or the issue | `{text, by, at, source}` for work typed in the app or the TUI; `{issue:{number,url,title}, text}` for a GitHub issue |
-| state | `Item.State` | `new`→**backlog**, `queued`, `running`, `needs you`→**needs_you**, `landed`→**needs_you** (sub-state `ready`), `shipped`→**done**, `dismissed`→**dropped** |
+| state | `Item.State` | `new`→**backlog**, `queued`, `running`, `needs you`→**needs_you**, `landed`→**needs_you** (sub-state `ready`), `shipped`→**done**, `dismissed`→**dropped**. **done** stays the published job. PR open and Merged are `pr.state` (`open`, `merged`, `closed`), not a new job state |
 | worker | — (new) | |
 | record / audit | — (new, `events.jsonl`) | |
 | cost | `Stream.Spent`, `Item.Cap` | |
@@ -63,7 +63,7 @@ All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason`
 
 | method path | returns | from |
 |---|---|---|
-| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me, reason?}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today` | `Seam.Load` plus the claims desk, then the caller's visible repositories; `spent_today` is the runner's day figure |
+| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me, reason?}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today`, `merged_today`, `merged_week` | `Seam.Load` plus the claims desk, then the caller's visible repositories; `spent_today` is the runner's day figure. Merge counts are pull requests this factory opened whose `merged_at` falls today or this Monday-start week |
 | `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
 | `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
 | `GET /v1/events` | SSE: `changed` (job id or `*`), `job` (a `Job` delta), `question`, `needs_you` | store watch |
@@ -169,6 +169,18 @@ check, `run.Diff`, codecs and store. Jobs and queue reads expose identical facts
 Source PR jobs have optional `draft` (known true or false); published receipts
 carry `pr.draft`. Existing fields and their meaning stay intact.
 
+**Pull request follow-up (additive Contract 1).** Each poll re-reads pull
+requests the factory opened, including after they leave GitHub's open list.
+`job.pr` gains `state` (`open`, `merged`, `closed`), `merged_by`, `merged_at`,
+`review_decision` (`approved`, `changes_requested`, `review_required`),
+`reviews[]` (`by`, `state`, `at`), `required_reviews`, and
+`checks` (`passed`, `failed`, `pending`). `number`, `url`, `draft` and `ci`
+stay. Job state `done` still means the factory published. PR open is
+`pr.state` `open`. Merged is `pr.state` `merged` on that done job. The first
+time a poll sees `merged` or `closed` it appends `pr_merged` or `pr_closed`
+(`detail` `pr · <url>`). `since.merged_today` and `since.merged_week` count
+those merges. A comment-only publish keeps `pr` null and is not followed.
+
 | method path | who | what |
 |---|---|---|
 | `POST /v1/workers/attach {name, handle, os?, codeaf_version?}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
@@ -235,7 +247,7 @@ restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned`
 
 ## 5. Events and SSE
 
-`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail, commit?}` appended to `events.jsonl`. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle <commit>` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
+`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail, commit?}` appended to `events.jsonl`. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle <commit>` as the PR trailer. A poll that first sees a factory-opened pull request merge or close appends `pr_merged` or `pr_closed`. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
 
 ## 6. Launch logic (`codeaf`, ordinary start)
 
