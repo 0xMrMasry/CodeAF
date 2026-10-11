@@ -60,7 +60,7 @@ All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job id
 
 | method path | returns | from |
 |---|---|---|
-| `GET /v1/queue` | `Queue{since, jobs[], repos[], strip, capacity, me}` | `Seam.Load` |
+| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by), repos[], strip, capacity{machines_online, busy}, me}` | `Seam.Load` plus the claims desk |
 | `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
 | `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
 | `GET /v1/events` | SSE: `changed` (job id or `*`), `job` (a `Job` delta), `question`, `needs_you` | store watch |
@@ -69,7 +69,8 @@ All JSON. Errors: `{error: "sentence"}` with the HTTP status. Ids are the job id
 | `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[]}` | `pipeline` + `Seam.Load` |
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[], takes_unassigned{}}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`; machine facts stay empty |
+| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], invited_by?, machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}}` | caller session or invite profile; host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
+| `PUT /v1/me/takes_unassigned` | `{repo: bool}` saved for that same handle; later pulls by that handle use it | the factory store. No store answers 501 |
 
 Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
 
@@ -94,7 +95,7 @@ Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/r
 
 | method path | who | what |
 |---|---|---|
-| `POST /v1/workers/attach {name, handle}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
+| `POST /v1/workers/attach {name, handle, os?, codeaf_version?}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
 | `GET /v1/workers/pull` | a worker (bearer credential) | long-poll (≤ 30s): `{lease, job}` or `204`. A lease is one job for one worker, with `expires_at`; heartbeat renews. Jobs are offered only to workers of the job's person, or any worker that opted into unassigned for that repo. Pending replies can lend an idle manager with `lease.thread_only: true`; the existing machine affinity still applies. |
 | `POST /v1/workers/leases/{id}/heartbeat` | worker | renews and returns signals, including unacknowledged manager replies; expired leases re-queue |
 | `POST /v1/workers/leases/{id}/report` | worker | step results, log lines, cost, claims, questions, PR facts, `thread` messages and `delivered` reply IDs — the worker's writes |
@@ -168,7 +169,7 @@ worker loop           → attach to the same url, pull, run, report   (unless --
 
 `codeaf factory [--listen 127.0.0.1:7420] [--config ~/.codeaf/factory/config.yaml]` runs the server alone (a team box). `codeaf attach <url> [--name]` / `codeaf detach` write `attach.json`. `codeaf factory token|revoke|steps` are the ops verbs.
 
-`run.lock` and the file mailbox are retired: every process's verbs go through `lease.Doors`, and execution happens wherever a worker pulls. The worker loop dials through the same order each time, so a worker whose serving window closed follows the factory to whoever serves next. Its credentials are cached per factory url and slot in `~/.codeaf/v3/factory/worker.json`; a 401 re-attaches. On loopback a worker takes every unassigned job (`takes_unassigned: {"*": true}`); attached elsewhere, only repos it has a checkout of. A process that serves in-process removes `serve.json` and releases `serve.lock` when its surface or session host ends.
+`run.lock` and the file mailbox are retired: every process's verbs go through `lease.Doors`, and execution happens wherever a worker pulls. The worker loop dials through the same order each time, so a worker whose serving window closed follows the factory to whoever serves next. Its credentials are cached per factory url and slot in `~/.codeaf/v3/factory/worker.json`; a 401 re-attaches. On loopback a worker takes every unassigned job (`takes_unassigned: {"*": true}`); attached elsewhere, only repos it has a checkout of. A saved `PUT /v1/me/takes_unassigned` for that handle replaces this consent on every later pull. A process that serves in-process removes `serve.json` and releases `serve.lock` when its surface or session host ends.
 
 **Local job doors on an attached floor.** `api.ComposeJobs` leaves TUI-only
 job-id doors nil outside loopback unless `Seam.Job(id)` finds a live lease on
