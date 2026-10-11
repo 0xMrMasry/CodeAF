@@ -61,7 +61,23 @@ What the factory does **not** give a solo laptop: continuity while the lid is cl
 
 ---
 
-## 4. Surfaces — the desk and the wall
+## 4. The design constraint — generic, bounded only by the agentic loop
+
+The product fixes the primitives of the loop and nothing else; everything else is words the user writes.
+
+| fixed, because the era demands it | open — words |
+|---|---|
+| a **job** runs an issue or PR through steps on a machine; a person judges the result | which steps, in what order |
+| a **step** is a conversation with a model that has tools; it ends when the model says the step's condition holds | the prompt, the condition (`until`), the rounds (`max`) |
+| a step reports in **markdown** and may assert **claims** with evidence | what it says, claims, what counts as evidence |
+| a step may ask a **question**; a person answers | what it asks |
+| **approve** is a person, always before anything leaves the machine | where approvals sit; which steps are `fixed` |
+| **rules** are sentences every job obeys | the sentences |
+| the factory keeps one job per worker, the record, and reads the forge | — |
+
+No step kinds, no condition language, no block schema, no risk model, no plugin API. A security gate, a migration check, a performance budget, a docs step — each is a prompt, and its result shows up where every result shows up. The pipeline file is specified in `FACTORY-YAML.md`.
+
+## 6. Surfaces — the desk and the wall
 
 | | **desk** — codeaf TUI | **wall** — the factory's floor (browser) |
 |---|---|---|
@@ -80,7 +96,7 @@ The line:
 
 ---
 
-## 5. Screens
+## 6. Screens
 
 ### 5.1 The floor (browser, served by `factory`)
 
@@ -112,7 +128,7 @@ Phone-first, one column; on a wide screen the floor becomes rows + a peek, like 
 
 ---
 
-## 6. Architecture
+## 7. Architecture
 
 ```mermaid
 flowchart TB
@@ -168,7 +184,7 @@ Hosted changes capacity, tenancy and money — webhooks, always on, a pool that 
 
 ---
 
-## 7. Identity and security
+## 8. Identity and security
 
 **No accounts, ever.** Identity, permissions and code live on the forge. The factory keeps sessions and credentials; the forge keeps people. The day the factory stores a password, an email, an invitation or a role we invented, the discipline broke.
 
@@ -195,7 +211,7 @@ Rules that hold everywhere:
 
 ---
 
-## 8. Policy
+## 9. Policy
 
 `.codeaf/factory.md`, committed and reviewed like code, read from the main branch (a PR can never change the law for its own review):
 
@@ -213,7 +229,7 @@ The factory's own config lives on its host (`factory.yaml`: sources, door, optio
 
 ---
 
-## 9. Sequences
+## 10. Sequences
 
 ### 9.1 Solo — day one
 
@@ -263,7 +279,7 @@ sequenceDiagram
 
 ---
 
-## 10. Business logic and strategy
+## 11. Business logic and strategy
 
 **The delta over the forge is the product.** The forge holds artifacts: code, issues, PRs, identity, permissions. The factory holds what the forge has no concept of: live run state, claims, pending approvals, ordering, the record.
 
@@ -277,9 +293,9 @@ sequenceDiagram
 
 ---
 
-## 11. Rollout
+## 12. Rollout
 
-1. **This branch — solo on one laptop.** The factory as a loopback service; the TUI rewired as a client of the factory API (today the floor is disabled over `--host`/`--at` and reads the store in-process); the floor at localhost: §5.1 screens minus the door; the claims desk replacing `run.lock` and the file mailbox; automatic intake from `## start`; the append-only record with bound approval events.
+1. **This branch — solo on one laptop.** The factory as a loopback service; the TUI rewired as a client of the factory API (today the floor is disabled over `--host`/`--at` and reads the store in-process); the floor at localhost: §6.1 screens minus the door; the claims desk replacing `run.lock` and the file mailbox; automatic intake from `## start`; the append-only record with bound approval events.
 2. **Service packaging.** `factory serve`, door, host config, deploy notes, forge connect from the browser.
 3. **Team reach.** Link-to-view sessions, per-viewer filtering with scope tags, handle-bound worker join, overlap warnings, routed questions, lessons as PRs.
 4. **Compute.** Relay and personal pools — its own branch.
@@ -287,7 +303,7 @@ sequenceDiagram
 
 ---
 
-## 12. Nomenclature
+## 13. Nomenclature
 
 | term | meaning |
 |---|---|
@@ -305,11 +321,11 @@ sequenceDiagram
 
 ---
 
-## 13. Not the product
+## 14. Not the product
 
 A forge replacement. A platform for others to build on. A chat app in the browser. A notification inbox. A per-seat SaaS. A team budget in open source.
 
-## 14. Open
+## 15. Open
 
 - **One codeaf attaches to one factory at a time.** Personal repos while attached to a team's factory means `codeaf detach`, or a second factory later. Multi-factory is a later point, not this branch.
 
