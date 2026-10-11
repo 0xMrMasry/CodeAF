@@ -237,6 +237,15 @@ The contract in one line: **the factory decides and records; codeaf executes and
 
 Hosted changes capacity, tenancy and money — webhooks, always on, a pool that never sleeps, one team bill — never features.
 
+### Repos, contract and versions
+
+- **Two repos.** The codeaf repo holds the binary: engine, TUI, `codeaf factory`, `/v1`, the served page. The app repo holds the app only; it contains no engine code. Anything the app needs from the engine is added to the binary and exposed over `/v1` (or the local bridge at R2), never duplicated in the app.
+- **The app moves out with its history.** A `git subtree split` of the app directory takes the app's existing code out of the codeaf repo's app branch. The engine changes on that branch stay in the codeaf repo and land on `dev` slice by slice for R2, bridge first.
+- **The contract is the dependency.** The codeaf repo publishes the `/v1` types (today `internal/factory/api` and the served page's `types.ts`). The app pins a codeaf version and runs the contract test (fixture ≡ client → serve → fixture) against that version in its CI.
+- **Bundling.** At R1 the app ships no binary. At R2 the app build downloads the pinned codeaf release by version and checksum and bundles it.
+- **Version skew.** The factory reports its version and contract version on `/v1/me`. An app that is newer than the factory shows one line — "this factory runs codeaf X; update it to use Y" — and keeps the read-only views working. An older app keeps working against a newer factory because `/v1` only adds fields.
+- **`factory/page` into `dev`.** It merges as a fast-forward once the open e2e tasks are done and the full suite is green. After that, factory work is ordinary `dev` work.
+
 ---
 
 ## 8. Identity and security
@@ -398,6 +407,18 @@ Three releases, in order. **R0** is the open binary with the factory merged, pub
 **The app as controller has less than the TUI in one way and more in another.** The TUI has Mine and deep steering. The app has Everything, proof, the record and invites. Neither is a subset. Open users without the app see their team through GitHub and the factory's small served page. That is acceptable for the test phase.
 
 **Why R1 without the engine is the simplification.** A pure `/v1` client needs none of the app branch's engine code, so landing that code on `dev` leaves the critical path. R1 = the existing app shell + the factory design + the `/v1` client already written for the served page (`types.ts`, the API client and the SSE hook are shared). Chat and the bridge continue on the branch toward R2.
+
+### Who needs what, by release
+
+The factory never executes; a job runs on its person's machine. So what each person installs depends on what they do, not on the release alone.
+
+| person | R1 | R2 | cloud (later) |
+|---|---|---|---|
+| **deploys the factory** (one person per team) | the binary: `codeaf factory` on a reachable machine (laptop on the tailnet, or a server / Docker image) | same | nobody — we host it |
+| **takes jobs** (a dev) | app + binary: `codeaf attach` on their laptop makes it their worker; deep steering and talking to a job's manager happen in the TUI | app alone: the bundled engine is the worker; chat at TUI parity; the TUI remains a preference | app alone; our workers run the job |
+| **approves, answers, reviews** (reviewer, PM, lead) | app alone | app alone | app alone |
+
+In R1 the app has the job thread (answer, approve, request changes, reply-steer); deep steering is in the TUI, where the dev already is because their jobs run there. After R2 the app is a superset of the TUI in what a person can see and do; running the factory, policy (`.codeaf/factory.yaml`) and ops stay with the binary by design. "App alone, nothing on the laptop" needs the relay/remote-worker work plus one new wire: the job's conversation then lives on our worker, so deep steering travels through the factory instead of the local engine — the single new wire between R2 and cloud.
 
 ### Gates, in order
 
