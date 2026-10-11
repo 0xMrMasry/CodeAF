@@ -45,7 +45,6 @@ The API and the dashboard speak the product vocabulary. Go internals keep their 
 | `internal/factory/api` | wire types (`Queue`, `Job`, `Step`, `Claim`, `Question`, `Message`, `Event`, `Worker`, `Repo`, `Pipeline`, `DryRun`), the codec from `factory.Snapshot`/`Item`, the verb names | `internal/factory` |
 | `internal/factory/serve` | `http.Handler` over a `factory.Seam` + a `store.Store`: `/v1/*`, SSE, the worker endpoints, the record, access check; mounts the dashboard at `/` | `api`, `store` |
 | `internal/factory/client` | a `factory.Seam` over HTTP (+ SSE for change ticks) | `api` |
-| `internal/factory/serve/web` | the dashboard: Vite + React + TypeScript + Tailwind + shadcn; `dist/` committed and `go:embed`ded | — |
 | `internal/factory/lease` | the claims desk: one lease per job, expiry, re-queue, the signal channel, `leases.json`; `Doors`, the runner doors every seam hangs | `store`, `run` |
 | `internal/factory/worker` | the worker loop: attach, pull, run with this machine's Runner over a mirror store, report the runner's writes (`run.Diff`), heartbeat, carry signals, done | `client`, `run`, `lease` |
 | `internal/factory/record` | append-only `events.jsonl`, bound approval ids (`evt_…`), export | `store` |
@@ -155,15 +154,15 @@ each captured door checks its receipt again before acting on the mirror.
 Matching ids on this machine's own floor grant nothing. Repository-local
 doors remain local, and wired actions still reach the attached factory.
 
-## 7. The dashboard build
+## 7. The dashboard
 
-`internal/factory/serve/web/`: `package.json`, `vite.config.ts`, `src/`. `make web` runs `npm ci && npm run build` → `dist/`, which is **committed** (like `pack.gz`) so Go CI needs no Node; a law test fails if `src/` is newer than `dist/`. Served at `/` by `serve`; API base is same-origin `/v1`. Stock shadcn, zinc, no theme; `data-testid` on every verb for the Playwright smoke.
+The dashboard lives in `Agent-Field/codeaf-desk` (the codeaf app), not in this binary. The factory serves no page: `GET /` answers one plain line pointing at the TUI and the app, and `/v1` (with SSE, the access token and the session cookie) is its only face. The app's build, tests and browser smokes belong to that repository.
 
 ## 8. Tests that gate every lane
 
 - **Contract test** (`client_test.go`): `FixtureSeam` vs `client → serve → FixtureSeam`: identical `Snapshot` after every verb. Every exported `Seam` field is either wired or named in `api.TUIOnly` (a structural test fails on a new field that is neither).
 - **The existing page tests** (`internal/tui3/factory*_test.go`, ~40) run against the client Seam over an in-process server.
-- **E2E on a real model**: `TestTUIE2E/FactoryRunsAnIssue` on `santoshkumarradha/factory-demo` (private) with `CODEAF_E2E_MODEL=deepseek/deepseek-v4.1-flash`, plus a Playwright smoke per dashboard lane: open queue → open job → approve → the PR exists with the trailer.
+- **E2E on a real model**: `TestTUIE2E/FactoryRunsAnIssue` on `santoshkumarradha/factory-demo` (private) with `CODEAF_E2E_MODEL=deepseek/deepseek-v4.1-flash`, plus an API-level test (`serve/publish_test.go`): `POST /v1/jobs/{id}/approve` on a fixture job → the post stage's PR body carries the trailer.
 - `make pr-ready` before any landing; `make build`; manual pages updated in the same change (the manual law).
 
 ## 9. Not in this wave
