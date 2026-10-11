@@ -46,6 +46,17 @@ rules:
 
 ---
 
+## Factory display name belongs to the host config
+
+`name` belongs in `~/.codeaf/factory/config.yaml`, separate from this repository's
+pipeline file. Use `codeaf factory name "Our team"` to save it, or
+`codeaf factory name` to print it; `--config path` selects another host config.
+The optional value is trimmed, at most 40 Unicode characters, and accepts no
+control characters. `codeaf factory name ""` clears it. An unset name uses the
+first watched repository's owner in the saved, sorted selection, or the host's
+short hostname without repositories. Restart the service to apply a change.
+All `/v1` responses carrying `factory` include `factory.name`; Contract stays 1.
+
 ## A step
 
 A step is a prompt. codeaf starts a conversation with the model inside the job's worktree, gives it the prompt, and adds the context it always adds: the issue or PR, the repository, `rules`, every earlier step's result, CODEOWNERS. The model has read, edit and run tools, so "run the tests" is a sentence, not a step kind.

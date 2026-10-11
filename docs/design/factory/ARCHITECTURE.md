@@ -296,7 +296,7 @@ else                  → start serve in-process on 127.0.0.1:0, write serve.jso
 worker loop           → attach to the same url, pull, run, report   (unless --no-worker)
 ```
 
-`codeaf factory [--listen 127.0.0.1:7420] [--config ~/.codeaf/factory/config.yaml]` runs the server alone (a team box). `codeaf attach <url> [--name]` / `codeaf detach` write `attach.json`. `codeaf factory token|revoke|steps` are the ops verbs.
+`codeaf factory [--listen 127.0.0.1:7420] [--config ~/.codeaf/factory/config.yaml]` runs the server alone (a team box). `codeaf attach <url> [--name]` / `codeaf detach` write `attach.json`. `codeaf factory name|token|revoke|steps` are the ops verbs.
 
 `run.lock` and the file mailbox are retired: every process's verbs go through `lease.Doors`, and execution happens wherever a worker pulls. The worker loop dials through the same order each time, so a worker whose serving window closed follows the factory to whoever serves next. Its credentials are cached per factory url and slot in `~/.codeaf/v3/factory/worker.json`; a 401 re-attaches. On loopback a worker takes every unassigned job (`takes_unassigned: {"*": true}`); attached elsewhere, only repos it has a checkout of. A saved `PUT /v1/me/takes_unassigned` for that handle replaces this consent on every later pull. A process that serves in-process removes `serve.json` and releases `serve.lock` when its surface or session host ends.
 
@@ -323,3 +323,20 @@ The dashboard lives in `Agent-Field/codeaf-desk` (the codeaf app), not in this b
 ## 9. Not in this wave
 
 GitHub App, overlap warnings, routed questions, relay/compute, hosted. The API shape leaves room (`handle` on every event and lease; `repo` on every job) and nothing else.
+
+## Factory display name (Contract 1)
+
+The host config `~/.codeaf/factory/config.yaml` accepts optional `name`; omission
+stays omission when other host settings are saved. `codeaf factory name` prints
+the effective name, and `codeaf factory name "Our team"` saves it. Both accept
+`--config path` before the text. Names are trimmed, at most 40 Unicode characters,
+and reject control characters. An empty quoted string removes the setting.
+
+At service start, an unset name uses the owner of the first watched repository
+in the saved, sorted selection, or the host's short hostname when none is watched.
+Changing the config or watched selection requires a service restart to update
+that display name. All callers see the same name. Every response carrying
+`factory` adds `name` beside `address` and `version`, including `/v1/about`,
+`/v1/me`, `/v1/queue` and errors. `/v1/about` retains its top-level `name` with the
+same value. This is additive: Contract remains 1, and names do not identify
+credentials or change factory addresses.
