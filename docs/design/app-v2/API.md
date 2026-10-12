@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport and A3 event stream built, 2026-10-12; remaining lanes are design. Branch `app/v2`.
+Status: A1 transport, A2 key handoff and A3 event stream built, 2026-10-12; remaining lanes are design. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -71,7 +71,7 @@ The API speaks the S0 glossary: agent, task, process, standing order, crew, memb
   - The binary exits when stdin reaches EOF or when `--parent-pid` dies. A crashed app therefore never leaves an engine running.
   - Running processes stop on exit (X1: processes stop when the app quits). That is why the app asks first on Quit, using `GET /app/v1/processes?state=running`.
   - Before it quits, the app calls `POST /app/v1/shutdown {reason}`. That stops processes, writes a receipt for each one and flushes the ledger.
-  - **A1 status:** stdin EOF, parent death (checked at launch and every 1 s), SIGINT, SIGTERM and authenticated shutdown end the HTTP server. `--parent-pid 0` disables parent checking, never stdin life. Shutdown flushes `{ok:true}` before stopping, allows up to 3 s for HTTP requests to finish, then closes remaining connections. Process receipts and ledger flushing arrive with their owning lanes; A1 starts no processes or agents. Stdin handoff data is drained without logging; key ingestion is A2.
+  - **A1 status:** stdin EOF, parent death (checked at launch and every 1 s), SIGINT, SIGTERM and authenticated shutdown end the HTTP server. `--parent-pid 0` disables parent checking, never stdin life. Shutdown flushes `{ok:true}` before stopping, allows up to 3 s for HTTP requests to finish, then closes remaining connections. Process receipts and ledger flushing arrive with their owning lanes; A1 starts no processes or agents. A2 parses the first stdin JSON line into memory and drains the remaining lifetime pipe without logging. An invalid or oversized handoff ends the launch without echoing its contents.
 
 ### 1.2 Key handoff (never disk)
 
@@ -83,12 +83,14 @@ The app reads the secrets from the Keychain (macOS) or Secret Service (Linux), u
    - `DELETE /app/v1/keys/{provider}` removes a key.
    - The app writes the Keychain first, then calls.
 
-Rules (NEW, in `internal/config`):
+Rules (**EXISTS, A2**, in `internal/config` and `internal/appapi`):
 - The binary holds keys in a process-memory credential source. This source outranks `OPENROUTER_API_KEY` and the profile `api_key` (today's order is in `v2:internal/config/apikey.go:25,62`).
-- In app mode (`app serve`, whether or not `--home` is explicit), any write of a key to `config.json` is refused. `codeaf connect` refuses with "keys are kept by the app".
-- Child engine processes get keys through an inherited pipe (`--keys-fd 3`), never through argv or the environment.
+- App mode is established by `app serve` even without `--home`; child commands inherit `CODEAF_APP_MODE=1` (policy only). Any key update through the profile/settings/provider writers is refused with "keys are kept by the app", including `codeaf connect`, `codeaf disconnect`, GitHub token writes and automatic environment-key persistence. Unrelated settings still save and preserve existing terminal credentials in the shared profile.
+- Child engine processes get one credential snapshot through an inherited pipe (`--keys-fd 3`, or the next free inherited descriptor), never through argv or the environment. `config.PrepareAppCredentialPipe` wires local child launches; `enginehost.Spawn` uses it. The engine consumes that line before resolving any session credentials. App children use their own session pipe rather than attaching to a terminal host with a different credential lifetime.
 - `GET /app/v1/keys` returns only `{provider, present, last4, models[]}`, as in U1-03 ("sk-or-v1-••••a91f").
-- Keys never appear in logs. The redact package covers the new source.
+- Keys never appear in logs. Both `redact` and `trace` register exact provider and factory-session values, including opaque tokens, before any provider response can be recorded. GET shows only memory-source presence, a four-character tail (empty for keys of four characters or fewer), and model ids from successful PUT checks; stdin ingestion makes no network call and initially has no model listing.
+- PUT makes exactly one authenticated listing call with a 10 s ceiling. OpenRouter uses `/models/user`, because `/models` is public; GitHub checks `/user` and returns no model ids; Anthropic uses its native `/v1/models` authentication. Other known model services use their resolved `/models` endpoint. Unknown providers and Codex browser credentials are refused here; browser sign-in is A11a. A failed check is HTTP 422 `{ok:false, models:[], error, reason:"bad_input", request_id}`, quotes the provider's message and status with secrets removed, and leaves the previous key intact. No answer also leaves it intact. Redirects are not followed. DELETE installs an empty memory entry so shell/profile fallback cannot reconnect the removed key.
+- Launch and child handoffs accept at most 1 MiB, one JSON object on one line with `keys` and `factory_sessions`; remaining stdin bytes only hold the launch alive. Factory-session tokens remain memory-only for the factory lane to consume.
 
 ### 1.3 Restart and reattach
 
@@ -327,7 +329,7 @@ The settings keys are in §2.18. The app's "Run 3 · up to $9" cost check reads 
 | `GET /app/v1/models` | → `{models[{id, name, provider, available}], default, pinned[3]}` | `wb:modelroles.go:168`, `modelpinned.go:34` | PORT |
 | `PUT /app/v1/models/pinned` · `PUT /app/v1/models/default` | | `wb:modelpinned.go` | PORT |
 | `GET /app/v1/models/roles` · `PUT /app/v1/models/roles/{role}` | `{model, effort}`. Only `checks` and `planner` are shown (X4 Advanced · Model per role) | `wb:modelroles.go:172-186`; `v2:internal/roles/roles.go:35` | PORT |
-| `GET /app/v1/keys` · `PUT/DELETE /app/v1/keys/{provider}` | §1.2 | `wb:settings.go:58` (presence only) | PORT+NEW |
+| `GET /app/v1/keys` · `PUT/DELETE /app/v1/keys/{provider}` | §1.2 | `internal/appapi/keys.go`, `internal/config/appcredentials.go` | EXISTS (A2) |
 | `POST /app/v1/providers/{p}/sign-in` | → `{verification_uri}`, then `keys.changed`. Browser sign-in, no timeout | `v2:internal/openrouterauth` | NEW (HTTP) |
 
 Effort on the wire is `low|medium|high`. The binary's `xhigh` and `max` (`v2:internal/effort/effort.go:27`) stay for the TUI and are never shown to the app.
@@ -518,7 +520,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | Id | Scope | Deps | Size | Status |
 |---|---|---|---|---|
 | A1 | `codeaf app serve`: listener, hello line, token, origin/host guard, parent-pid and stdin life, `--home`, `/app/v1/health`, shutdown, route-table and security tests | — | 1 d | EXISTS |
-| A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d | NEW |
+| A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d | EXISTS |
 | A3 | Stream: the hub, epoch-qualified `e_<epoch>_<n>` ring 4096, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | EXISTS |
 | A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | NEW |
 | A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d | NEW |
