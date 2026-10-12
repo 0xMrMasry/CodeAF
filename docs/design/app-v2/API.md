@@ -48,11 +48,10 @@ The API speaks the S0 glossary: agent, task, process, standing order, crew, memb
 ```
 
 - **Command.** The app runs `codeaf app serve --home <dir> --listen 127.0.0.1:0 --parent-pid <pid>`. **EXISTS (A1)**: `cmd/codeaf/app_serve.go`, ported from `wb:cmd/codeaf/desktop_bridge.go` (the `desktop-bridge` command).
-- **Home.** `--home` is the binary's data root. It is the same as `$CODEAF_HOME` (`v2:internal/home/home.go:29`).
-  - macOS: `~/Library/Application Support/codeaf/engine`.
-  - Linux: `$XDG_DATA_HOME/codeaf/engine`.
-  - Without `--home`, these app-specific defaults apply; Linux falls back to `~/.local/share/codeaf/engine` when `XDG_DATA_HOME` is unset or relative. An inherited `CODEAF_HOME` does not select the app's default. The resolved absolute path becomes `CODEAF_HOME` before any engine writer starts.
-  - The app's `app.db` sits one level up in `…/codeaf/`, and the solo factory store sits at `<home>/v3/factory` (`v2:cmd/codeaf/factory.go:30`). This is how "factory.db beside app.db" (S2) maps onto the code: the factory is a JSON file store, not SQLite, and stays one. Open question Q1 asks whether this home is shared with the TUI.
+- **Home.** The app and TUI share the binary's state root: `~/.codeaf`, respecting `CODEAF_HOME`. An explicit `--home` overrides it for a disposable or named home. **EXISTS:** `cmd/codeaf/app_serve.go` uses `internal/home.Dir`, resolves an absolute path and sets `CODEAF_HOME` before any engine writer starts.
+  - Agents, history, crews and non-secret settings are shared. The app's UI-only `app.db` remains in its platform app-data folder; the binary does not use `<app-data>/engine`.
+  - The solo factory's JSON store remains `<home>/v3/factory`. Existing document flocks, conversation locks and presence coordinate concurrent app and TUI access.
+  - One process holds `<home>/v3/factory/worker.lock` until all its job slots stop. A second process uses the same factory and saved `worker.json` credentials without registering more slots; it waits and takes over after the owner exits. Credential updates use a shared file lock and private atomic replacement. `CODEAF_FACTORY_BENCHES` bounds the home's jobs, rather than multiplying capacity per window.
 - **Listener.**
   - The listener is a loopback TCP port, picked by the OS. It is not a unix socket, because WKWebView/WebKitGTK `fetch` and `EventSource` cannot dial a socket. A socket would force a Rust proxy for every byte of SSE.
   - The bridge refuses non-loopback addresses (`wb:cmd/codeaf/desktop_bridge.go:47-54`). We keep that.
@@ -86,7 +85,7 @@ The app reads the secrets from the Keychain (macOS) or Secret Service (Linux), u
 
 Rules (NEW, in `internal/config`):
 - The binary holds keys in a process-memory credential source. This source outranks `OPENROUTER_API_KEY` and the profile `api_key` (today's order is in `v2:internal/config/apikey.go:25,62`).
-- In app mode (`--home` given by `app serve`), any write of a key to `config.json` is refused. `codeaf connect` refuses with "keys are kept by the app".
+- In app mode (`app serve`, whether or not `--home` is explicit), any write of a key to `config.json` is refused. `codeaf connect` refuses with "keys are kept by the app".
 - Child engine processes get keys through an inherited pipe (`--keys-fd 3`), never through argv or the environment.
 - `GET /app/v1/keys` returns only `{provider, present, last4, models[]}`, as in U1-03 ("sk-or-v1-••••a91f").
 - Keys never appear in logs. The redact package covers the new source.
@@ -587,7 +586,7 @@ Parallel waves:
 
 ## 6. Open questions for the owner
 
-1. **One home or two?** Do the app's agents and crews share the TUI's home (`~/.codeaf`), so the same agents appear in both? Or does the app get its own home under Application Support? Sharing gives one history. Separate homes avoid two writers on one profile and keep TUI defaults ($500 day cap, AI titles) apart. This file assumes **separate** (§1.1).
+1. **Home sharing — decided.** Owner decision in codeaf-desk `src/design/source/DECISIONS.md` supersedes the previous separate-home assumption: the app engine and TUI use `~/.codeaf` (or `CODEAF_HOME`), share agents, history and settings, and elect one factory runner for that home. The app's Keychain/Secret Service handoff stays in process memory; sharing the home never permits those keys to be saved in a profile. Worker registration credentials are separate factory credentials, shared privately for takeover.
 2. **Titles: deterministic or AI?** S0 rules names deterministic and lists the Titles-and-summaries role as backlog. The brief says AI through the binary is allowed. Should v2 ship deterministic names only, with no AI title even through the door? This file assumes yes. The AI door ships with no app role registered until you name one.
 3. **Per-agent budget period.** S2 says "budget default $5.00; asks at it", which reads as a lifetime figure. X4 Settings says "Per agent $5.00 · each agent, each day". Which is it?
 4. **Factory Contract 2.** Renaming needs-you kinds (`out_of_attempts`→`out_of_rounds`, `spending_limit`→`budget`) and `machine`→`runner` on `/v1` breaks the shipped desk R1. Should we bump Contract to 2, or keep the old names on `/v1` and map only in the app?
