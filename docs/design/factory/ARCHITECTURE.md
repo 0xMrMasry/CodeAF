@@ -72,7 +72,7 @@ All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason`
 | `GET /v1/repos/{owner}/{repo}/pipeline` | `Pipeline` plus `text`, `personal_text`, `personal`, `origin` (`main`, `working tree`, `defaults`), `start`, `size`, and each step's `until_sentence`. `until` stays `done`, `clean`, `green` or `proven` | `pipeline` |
 | `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[], would_wait[]}`. `would_wait[]` is `{job, reason}` | `pipeline` + `Seam.Load` |
 | `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
-| `GET /v1/about` | `{name, codeaf_version, contract, needs, access, polling_every, served_by}` before any token. `needs` is `token`, `device` or `none`. `access` is `loopback`, `token` or `tailnet`. `served_by` is `tui` or `factory` | host config |
+| `GET /v1/about` | `{factory, scheme, name, codeaf_version, contract, needs, access, polling_every, served_by}` before any token. `scheme` is `https` or `http` for the caller's own connection (a trusted proxy's `X-Forwarded-Proto` counts); `factory.address` is the public URL. `needs` is `token`, `device` or `none`. `access` is `loopback`, `token` or `tailnet`. `served_by` is `tui` or `factory` | host config |
 | `GET /v1/audit?since=` | `[]Event` | `record` |
 | `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}, access, polling_every, served_by}` | caller session; a token with no signed-in profile, the host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
 | `PUT /v1/me/takes_unassigned` | `{repo: bool}` saved for that same handle; later pulls by that handle use it | the factory store. No store answers 501 |
@@ -308,6 +308,39 @@ the viewer filter. This supplies the new-job repository picker and Settings as
 required by PRODUCT's watched-repository visibility and DESIGN-BRIEF's Send job
 repository field. A valid sign-in with access to a watched empty repository does
 not receive `no_visible_repos`.
+
+### Security — HTTPS, proxies and secure defaults
+
+`codeaf factory serve` reads `tls: auto | files | off` from the host config.
+Unset is `files` when `cert_file` is named, `off` when `listen` is loopback, and
+`auto` otherwise; `auto` without `domain` refuses to start, naming the three
+fixes. `auto` is `golang.org/x/crypto/acme/autocert` (the module's pinned
+version) with `HostWhitelist(domain)`, TLS-ALPN-01 on the HTTPS listener,
+HTTP-01 on `:80` of the same interface when it binds, and a disk cache
+(`cache_dir`, default `tls` beside the config; folder 0700, files 0600); renewal
+is the manager's own. `files` loads `cert_file`/`key_file` at start and reloads
+when either modification time changes, keeping the last good pair on a failed
+reload. `off` serves plain HTTP and, off loopback, prints a warning naming the
+reverse-proxy option. Wiring lives in `cmd/codeaf/factory_tls.go`.
+
+When TLS is on, the port-80 door answers `/.well-known/acme-challenge/` and
+redirects everything else to `https://<domain>` with 308, and serve.json names a
+second, plain listener on a random loopback port, because the certificate names
+the domain and never `127.0.0.1`.
+
+`serve.Config.TrustedProxies` (host key `trusted_proxies`, addresses or CIDRs) is
+the only source of belief in `X-Forwarded-For`/`X-Forwarded-Proto`. The handler
+resolves the caller once per request (`internal/factory/serve/proxy.go`): the
+rightmost untrusted `X-Forwarded-For` hop and the last `X-Forwarded-Proto`, from
+a trusted peer only. That answer sets the cookie's `Secure`, HSTS
+(`max-age=31536000`, HTTPS callers only) and `/v1/about`'s `scheme`;
+`serve.ClientAddr` exposes it to any future access log (none exists today). The
+open loopback grant requires a loopback caller that nobody forwarded, or one a
+trusted proxy named: forwarding headers from an untrusted peer only remove
+access. Session cookies are always HttpOnly and SameSite=Strict. `/v1/events`
+sends `X-Accel-Buffering: no`. GitHub device sign-in is outbound-only and has no
+callback URL, so HTTPS changes nothing in it. `docs/design/factory/HTTPS.md`
+has the operator's guide and the Caddy and nginx examples.
 
 ## 5. Events and SSE
 
