@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream and A4a agent lifecycle built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream A4a agent lifecycle and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -11,6 +11,7 @@ Code references:
 Status words:
 - **EXISTS** means `app/v2` already serves the route or call over HTTP.
 - **PORT** means the code is in `wb:internal/desktopbridge`. We copy it into `app/v2` and adapt it.
+- **BUILT** records a lane's shared code or policy; route enforcement is stated separately.
 - **NEW** means nobody has written it yet. Where a feature is "wire-backed", the engine already has the behaviour behind an `internal/remote` wire method and only needs an HTTP face.
 
 ---
@@ -666,7 +667,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | NEW |
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | NEW |
-| A15 | Engine rules (§5) that no other lane owns: `/crew` → `/seats`, idle rule, defaults | — | ½ d | NEW |
+| A15 | Shared rules in `internal/appapi/rules.go`, `/crew` → `/seats` with alias, idle selection predicate, 12 s/$2/$0.40 defaults. Resource enforcement remains with A5–A8/A11a | — | ½ d | BUILT |
 | A16 | Contract reservations, schemas and `docs/design/app-v2/API.md` ↔ route table law built; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d | NEW |
 
 Parallel waves:
@@ -689,33 +690,33 @@ Parallel waves:
 
 ## 5. Engine behaviour changes the design requires
 
-| Rule (board) | Now on `app/v2` | Change | Where |
-|---|---|---|---|
-| Agent names are deterministic: first words, ≤40 chars, until renamed (S0, S2; AI titles backlog) | AI title through `roles.RoleTitle` (`v2:internal/session/handlepick.go:210-222`) | **EXISTS (A4a)**: in app mode, names come from the first words of the first message. The AI title stays for the TUI. See Q2 | `session/appnames.go`, `session/title.go`, A4a |
-| Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS** (number). Check the reset-on-Not-right and Skip semantics | `standing/words.go`, A7 |
-| Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 |
-| Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 |
-| Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 |
-| Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 |
-| Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 |
-| Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `sweep.go`, A6 |
-| Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 |
-| Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 |
-| Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b |
-| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **CHANGED** (setup writes 20; the built-in default stays for the TUI unless the owner says otherwise) | A11a |
-| Sub-crew depth 3, share 50% | `teamdefaults.go:44-45` | **EXISTS** | — |
-| Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a |
-| Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a |
-| Idle agent: no message 7 days and nothing running; nothing closes on its own | none | **NEW** derived flag | A15 |
-| Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **NEW** | A4b |
-| Running long: one line at 3:00 per reply; Move it to a task | none | **NEW** | A4b/A5 |
-| Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 |
-| Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2; engine A9 remains NEW | |
-| Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — |
-| Glossary: TUI `/crew` (a task's model seats) → `/seats` | `CrewCommand = "/crew"` (`config/crew.go:103`) | **CHANGED**: `/seats`, with `/crew` an alias for one release; manual pages | A15 |
-| Glossary: background job → process; teams → crews; managers/traffic → manager/log; machine → runner; audit → Activity; attempts → rounds | Go names | **CHANGED on the wire only**. The codec maps; Go keeps names | A4–A10, factory lanes |
-| Agents have no place: context arrives as chips | places in `wb:` | **DROP** (do not port) | §4.2 |
-| Keys never on disk | profile `api_key` in `config.json` (`config/apikey.go`) | **CHANGED** in app mode | A2 |
+| Rule (board) | Before the v2 rules | Change | Where | A15 status |
+|---|---|---|---|---|
+| Agent names are deterministic: first words, ≤40 chars, until renamed (S0, S2; AI titles backlog) | AI title through `roles.RoleTitle` (`v2:internal/session/handlepick.go:210-222`) | **EXISTS (A4a)**: in app mode, names come from the first words of the first message. The AI title stays for the TUI. See Q2 | `session/appnames.go`, `session/title.go`, A4a | — |
+| Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS** (number). Check the reset-on-Not-right and Skip semantics | `standing/words.go`, A7 | — |
+| Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 | POLICY BUILT — `StandingScope`; storage and delivery A7 |
+| Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 | BUILT — default $0.40, saved rails preserved |
+| Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 | POLICY BUILT — `QuickTaskNeedsProposal`; tool enforcement and undo A5 |
+| Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 | BUILT — default 12 s; per-task hold/no-clock rules A5 |
+| Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 | POLICY BUILT — `QuestionClock`; pause enforcement A8 |
+| Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `sweep.go`, A6 | POLICY BUILT — 7 days/10 MiB; spool and sweep A6 |
+| Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | — |
+| Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 | BUILT — default $2, saved limits preserved |
+| Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b | — |
+| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **CHANGED** (setup writes 20; the built-in default stays for the TUI unless the owner says otherwise) | A11a | POLICY BUILT — `DefaultDayCapUSD`; setup persistence/cap asks A11a/A11b |
+| Sub-crew depth 3, share 50% | `teamdefaults.go:44-45` | **EXISTS** | — | — |
+| Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a | — |
+| Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a | — |
+| Idle agent: no message 7 days and nothing running; nothing closes on its own | none | **NEW** derived flag | A15 | BUILT — `AgentIsIdle`; list/close routes A4a |
+| Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **NEW** | A4b | — |
+| Running long: one line at 3:00 per reply; Move it to a task | none | **NEW** | A4b/A5 | — |
+| Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 | — |
+| Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2; engine A9 remains NEW | | — |
+| Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — | — |
+| Glossary: TUI `/crew` (a task's model seats) → `/seats` | `CrewCommand = "/crew"` (`config/crew.go:103`) | **CHANGED**: `/seats`, with `/crew` an alias for one release; manual pages | A15 | BUILT — canonical `/seats`, `/crew` alias for one release |
+| Glossary: background job → process; teams → crews; managers/traffic → manager/log; machine → runner; audit → Activity; attempts → rounds | Go names | **CHANGED on the wire only**. The codec maps; Go keeps names | A4–A10, factory lanes | — |
+| Agents have no place: context arrives as chips | places in `wb:` | **DROP** (do not port) | §4.2 | — |
+| Keys never on disk | profile `api_key` in `config.json` (`config/apikey.go`) | **CHANGED** in app mode | A2 | — |
 
 ---
 
