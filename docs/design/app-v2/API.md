@@ -1,0 +1,577 @@
+# codeaf v2 app API — the local API the binary exposes
+
+Status: design, 2026-10-12. Nothing here is built yet. Branch `app/v2`.
+
+Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
+
+Code references:
+- `v2:` is `origin/app/v2` (e417c1275).
+- `wb:` is `origin/work/8f3c2a9d`, the desktop bridge that another session owns. We read it and port from it. We never push to it.
+
+Status words:
+- **EXISTS** means `app/v2` already serves the route or call over HTTP.
+- **PORT** means the code is in `wb:internal/desktopbridge`. We copy it into `app/v2` and adapt it.
+- **NEW** means nobody has written it yet. Where a feature is "wire-backed", the engine already has the behaviour behind an `internal/remote` wire method and only needs an HTTP face.
+
+---
+
+## 0. The rule this API follows
+
+The binary owns three things: all state, every AI call and every numbered rule. The app owns the UI and the state that only the UI needs:
+- windows, tabs, panes, tab groups, the closed-tab stack and saved views
+- Inbox **Later** and **Done today**, notifications, the folding of banners, and the Dock badge
+- UI-only settings: theme, tint, text size, open at login, banners, sound, badge, density, auto-update
+- undo for tidy actions until the app quits, and the app's own record of tidy actions
+
+The app never asks a model for anything except through the **AI door** (§2.20). The binary routes that call through its own model routing and spend ledger, and the app keeps its own prompt text.
+
+This shifts some objects that S2 lists under `app.db`. Agents, tasks, quick tasks, processes, standing orders, crews, members, roles, memory, the spending ledger and non-secret engine settings live in the **binary's home**, not in the app's SQLite. Inbox items split: the binary derives the waiting set, and the app keeps each item's Later/Done state for each person.
+
+The API speaks the S0 glossary: agent, task, process, standing order, crew, member, runner, Activity, rounds, approval. Go internals keep their names, and the codec is the one place that maps between the two. This is the same rule the factory follows in `v2:docs/design/factory/ARCHITECTURE.md` §2.
+
+---
+
+## 1. Transport and process model
+
+### 1.1 One engine process per user
+
+```
+ codeaf.app (Tauri)                         codeaf (bundled binary)
+ ┌──────────────────────┐   spawn, stdin    ┌──────────────────────────────────────────┐
+ │ Rust core            │ ────────────────► │ codeaf app serve                         │
+ │  keyring (Keychain / │ ◄──── stdout ──── │  /app/v1/*   engine API (this file)      │
+ │  Secret Service)     │   one hello line  │  /v1/*       solo factory (in-process)   │
+ │ WebView ── fetch/SSE ┼──── 127.0.0.1 ───►│  /app/v1/events  one typed SSE stream    │
+ └──────────────────────┘   bearer token    │  worker loop → solo or team factory      │
+                                            │  child: codeaf engine (session host)     │
+                                            └──────────────────────────────────────────┘
+```
+
+- **Command.** The app runs `codeaf app serve --home <dir> --listen 127.0.0.1:0 --parent-pid <pid>`. This is NEW: `cmd/codeaf/app_serve.go`, ported from `wb:cmd/codeaf/desktop_bridge.go` (the `desktop-bridge` command).
+- **Home.** `--home` is the binary's data root. It is the same as `$CODEAF_HOME` (`v2:internal/home/home.go:29`).
+  - macOS: `~/Library/Application Support/codeaf/engine`.
+  - Linux: `$XDG_DATA_HOME/codeaf/engine`.
+  - The app's `app.db` sits one level up in `…/codeaf/`, and the solo factory store sits at `<home>/v3/factory` (`v2:cmd/codeaf/factory.go:30`). This is how "factory.db beside app.db" (S2) maps onto the code: the factory is a JSON file store, not SQLite, and stays one. Open question Q1 asks whether this home is shared with the TUI.
+- **Listener.**
+  - The listener is a loopback TCP port, picked by the OS. It is not a unix socket, because WKWebView/WebKitGTK `fetch` and `EventSource` cannot dial a socket. A socket would force a Rust proxy for every byte of SSE.
+  - The bridge refuses non-loopback addresses (`wb:cmd/codeaf/desktop_bridge.go:47-54`). We keep that.
+- **Hello.**
+  - The binary writes exactly one JSON line to stdout: `{"url":"http://127.0.0.1:53021","token":"<64 hex>","pid":1234,"codeaf_version":"…","contract":1,"home":"…"}`. Then stdout is silent. Logs go to stderr and into `<home>/logs/app-serve.log`.
+  - This shape comes from `wb:desktop_bridge.go:230`, which prints `{url,token,model}`.
+- **Token.**
+  - The token is 32 random bytes, freshly made at each launch and held only in memory. It is never written to disk.
+  - Every route needs `Authorization: Bearer <token>`, compared in constant time. This is the PORT of `wb:internal/desktopbridge/bridge.go:228,601`.
+  - `EventSource` cannot set headers. The Rust core therefore opens the SSE stream and forwards events over a Tauri channel. The alternative is `?access=<token>` on `/app/v1/events` only, as a one-route exception (§3).
+- **Origin and Host guard.** PORT `wb:origin.go:29-37`:
+  - A foreign `Origin` gets 403. A non-loopback `Host` gets 421, which defeats DNS rebinding.
+  - Allowed origins are `tauri://localhost`, `http://tauri.localhost` and the dev origin.
+- **Loopback is not trust.** On Linux, other local users can reach 127.0.0.1. The in-process solo factory therefore runs with `Access: "token"` and accepts the same per-launch token as its host token. Today the factory treats loopback as the owner (`v2:internal/factory/serve/access.go`). That is a factory delta (§2.22, F-1).
+- **Life.**
+  - The binary exits when stdin reaches EOF or when `--parent-pid` dies. A crashed app therefore never leaves an engine running.
+  - Running processes stop on exit (X1: processes stop when the app quits). That is why the app asks first on Quit, using `GET /app/v1/processes?state=running`.
+  - Before it quits, the app calls `POST /app/v1/shutdown {reason}`. That stops processes, writes a receipt for each one and flushes the ledger.
+
+### 1.2 Key handoff (never disk)
+
+The app reads the secrets from the Keychain (macOS) or Secret Service (Linux), using the `keyring` crate the desk already uses (`codeaf-desk:src-tauri/src/attach.rs`). It hands them over in one of two ways:
+
+1. **At launch, on stdin.** Right after the spawn, the app writes the first stdin line: `{"keys":{"openrouter":"sk-or-…","anthropic":"…","github":"ghp_…"},"factory_sessions":{"https://factory.acme.internal":"<session token>"}}`. Then the stdin pipe stays open as the life line (§1.1).
+2. **Later, by an authenticated call.**
+   - `PUT /app/v1/keys/{provider}` with `{key}` returns `{ok, models[], error?}`. It runs the "one check call" from J01 step 2 and verifies the key there.
+   - `DELETE /app/v1/keys/{provider}` removes a key.
+   - The app writes the Keychain first, then calls.
+
+Rules (NEW, in `internal/config`):
+- The binary holds keys in a process-memory credential source. This source outranks `OPENROUTER_API_KEY` and the profile `api_key` (today's order is in `v2:internal/config/apikey.go:25,62`).
+- In app mode (`--home` given by `app serve`), any write of a key to `config.json` is refused. `codeaf connect` refuses with "keys are kept by the app".
+- Child engine processes get keys through an inherited pipe (`--keys-fd 3`), never through argv or the environment.
+- `GET /app/v1/keys` returns only `{provider, present, last4, models[]}`, as in U1-03 ("sk-or-v1-••••a91f").
+- Keys never appear in logs. The redact package covers the new source.
+
+### 1.3 Restart and reattach
+
+- Agents survive an engine restart because their transcripts are on disk. Connection ids last for one engine lifetime. The stable id is the agent `id` (§2.1), not the connection.
+- After a restart the app re-reads the `hello`, calls `GET /app/v1/agents`, and reconnects the stream with `Last-Event-ID`. An unknown cursor answers with `reset` (§3).
+- Agents that were running when the engine died come back `idle` with a receipt "Stopped · codeaf restarted". Processes come back under Ended with state `stopped`.
+- The design's "Mac asleep" banner (U2, U3) needs power events from the app. `POST /app/v1/power {state: "sleeping"|"awake"}` (NEW) does three things:
+  - It stops processes and writes the "stopped while this Mac slept · Rerun" notices.
+  - It marks this Mac's runner `asleep` in the factory.
+  - It records the standing triggers missed while asleep ("Missed while this Mac slept").
+- On Linux the app learns of sleep from logind's `PrepareForSleep`. On macOS it uses `NSWorkspaceWillSleepNotification`.
+
+### 1.4 Factories
+
+- **Solo (S1 "runs inside the app").** `app serve` starts the factory in-process with `startFactoryService` (`v2:cmd/codeaf/factory_command.go`, the same path the TUI uses, `ServedBy: "tui"` → new value `"app"`). It mounts that factory's `serve.Handler` at `/v1/*` on the same listener. Its worker loop attaches over the in-process loopback as today (`ARCHITECTURE.md` §6).
+  - If no factory is set up, `/v1/*` answers 404 `{reason:"no_factory"}`.
+  - `POST /app/v1/factories/solo` creates the factory: it writes `serve.json` and starts the service. This is the J01 / V46 "Start a factory on this Mac" step.
+- **Team (attach over HTTPS).**
+  - The app keeps the factory session token in the Keychain, as the desk does now, and hands it over in `factory_sessions` (§1.2).
+  - The binary writes `attach.json` (URL only, no token) through `POST /app/v1/factories {url}` and runs its worker loop against that URL with the person's keys.
+  - The app reads team pages (Jobs, Repos, People, Activity) **directly** from the team `/v1` over HTTPS, as `codeaf-desk` does today. The binary also subscribes to each factory's `/v1/events` with the person's session, so it can merge the person's factory needs-you items into the one Inbox (§2.13).
+- `GET /app/v1/factories` returns `[{id, url, name, mode: "solo"|"team", operator, state: "ok"|"unreachable"|"signed_out", last_seen}]`. It feeds the rail rows (S1: "several factories may be connected; each is a rail row").
+- `DELETE /app/v1/factories/{id}` is Leave factory….
+
+---
+
+## 2. Resources
+
+Conventions:
+- JSON, snake_case. These match `/v1`.
+- Errors are `{error, reason?, request_id}`. `reason` is one of `not_found`, `conflict`, `stale`, `bad_input`, `not_allowed`, `at_cap` or `no_factory`.
+- Every POST accepts `Idempotency-Key` (reuse `v2:internal/factory/serve/idempotency.go`).
+- Every mutating verb accepts `expect: {state?, version?}`. A mismatch is 409 `stale`, with the sentence. This is the factory rule.
+- Ids are opaque strings. Agent ids are stable across restarts: the transcript's uuid, not the bridge connection id.
+- Money is `{usd: "4.20"}`, a string with two decimals.
+- Every list route accepts `?q=` with the token grammar of X3/X4 (`state:` `kind:` `since:` …). Matching is plain text and fields, with no AI.
+
+### 2.1 Agent
+
+S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[], pinned, created_at, created_by, last_message_at, closed_at?, archived_at?`, plus the derived `glyph` (needs_you › failed › running › queued › done/idle) and `spent`. `context[]` holds the chips (path, kind, exists).
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/agents?q=&state=` | → `{agents[]}` (rail, All crews and agents) | — | `wb:worldrows.go`, `world.go` (rows), `wb:history.go:243` (closed/archived) | PORT |
+| `POST /app/v1/agents` | `{text?, model?, effort?, budget?, approvals?, context[]?, start: "send"\|"empty"}` → `Agent` (name from text, ≤40 chars) | `agent.created`, then `turn.*` | `wb:bridge.go:644-765` (POST /sessions), remote `Session.New` (`v2:internal/remote/wire.go:642`) | PORT |
+| `GET /app/v1/agents/{id}` | → `Agent` + `snapshot` (entries tail, queue, open asks, tasks summary, usage) | — | `wb:bridge.go:72-96,779`, `snapshotview.go` | PORT |
+| `PATCH /app/v1/agents/{id}` | `{name?, model?, effort?, budget?, pinned?}` | `agent.changed` | wire `SetModel`, `SetEffort`, `SetSpendRail` (`v2:wire.go:491,492,600`). Rename and pin are NEW | PORT+NEW |
+| `POST /app/v1/agents/{id}/close` · `/archive` · `/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | PORT |
+| `POST /app/v1/agents/close-idle` | `{ids[]}` (the app picked them with `?q=idle:true`) → `{closed[]}` | `agent.changed`×n | NEW (idle = no message 7 days and nothing running; S2) | NEW |
+| `POST /app/v1/agents/{id}/turn` | `{text, mode: "send"\|"steer"\|"queue", context[]?, files[]?}` → `{accepted, turn_id}`. 409 if running and mode is `send` | `turn.*` | `wb:bridge.go:877-952`, wire `Submit`, `Steer`, `FollowUp` (`v2:wire.go:449-464`) | PORT |
+| `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE …` | `{text}` edit · remove | `queue.changed` | `wb:queue.go`, `queue_send.go`, wire `UnqueueFollowUp` (`v2:wire.go:462`) | PORT |
+| `POST /app/v1/agents/{id}/stop` | → receipt "Stopped by you" | `turn.ended` | `wb:bridge.go:959`, wire `StopWork` (`v2:wire.go:486`) | PORT |
+| `POST /app/v1/agents/{id}/retry` · `/switch-model {model}` | after a provider failure ×3 | `agent.changed` | NEW (the failed state is not modelled on the wire) | NEW |
+| `POST /app/v1/agents/{id}/move-reply-to-task` | → `{task_id}` (running long, 3:00) | `task.created`, receipt | NEW | NEW |
+| `GET /app/v1/agents/{id}/entries?before=&limit=` | earlier transcript | — | wire `Transcript`, `EarlierHistory` (`v2:wire.go:556-557`); `wb:` `?since=` tail | PORT |
+| `GET /app/v1/agents/{id}/tools/{call_id}` | → `{output, full}` (1 MiB) | — | `wb:bridge.go:793,1096` | PORT |
+| `GET /app/v1/agents/{id}/files…` | `text`, `stat`, `find`, `changes`, `diff` (chips, "Not found on this Mac", @mention, file chips) | — | `wb:routes.go:10-52`, `files.go`, `fileslist.go`, `workview.go` | PORT |
+
+### 2.2 Task
+
+S2 fields: `id, agent_id, parent_id?, title, brief, state (proposed·held·waiting·running·paused·your_call·done·stopped·failed·declined·handed_off), waits_on[], clock, starts_at?, model, cap, step, files[], notes[{text, read_at_step?}], origin, handed_to?`, plus the derived `spent` and `elapsed`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/agents/{id}/tasks` | → tree `{groups[], tasks[], progress:{done,total}, spent, steps}` | — | wire `PlanTasks` (`v2:wire.go:574`), `wb:` snapshot `tasks` | PORT |
+| `GET /app/v1/tasks/{tid}` | → `Task` + result, files, work log, notes, brief | — | wire `PlanTaskPage` (`v2:wire.go:575`), `wb:bridge.go:802` | PORT |
+| `POST /app/v1/tasks/{tid}/note` · `/brief` | `{text}` → note with `read_at_step` filled later | `task.changed` | wire `PlanNote`, `PlanAmend`; `wb:routes.go:78` | PORT |
+| `POST /app/v1/tasks/{tid}/pause` · `/resume` · `/stop` | — | `task.changed` | wire `PlanPause`, `PlanResume`, `PlanCancel` (`v2:wire.go:583-585`) | PORT |
+| `POST /app/v1/tasks/{tid}/start` · `/hold` · `/decline` · `/model {model}` | the proposal card: Start it · Hold · No · Change model | `task.changed`, `inbox.*` | wire `Task.Start`, `Task.Hold`, `Task.Model` (`v2:wire_task.go:17-42`) | PORT (HTTP face) |
+| `POST /app/v1/tasks/{tid}/typing` | holds the clock while the person types in the card | `task.changed {clock:"held"}` | wire `Typing` (`v2:wire.go:485`), but it is per conversation | NEW (per task) |
+| `POST /app/v1/tasks/{tid}/decide` | `{verb: "accept"\|"not_right"\|"tell"\|"recheck"\|"let_it_decide", words?}` (your call) | `task.changed`, `inbox.resolved` | wire `Task.Resolve`, `Task.Settle` (`v2:wire_task.go:38,52`) | PORT (verbs reshaped) |
+| `POST /app/v1/tasks/{tid}/hand-off` | see §2.22 Hand to factory | | | NEW |
+
+### 2.3 Quick task
+
+S2 fields: `id, agent_id, title, files[{path, before_hash, after_hash}], added, removed, state (running·done·undone·promoted)`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/agents/{id}/quick-tasks` | → list | — | tool `quick_task` (`v2:internal/session/task_quick.go:48-66`) | NEW (HTTP) |
+| `POST /app/v1/quick-tasks/{qid}/undo` | → `{undone[]}` or 409 `{changed_since[]}` ("Can't undo cleanly: 2 files changed since") | `quick_task.changed` | NEW: hashes are not recorded today | NEW |
+| `POST /app/v1/quick-tasks/{qid}/promote` · `/cancel` | answers "This is bigger than a quick task · 34 files" | `inbox.resolved` | NEW | NEW |
+
+### 2.4 Process
+
+S2 fields: `id, agent_id, name, command, url?, state (running·done·failed·stopped), started_at, ended_at?, exit_code?, output_bytes`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/processes?agent=&state=` | → list (agent panel, and the Quit prompt across agents) | — | `wb:jobs.go:105,124`; `v2:internal/session/jobs.go:475` (`jobRegistry`) | PORT (renamed jobs → processes) |
+| `GET /app/v1/processes/{pid}/output?tail=&follow=1` | → `{text, truncated}`. `follow=1` is SSE | `process.output` (follow only) | `wb:jobs.go` log route; `terminal_routes.go:58` (stream pattern) | PORT |
+| `POST /app/v1/processes/{pid}/stop` · `/rerun` | | `process.changed`, notice | `wb:jobs.go:137`. Rerun is NEW | PORT+NEW |
+| `POST /app/v1/agents/{id}/processes/stop-all` | | `process.changed`×n | NEW | NEW |
+
+Terminals (`wb:terminal*.go`) are dropped. The v2 design has no terminal surface.
+
+### 2.5 Standing order and reminder
+
+S2 fields: `id, agent_id, title, trigger{kind: event\|schedule\|once, source, filter}, does, wont, scope (this_chat·this_crew·everywhere·not_here), trust (asks_first·earning·trusted), approved_runs, budget_per_run, state (proposed·active·paused·stopped·declined·fired), last_run_at?, skipped`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/agents/{id}/orders` | → `{waiting[], active[], paused[], reminders[]}` | — | wire `Standing.Items` (`v2:wire.go:651`), `v2:internal/standing/standing.go:512` | NEW (HTTP) |
+| `POST /app/v1/orders/{oid}/ratify` · `/change` · `/not-now` | the card. `change` takes fields | `order.changed`, receipt | wire `ResolveStanding`, `Standing.Save` (`v2:wire.go:498,652`) | NEW (HTTP) |
+| `POST /app/v1/orders/{oid}/pause` · `/resume` · `/stop` | | `order.changed` | `Status` active/paused/retired (`standing.go:198-202`) | NEW (HTTP) |
+| `POST /app/v1/agents/{id}/orders/pause-all` | | | NEW | NEW |
+| `POST /app/v1/orders/{oid}/runs/{rid}` | `{verb: "go"\|"skip"\|"pause"\|"not_right"\|"run_now"}` | `order.fired`, `inbox.*` | trust rule `TrustAfter = 5` (`v2:internal/standing/words.go:140`) | NEW (HTTP) |
+| `POST /app/v1/reminders/{oid}/change` · `/cancel` | `{at}`. A past time is refused with 422 "That time has passed. Pick another." | | `WhenAt`, `CardReminder` (`standing.go:209,239`) | NEW (HTTP) |
+
+### 2.6 Permission, always-allow rule, question clock
+
+A permission is `{id, agent_id, task_id?, command, class?, irreversible, why, before[2], batch?[{id, command}]}`. A rule is `{id, match: "exact"\|"class", pattern, class_label, who: "agent"\|"all_agents", agent_id?, made_at}`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `POST /app/v1/permissions/{id}` | `{verb: "allow_once"\|"deny"\|"always", rule?:{match, who}, items?[{id, verb}]}` (batch: Allow all · Deny all · One by one) | `ask.resolved`, receipt, `rule.created` | wire `ResolveConsent`, `ResolveConsentRemember` (`v2:wire.go:496-497`); `wb:bridge.go:826-876` (`/answer`) | PORT |
+| `GET /app/v1/rules` · `DELETE /app/v1/rules/{id}` · `POST /app/v1/rules/{id}/restore` | Settings → Permissions, remove with undo | `rule.changed` | `v2:internal/config/approvalmemory.go` (`tools.approval` map) | NEW (HTTP; ids are new) |
+| `GET /app/v1/rules/{id}/why` | → `{rule, matched}` (the "Why?" on a receipt) | — | NEW | NEW |
+| Settings keys `permissions.mode`, `permissions.always_ask[]`, `permissions.question_clock_min` | see §2.18 | | wire `ResolvedApproval`, `SetApproval` (`v2:wire.go:619-620`), `v2:internal/session/approvalposture.go:56,69` | PORT (`wb:settings_permissions.go`) + NEW clock |
+
+### 2.7 Clarification and question (agent side)
+
+One `Ask` object covers every engine kind: `{id, kind: "question"\|"clarification"\|"permission"\|"your_call"\|"proposal"\|"budget"\|"order_ask"\|"reminder", source:{kind, id}, path[], title, options[], suggested?, irreversible, touches_prod?, clock?:{starts_at? \| pauses_at?}, before[2], state: "waiting"\|"answered"\|"withdrawn", receipt?}`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `POST /app/v1/asks/{id}/answer` | `{choice?, words?, verb?: "later"\|"you_decide", expect?}`. A second answer gets 409 `{by, at}` and the sentence "@jm answered this 10s ago. Your answer wasn't sent." | `ask.resolved` | wire `ResolveQuestion`, `Question.Hold` (`v2:wire.go:510,522`); `wb:bridge.go:826-876`, `routes.go:136` | PORT |
+| `GET /app/v1/asks/{id}` | → `Ask` with `before[2]` (the two turns before it) | — | wire `Held.Questions` (`v2:wire.go:733`); `v2:internal/session/question.go:713` | PORT |
+
+"Later" on an ask is the engine-side hold ("folds into the header count"). The Inbox's Later is app state (§2.13). These are two different things, and the app sends both.
+
+### 2.8 Receipt and notice
+
+Receipts and notices are transcript entries, not resources. Each is a `DisplayEntry` whose `kind` is `receipt` or `notice`, with `{text, by, at, link?:{kind, id}}`.
+- They arrive as `turn.entry` events.
+- They are written by the engine for every decision, including automatic ones and answers given in the Inbox (X1 Receipts).
+- Backed by `wb:bridge.go:504-580` (event kinds `notice`, `jobUpdate`, `questionAnswered`).
+- Status: **PORT** for notices. Receipts made uniform for every decision path are **NEW**.
+
+### 2.9 Crew
+
+S2 fields: `id, name, tint (iris·sage·sand·tide·rose·graphite), goal, manager_id, parent_id?, depth, budget, share, ends_at?, state (active·wrapping_up·report_ready·closed·archived), report?, created_from, closed_at?, archived_at?`, plus the derived `state_line` ("2 running 1 needs you") and `spent`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/crews?q=` · `GET /app/v1/crews/{cid}` | → crew, team tree, plan (read-only), items | — | wire `Teams.Read` (`v2:internal/remote/wire_teams.go:35`), `v2:internal/teams/teams.go:55` | NEW (HTTP) |
+| `POST /app/v1/agents/{id}/bring-in-helpers` | → proposal card `{name, tint, helpers[{role, model, budget}], budget, ends_at}` (the agent proposes it) | `ask.created` | wire `Teams.Propose` (`wire_teams.go:116`) | NEW (HTTP) |
+| `POST /app/v1/crews` | `{from: "proposal", proposal_id, edits?}` or `{from: "agents", agent_ids[], name, goal, manager: "new"\|agent_id, members[]}` | `crew.created`, `agent.changed` | wire `Teams.Update` (`wire_teams.go:40`). The summary-per-chat handover for a crew made from agents is NEW | NEW |
+| `PATCH /app/v1/crews/{cid}` | `{name?, tint?, goal?, budget?, ends_at?}` | `crew.changed` | `Teams.Name`, `Teams.Update`. Tint is NEW: the code has a float `Hue` (`teams.go:70`) | NEW |
+| `POST /app/v1/crews/{cid}/replace-manager` | `{member_id \| role}` | `crew.changed` | `FormerManager` (`teams.go:66`) | NEW (HTTP) |
+| `POST /app/v1/crews/{cid}/wrap-up` · `/keep-going` · `/finish` · `/reopen` · `/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | wire `Teams.WrapUp`, `Teams.AcceptClosing` (`v2:internal/remote/wire_teams*.go:64-65`) | NEW (HTTP) |
+| `GET /app/v1/crews/{cid}/log?before=` | members talking, newest first | `crew.log` | wire `Teams.Traffic` (`wire_teams.go:44`) | NEW (HTTP) |
+| `POST /app/v1/crews/{cid}/items` · `DELETE …/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | NEW | NEW |
+| `GET /app/v1/crews/{cid}/summary-since?at=` | "While you were away · 3h" | — | NEW | NEW |
+
+### 2.10 Member
+
+S2 fields: `crew_id, agent_id, role_id, is_manager, reports_to, cap?, state (running·idle·needs_you·paused·stopped)`, plus `also_in[]` (copies in other crews) and `spent`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `POST /app/v1/crews/{cid}/members` | `{role_id \| new_role{name, instructions, model, effort}, agent_id?, cap?, reports_to}` → member. An agent already in this crew gets 409 "already in Flaky tests" | `crew.changed` | `teams.Member` (`teams.go:~20-50`) | NEW (HTTP) |
+| `PATCH /app/v1/crews/{cid}/members/{mid}` | `{cap?, reports_to?, instructions?}` | `crew.changed`, receipt | `Teams.Spend`, `teamsettings.go` | NEW (HTTP) |
+| `POST …/members/{mid}/pause` · `/resume` · `/move {crew_id}` · `/remove` | the manager has no `remove`: 409 → replace-manager | `crew.changed`, `agent.changed` | NEW | NEW |
+| Messaging a member | `POST /app/v1/agents/{member.agent_id}/turn` (§2.1) | | each member is a conversation | PORT |
+
+### 2.11 Role
+
+`{id, name, instructions, model, effort, made_by, copies[{crew_id, member_id}]}`.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/roles` · `POST` · `PATCH /app/v1/roles/{rid}` | an edit updates every copy's instructions at its next step | `role.changed` | no crew-role store exists (`internal/roles` holds *model* roles) | NEW |
+
+### 2.12 Sub-crew and report
+
+- A sub-crew is a crew with `parent_id`. `POST /app/v1/crews/{cid}/bring-in-helpers` on a member makes one.
+  - At depth 3 the route answers 409 "Crews nest 3 deep at most."
+  - Defaults come from `DefaultTeamsDepthLimit = 3` and `DefaultTeamsSubSharePct = 50` (`v2:internal/config/teamdefaults.go:44-45`).
+  - Status: **NEW** (HTTP).
+- A report is `GET /app/v1/crews/{cid}/report` → `{shipped, decisions[], files[], left_open[{text, hand_off?}], cost, markdown}`.
+  - It is backed by the report packet `Team.Report` (`teams.go:81`). The five-part structure is **NEW**.
+- Questions climb through `Teams.Raise`, `Teams.Decide` and `Teams.Escalate` (`wire_teams.go:43-47`). They surface as one `Ask` with `path[]` (§2.7). The `path` field is **NEW**.
+
+### 2.13 Inbox (derived)
+
+`GET /app/v1/inbox` returns `{items[]}`, the **waiting** set only, oldest first. An item is `{id, kind, source:{kind, id, factory?}, title, path[], created_at, context:{before[2]}, verbs[], who_can_answer}`.
+
+| Kind | Source | Backed by | Status |
+|---|---|---|---|
+| `question`, `clarification` | agent, member, task, crew (climbed) | `Held.Questions`, `Teams.Packets` | PORT (`wb:attention.go`) + NEW path |
+| `permission` | agent, task (batch) | consent | PORT |
+| `your_call` | task | `Task.Pending` (`wire_task.go:57`) | NEW (HTTP) |
+| `approval_plan`, `approval_proof` | job | factory `needs_you` `approve_plan`, `approve_proof` | EXISTS (factory) |
+| `approval_start` | job | not a factory kind yet | NEW (F-3) |
+| `budget` | agent, member, crew, job, day cap | factory `spending_limit` · engine rail | EXISTS (factory) / NEW (engine) |
+| `out_of_rounds` | job | factory `out_of_attempts` | EXISTS (rename) |
+| `failed` | agent (provider ×3), job (`failure`) | `job.failure` is not a needs-you kind | NEW |
+| `changes_requested`, `conflict` | job | `pr.review_decision` exists; conflict does not | NEW (F-3) |
+| `publish_failed` | job | factory `publish_failed` | EXISTS |
+| `runner_offline` | job | `failure.code machine_lost` | NEW (F-3) |
+| `order_ask`, `reminder` | standing order | standing cards | NEW (HTTP) |
+
+Answer-once:
+- The Inbox never owns an answer. `POST /app/v1/inbox/{id}/answer {…}` forwards to the source verb (`asks`, `permissions`, `tasks/decide`, `orders/runs`, or the factory `/v1/jobs/{id}/approve|answer`).
+- Every surface that showed the item receives `inbox.resolved {id, how: "here"\|"in_place"\|"someone_else"\|"no_longer_needed", by, at}` within one second (U3-07).
+- Approve and answer hold for 5 s, as **Approving… Undo**:
+  - The binary keeps the pending decision with `undo_until`.
+  - `POST /app/v1/inbox/{id}/undo` within 5 s cancels it, and nothing is sent.
+  - This hold is server-side so that the Inbox, chat and job show one hold. For agent asks it is NEW. For factory approvals the factory lane owns it (`undo_until`, F-2).
+- Later, Done today, mark-done (`e`), notifications and the Dock badge count are **app state**. The app keys them by item `id`. Item ids are stable and derived from the source, e.g. `ask:<id>`, `job:<factory>:<id>:<kind>:<since>`.
+- Status: **PORT** (`wb:attention.go`, `worldstream.go` `attention` type) plus **NEW** merge across factories.
+
+### 2.14 Memory
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | wire `Memory.Snapshot`, `Memory.List` (`v2:internal/remote/memory.go:99,106`) | NEW (HTTP) |
+| `PATCH /app/v1/memory/{id}` · `POST …/forget` · `POST …/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | `Memory.Update`, `Memory.Forget`, `Memory.Restore` (`memory.go:108-112`) | NEW (HTTP) |
+| setting `memory.agents_may_add` | | | NEW key | NEW |
+
+### 2.15 Spending ledger and caps
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/spending?when=&by=` | → `{today:{spent, cap}, rows[{at, who:{kind,id}, what, cost, model}], by_agent[]}` | `spend.changed` (throttled 1/s) | wire `Places.Ledger` (`v2:internal/remote/wire_places.go:42`), `v2:internal/router/ledger.go:44`, `Agent.Usage` (`session/agent.go:633`) | NEW (HTTP) |
+| `GET /app/v1/spending/today` | → `{spent, cap}` (the empty app line "Day cap $20.00 · $0.00 spent today") | | `DailyBudgetUSDAt` (`v2:internal/config/budget.go:24`) | NEW |
+| `POST /app/v1/caps/raise` | `{scope: "day"\|"agent"\|"member"\|"crew"\|"task", id?, to, for: "today"\|"for_good"}` | `inbox.resolved` | `SetSpendRail` (`wire.go:492`), `Teams.Spend`, `WriteDailyBudgetUSD` (`budget.go:45`) | NEW (HTTP) |
+
+The settings keys are in §2.18. The app's "Run 3 · up to $9" cost check reads job budgets from `/v1` and today's spend from `/app/v1/spending/today`. No estimate is made anywhere.
+
+### 2.16 Models, effort, providers
+
+| Route | Body → Response | Backed by | Status |
+|---|---|---|---|
+| `GET /app/v1/models` | → `{models[{id, name, provider, available}], default, pinned[3]}` | `wb:modelroles.go:168`, `modelpinned.go:34` | PORT |
+| `PUT /app/v1/models/pinned` · `PUT /app/v1/models/default` | | `wb:modelpinned.go` | PORT |
+| `GET /app/v1/models/roles` · `PUT /app/v1/models/roles/{role}` | `{model, effort}`. Only `checks` and `planner` are shown (X4 Advanced · Model per role) | `wb:modelroles.go:172-186`; `v2:internal/roles/roles.go:35` | PORT |
+| `GET /app/v1/keys` · `PUT/DELETE /app/v1/keys/{provider}` | §1.2 | `wb:settings.go:58` (presence only) | PORT+NEW |
+| `POST /app/v1/providers/{p}/sign-in` | → `{verification_uri}`, then `keys.changed`. Browser sign-in, no timeout | `v2:internal/openrouterauth` | NEW (HTTP) |
+
+Effort on the wire is `low|medium|high`. The binary's `xhigh` and `max` (`v2:internal/effort/effort.go:27`) stay for the TUI and are never shown to the app.
+
+### 2.17 Search (⌘K) and History
+
+| Route | Body → Response | Backed by | Status |
+|---|---|---|---|
+| `GET /app/v1/search?q=&kinds=&include_closed=` | → `{groups:[{kind: "agents_crews"\|"jobs"\|"files", rows[≤4]}]}`. Order: exact prefix › word prefix › substring, ties broken by last used. Open tabs and Commands are app-side | wire `Places.Search` (`wire_places.go:53`) for said:, `wb:history.go:247`, solo `/v1/queue` jobs, `wb:files` find | NEW (merge) |
+| `GET /app/v1/history?q=` | All crews and agents: tokens `state: said: since: kind: crew: model: cost:`. Meter: Open · Pinned · Closed · Archived | `wb:history.go:243-271` | PORT |
+
+Team factory jobs in ⌘K come from the app's own `/v1` cache. The binary searches only what it owns.
+
+### 2.18 Settings that belong to the binary
+
+`GET /app/v1/settings` → `{key: value}`. `PATCH /app/v1/settings` with `{key: value}` validates each value and returns 422 with the reason.
+
+| Key | Default (design) | Today in v2 | Status |
+|---|---|---|---|
+| `models.default`, `models.effort`, `models.pinned[3]`, `models.roles.{checks,planner}` | first model from setup · medium | profile `config.json` | PORT (`wb:modelroles`) |
+| `spending.day_cap` | $20.00 (written at J01) | `DefaultDailyBudgetUSD = 500` (`v2:internal/config/config.go:128`) | CHANGED |
+| `spending.per_agent` | $5.00 | none (standing per-run $5, `standing.go:406`) | NEW |
+| `spending.per_task` | $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | CHANGED |
+| `spending.per_conversation_ceiling` | off | `SetSpendRail` | EXISTS (wire) |
+| `memory.agents_may_add` | on | — | NEW |
+| `permissions.mode` | ask_risky | approval posture | PORT |
+| `permissions.always_ask[]` | acting in your name, deleting outside a task, payments | `guard`, `paymentrefusal` | NEW (list) |
+| `permissions.question_clock_min` | 15 | none | NEW |
+| `accounts.{github,google,slack,mcp:*}` | ask_first | `internal/connect` | NEW (HTTP) |
+| `factory.polling_s` | 60 | `Config.PollingEvery` is unset by launchers | CHANGED |
+| `advanced.context_tokens` | 160k | ctxbudget | EXISTS (key) |
+| `advanced.work_folder` | `~/codeaf/work` | workspace flag | NEW key |
+| `advanced.proposal_s` | 12 (0–60, 0 = never) | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | CHANGED |
+| `advanced.idle_days` | 7 | — | NEW |
+| `crews.depth`, `crews.share_pct`, `crews.wake` | 3 · 50 · on | `teamdefaults.go:42-48` | EXISTS (keys) |
+
+UI-only keys stay in the app: theme, tint, text size, open at login, banners, sound, dock badge, density, auto-update, and "Later 09:00".
+
+### 2.19 First run
+
+- `GET /app/v1/setup` → `{step, has_key, default_model?, day_cap?}`. The binary remembers the J01 step so that a quit mid-way resumes at the same step.
+- `POST /app/v1/setup` with `{step, …}` advances it.
+- Step 2 is `PUT /app/v1/keys/{p}`. The one check call has a 10 s timeout and quotes the provider's words verbatim ("Key didn't work · the provider said: invalid API key (401)").
+- Status: **NEW**.
+
+### 2.20 The AI door
+
+```
+POST /app/v1/ai/call
+{ "role": "app.summary" | "app.title" | "app.<purpose>",   // registered app roles only
+  "tier": "reflex" | "low" | "worker",                      // optional; default from the role
+  "messages": [{ "role": "system"|"user"|"assistant", "content": "…" }],
+  "max_tokens": 800, "json_schema": { … }?, "stream": false,
+  "budget": { "usd": "0.05" } }
+→ { "text": "…", "json": { … }?, "model": "deepseek/…", "usage": {in, out}, "cost": {"usd":"0.0012"}, "ledger_id": "…" }
+```
+
+- The binary picks the model through its own routing: `roles.Role` and `lane` (`v2:internal/roles/roles.go:35,294`, `v2:internal/lane/`). The app never names a model.
+- Every call goes through the one token funnel. It writes a ledger row as `who:{kind:"app", purpose}` and counts against the day cap. At the cap it answers 402 `{reason:"at_cap"}`.
+- With `stream: true` the call returns SSE `ai.delta` / `ai.done` on its own response, not on the main stream.
+- The registry of app roles lives in the binary (`internal/roles`), so a structural test can list every token path.
+- Status: **NEW**.
+- S0 forbids the app's own logic from asking a model to "decide, rank, summarise or suggest". The door exists for features the owner adds later, and the design itself names none. See Q2.
+
+### 2.21 Activity (app side) and History
+
+- The engine's own Activity (agent closed, crew finished, rule removed) appears as `activity` events, and is listed by `GET /app/v1/activity?since=`.
+- Tidy-undo bookkeeping is app state. The engine supplies the inverse verbs (`reopen`, `restore`).
+- Status: **NEW**.
+
+### 2.22 Factory
+
+The factory API is `/v1` as specified in `v2:docs/design/factory/ARCHITECTURE.md` §4. The app uses it as is: from the in-process solo factory on the same listener, and from team factories over HTTPS.
+
+The engine adds only the following:
+- `POST /app/v1/factories/solo` and `POST /app/v1/factories {url}` (§1.4).
+- Hand to factory: `POST /app/v1/agents/{id}/hand-off` → a card `{title, brief, repo, pipeline, issue: bool, start: "now"\|"backlog", assignee}`, then `POST …/hand-off/{card}/send` → `{factory, job}`.
+  - It stops the originating task with "Handed to the factory" and writes the notice. The job's `ask.source` links back to the chat.
+  - It is backed by `POST /v1/jobs` plus a NEW `from_ref`.
+
+Deltas the factory lanes must add (t-v2-factory-jobs, t-v2-factory-people). Most are already in their briefs:
+
+| # | Delta | Lane |
+|---|---|---|
+| F-1 | `Config.Access` mode where the per-launch app token is the host token and loopback is not the owner; `served_by: "app"` | jobs (small, `serve/access.go`) |
+| F-2 | Server-side approval hold: `undo_until` = decided + 5 s, plus `POST /v1/jobs/{id}/undo` | jobs |
+| F-3 | Needs-you kinds `approve_start`, `failed`, `changes_requested`, `conflict`, `runner_offline`. Renames `out_of_attempts`→`out_of_rounds`, `spending_limit`→`budget` (Contract 2, or additive aliases) | jobs |
+| F-4 | `POST /v1/jobs` accepts `source: "hand-off"`, `from_ref: {kind: "agent", id, title}`, `assignee`, `start` | jobs |
+| F-5 | Runner `asleep` state, set by the engine on power events (`POST /v1/workers/{id}/asleep` or a heartbeat field) | people |
+| F-6 | Typed SSE events for every new kind: `job.state` with `{job, state, reason}`, `runner` (renamed from `machine`), `activity` | both |
+| F-7 | A per-person `dismissed` flag and `is:dismissed`; a `priority` + `set_by` verb; Nudge (`POST /v1/jobs/{id}/nudge`) | jobs |
+
+---
+
+## 3. The event stream
+
+`GET /app/v1/events` streams SSE in the factory's style (`v2:internal/factory/serve/events.go:16-103`):
+
+```
+id: e_18422
+event: task.changed
+data: {"agent":"a_…","task":"t_…","state":"your_call","at":"…"}
+
+```
+
+- **Ids** are `e_<n>`, monotonic within one engine **epoch**. The `hello` carries an `epoch`, and an id from another epoch counts as unknown.
+- **Replay.** `Last-Event-ID` replays strictly later events from a ring of 4096 records, the same size as `wb:worldstream.go:22` (`WorldRing`).
+  - An unknown or expired id gets one `reset` event, `{epoch, reason}`, and the client re-reads.
+  - A first connection starts live.
+  - This mirrors `/v1` (200-record window, `changed *`) and `wb:` (`after=N`, gap → full snapshot).
+- **Keepalive** is a `: keepalive` comment every 20 s.
+- **Size.** Events carry ids and small facts, not whole objects, except `turn.entry` and `turn.delta`, which carry the text. Clients re-`GET` the full object.
+- **One stream for all agents.** Per-agent filtering is `?agent=<id>` (repeatable). The default is everything except `turn.delta` for agents not named. This keeps a 14-tab window cheap.
+
+| Event | Data | Source |
+|---|---|---|
+| `hello` | `{epoch, codeaf_version, contract}` (first frame) | NEW |
+| `reset` | `{epoch, reason}` | `wb:worldstream.go:320-328` |
+| `agent.created` · `agent.changed` · `agent.removed` | `{agent, fields[]}` (name, state, glyph, model, budget, closed) | `wb:worldrows.go` `world` rows |
+| `turn.started` · `turn.ended` | `{agent, turn, how: "done"\|"stopped"\|"failed", receipt?}` | `wb:` kinds `turnDone`, `assistantDone`, `error` |
+| `turn.delta` | `{agent, turn, kind: "text"\|"thinking", text}` | `wb:` `text`, `thinking`, `reasoning` |
+| `turn.entry` | `{agent, entry: DisplayEntry}` (tool calls, receipts, notices, cards) | `wb:` `toolBegin…toolFinished`, `notice`, `caption` |
+| `turn.long` | `{agent, turn, after_s: 180}` (once per reply) | NEW |
+| `queue.changed` | `{agent, queue[]}` | `wb:` `steerAccepted`, `steerConsumed`, `steerFellThrough` |
+| `ask.created` · `ask.resolved` · `ask.withdrawn` | `{ask, agent?, kind, how?, by?}` | `wb:` `question`, `consent`, `questionAnswered`, `questionWithdrawn` |
+| `task.created` · `task.changed` | `{agent, task, state, clock?, step?}` | `wb:` `taskProposal`, `taskUpdate`, `taskPhase` |
+| `quick_task.changed` | `{agent, quick_task, state}` | NEW |
+| `process.changed` · `process.output` | `{agent, process, state, exit_code?, url?}` · `{process, text}` (follow streams only) | `wb:` `jobUpdate` |
+| `order.changed` · `order.fired` | `{agent, order, state, trust, approved_runs}` · `{order, run, ask?}` | NEW (`Standing.Watch`) |
+| `crew.created` · `crew.changed` · `crew.log` · `report.ready` | `{crew, fields[]}` · `{crew, from, to, text}` · `{crew}` | NEW (`Teams.*`) |
+| `role.changed` · `rule.changed` · `memory.changed` · `settings.changed` · `keys.changed` | `{id}` / `{keys[]}` | NEW |
+| `inbox.added` · `inbox.resolved` · `inbox.undo_window` | `{item, kind}` · `{item, how, by, at}` · `{item, until}` | `wb:attention.go` + NEW |
+| `spend.changed` | `{today, cap, agent?}` (≤1/s) | NEW |
+| `factory.changed` | `{factory, state}`, plus each attached factory's typed events re-emitted as `factory.event {factory, type, data}` only for Inbox kinds | NEW |
+| `activity` | `{at, actor, verb, object, detail}` | NEW |
+| `title.changed` | `{agent, name}` | `wb:` `titleChanged`, wire `Title.Watch` |
+
+---
+
+## 4. Port plan
+
+### 4.1 What to bring from `wb:internal/desktopbridge`
+
+| Bring | Becomes | Note |
+|---|---|---|
+| `bridge.go` (session core, ring, replay), `routes.go`, `snapshotview.go`, `lifecycle.go`, `attach.go`, `queue.go`, `queue_send.go` | `internal/appapi/agents*.go` | Remove the `OneModel`/`Model` gate (`bridge.go:31,707`): v2 agents pick models. Remove places args |
+| `origin.go`, the token parts of `bridge.go`, `cmd/codeaf/desktop_bridge.go` | `internal/appapi/guard.go`, `cmd/codeaf/app_serve.go` | `--parent-pid`, stdin life line, `--keys-fd`, solo factory mount |
+| `attention.go`, `world.go`, `worldrows.go`, `worldstream.go`, `worldseen.go` | `internal/appapi/stream.go`, `inbox.go`, `rows.go` | One stream instead of two. Rows become agents and crews |
+| `jobs.go` | `internal/appapi/processes.go` | Rename to processes, everywhere on the wire |
+| `files.go`, `fileslist.go`, `workview.go` (stat/text/find/changes/diff only) | `internal/appapi/files.go` | Read-only. Keep `files_mutation_absent_test.go` |
+| `history.go`, `history_delete.go` (archive/restore only) | `internal/appapi/history.go` | Drop the delete route: S0 says nothing is deleted |
+| `modelroles.go`, `modelpinned.go`, `settings.go`, `settings_permissions.go` | `internal/appapi/models.go`, `settings.go` | |
+| `plan_routes.go`, the task routes in `routes.go` | `internal/appapi/tasks.go` | |
+| Tests: `route_table_test.go`, `security_test.go`, `typed_clients_contract_test.go`, `endpoints_test.go`, `snapshot_flow_test.go`, `snapshotring_test.go`, `lifecycle_flow_test.go` | same | They keep their laws |
+
+### 4.2 What to drop
+
+The v2 design does not need any of these:
+- **Places**, about 25 files (`places*.go`, `placehome.go`, `using.go`, `workingfolder.go`, `placechange.go`, `openrequest.go`, `remember_knows.go`, `knows_routes.go`). S0: "The UI never shows a place on an agent", and X1 out of scope: "Agent folders or places".
+- **Decisions** (`decisions.go`). Councils (`council_routes.go`) are out too: "Crews talking to each other" is backlog.
+- **Workspaces and tab groups** (`workspaces*.go`, `tabgroups.go`). Tabs, panes and windows are app state.
+- **Terminals** (`terminal*.go`, `termenv.go`). Editors and favicons (`editors.go`, `favicon.go`, `webfavicon.go`, `workspacefavicon.go`): there is no design surface for them.
+
+Dropping places also removes the dependency on packages that are absent from v2: `placegraph`, `placeorg/*`, `workspacestore`, `council`, `decide`.
+
+The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionOutcome`/`RecentQuestionOutcomes`, `DiffStart`, `TextFile`. Each is either dropped with places or ported as a small change (lane A4b checks the signatures of `ListDir`, `StatPaths`, `FetchedFile`, `JobNotice`, `EventTitleChanged` and `EventTaskPhase`).
+
+### 4.3 Lanes (½–1 day each, in dependency order)
+
+| Id | Scope | Deps | Size |
+|---|---|---|---|
+| A1 | `codeaf app serve`: listener, hello line, token, origin/host guard, parent-pid and stdin life, `--home`, `/app/v1/health`, shutdown, route-table and security tests | — | 1 d |
+| A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d |
+| A3 | Stream: the hub, `e_<n>` ring 4096, epoch, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d |
+| A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d |
+| A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d |
+| A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d |
+| A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d |
+| A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d |
+| A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d |
+| A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d |
+| A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d |
+| A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d |
+| A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d |
+| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d |
+| A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d |
+| A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d |
+| A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d |
+| A15 | Engine rules (§5) that no other lane owns: `/crew` → `/seats`, idle rule, defaults | — | ½ d |
+| A16 | Contract: `docs/design/app-v2/API.md` ↔ route table law; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d |
+
+Parallel waves:
+1. A1.
+2. A2, A3, A15.
+3. A4a, A11a.
+4. A4b, A10a, A11b, A12, A16.
+5. A5, A6, A7, A8, A10b, A13.
+6. A9, A14, which wait on the factory deltas.
+
+### 4.4 Collision risks with the running factory lanes
+
+- t-v2-factory-jobs and t-v2-factory-people both edit `internal/factory/**` (`api`, `serve`, `live`, `record`), `cmd/codeaf/factory*.go`, the manual and the change entries. Every A-lane except A14 lives in a NEW package, `internal/appapi`, plus `cmd/codeaf/app_serve.go`, and does not touch those paths.
+- A14 and F-1…F-7 touch the same files. Hand F-deltas to the factory lanes as amendments (`plandb task amend`) rather than editing their files. A14 starts after both lanes land.
+- Shared hot files: `cmd/codeaf/main.go` (one dispatch line for `app`), `internal/config/settings.go` and `apikey.go` (A2, A15), `internal/session/task*.go` (A5, A15), and `internal/standing/*` (A7). Keep each edit narrow and rebase on `app/v2` before every push.
+- The wire names `machine` → `runner` and `audit` → `Activity` are being renamed by the people lane. A3 must consume whichever name has landed. The app stream re-emits factory events under its own names, so it is insulated.
+- `docs/changes/unreleased` gets one entry per lane, which can conflict on append. Use separate files.
+
+---
+
+## 5. Engine behaviour changes the design requires
+
+| Rule (board) | Now on `app/v2` | Change | Where |
+|---|---|---|---|
+| Agent names are deterministic: first words, ≤40 chars, until renamed (S0, S2; AI titles backlog) | AI title through `roles.RoleTitle` (`v2:internal/session/handlepick.go:210-222`) | **CHANGED**: in app mode, names come from the first words of the first message. The AI title stays for the TUI. See Q2 | `session/handlepick.go`, A4a |
+| Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS** (number). Check the reset-on-Not-right and Skip semantics | `standing/words.go`, A7 |
+| Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 |
+| Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 |
+| Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 |
+| Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 |
+| Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 |
+| Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `sweep.go`, A6 |
+| Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 |
+| Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 |
+| Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b |
+| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **CHANGED** (setup writes 20; the built-in default stays for the TUI unless the owner says otherwise) | A11a |
+| Sub-crew depth 3, share 50% | `teamdefaults.go:44-45` | **EXISTS** | — |
+| Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a |
+| Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a |
+| Idle agent: no message 7 days and nothing running; nothing closes on its own | none | **NEW** derived flag | A15 |
+| Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **NEW** | A4b |
+| Running long: one line at 3:00 per reply; Move it to a task | none | **NEW** | A4b/A5 |
+| Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 |
+| Approve/answer 5 s hold, server-side | none (engine); factory none | **NEW** (A9, F-2) | |
+| Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — |
+| Glossary: TUI `/crew` (a task's model seats) → `/seats` | `CrewCommand = "/crew"` (`config/crew.go:103`) | **CHANGED**: `/seats`, with `/crew` an alias for one release; manual pages | A15 |
+| Glossary: background job → process; teams → crews; managers/traffic → manager/log; machine → runner; audit → Activity; attempts → rounds | Go names | **CHANGED on the wire only**. The codec maps; Go keeps names | A4–A10, factory lanes |
+| Agents have no place: context arrives as chips | places in `wb:` | **DROP** (do not port) | §4.2 |
+| Keys never on disk | profile `api_key` in `config.json` (`config/apikey.go`) | **CHANGED** in app mode | A2 |
+
+---
+
+## 6. Open questions for the owner
+
+1. **One home or two?** Do the app's agents and crews share the TUI's home (`~/.codeaf`), so the same agents appear in both? Or does the app get its own home under Application Support? Sharing gives one history. Separate homes avoid two writers on one profile and keep TUI defaults ($500 day cap, AI titles) apart. This file assumes **separate** (§1.1).
+2. **Titles: deterministic or AI?** S0 rules names deterministic and lists the Titles-and-summaries role as backlog. The brief says AI through the binary is allowed. Should v2 ship deterministic names only, with no AI title even through the door? This file assumes yes. The AI door ships with no app role registered until you name one.
+3. **Per-agent budget period.** S2 says "budget default $5.00; asks at it", which reads as a lifetime figure. X4 Settings says "Per agent $5.00 · each agent, each day". Which is it?
+4. **Factory Contract 2.** Renaming needs-you kinds (`out_of_attempts`→`out_of_rounds`, `spending_limit`→`budget`) and `machine`→`runner` on `/v1` breaks the shipped desk R1. Should we bump Contract to 2, or keep the old names on `/v1` and map only in the app?
+5. **Keychain service name.** S0 says `ai.codeaf.app`; the shipped desk uses `ai.agentfield.codeaf-desk`. Should we migrate the stored entries at first v2 launch, or keep the old name?
+
