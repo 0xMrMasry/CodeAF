@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: design, 2026-10-12. Nothing here is built yet. Branch `app/v2`.
+Status: A1 transport built, 2026-10-12; remaining lanes are design. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -47,29 +47,32 @@ The API speaks the S0 glossary: agent, task, process, standing order, crew, memb
                                             └──────────────────────────────────────────┘
 ```
 
-- **Command.** The app runs `codeaf app serve --home <dir> --listen 127.0.0.1:0 --parent-pid <pid>`. This is NEW: `cmd/codeaf/app_serve.go`, ported from `wb:cmd/codeaf/desktop_bridge.go` (the `desktop-bridge` command).
+- **Command.** The app runs `codeaf app serve --home <dir> --listen 127.0.0.1:0 --parent-pid <pid>`. **EXISTS (A1)**: `cmd/codeaf/app_serve.go`, ported from `wb:cmd/codeaf/desktop_bridge.go` (the `desktop-bridge` command).
 - **Home.** `--home` is the binary's data root. It is the same as `$CODEAF_HOME` (`v2:internal/home/home.go:29`).
   - macOS: `~/Library/Application Support/codeaf/engine`.
   - Linux: `$XDG_DATA_HOME/codeaf/engine`.
+  - Without `--home`, these app-specific defaults apply; Linux falls back to `~/.local/share/codeaf/engine` when `XDG_DATA_HOME` is unset or relative. An inherited `CODEAF_HOME` does not select the app's default. The resolved absolute path becomes `CODEAF_HOME` before any engine writer starts.
   - The app's `app.db` sits one level up in `…/codeaf/`, and the solo factory store sits at `<home>/v3/factory` (`v2:cmd/codeaf/factory.go:30`). This is how "factory.db beside app.db" (S2) maps onto the code: the factory is a JSON file store, not SQLite, and stays one. Open question Q1 asks whether this home is shared with the TUI.
 - **Listener.**
   - The listener is a loopback TCP port, picked by the OS. It is not a unix socket, because WKWebView/WebKitGTK `fetch` and `EventSource` cannot dial a socket. A socket would force a Rust proxy for every byte of SSE.
   - The bridge refuses non-loopback addresses (`wb:cmd/codeaf/desktop_bridge.go:47-54`). We keep that.
 - **Hello.**
-  - The binary writes exactly one JSON line to stdout: `{"url":"http://127.0.0.1:53021","token":"<64 hex>","pid":1234,"codeaf_version":"…","contract":1,"home":"…"}`. Then stdout is silent. Logs go to stderr and into `<home>/logs/app-serve.log`.
+  - The binary writes exactly one JSON line to stdout: `{"url":"http://127.0.0.1:53021","token":"<64 hex>","pid":1234,"codeaf_version":"…","contract":1,"home":"…","epoch":"<64 hex>"}`. Then stdout is silent. Logs go to stderr and into `<home>/logs/app-serve.log`. The epoch is fresh and independent of the token.
   - This shape comes from `wb:desktop_bridge.go:230`, which prints `{url,token,model}`.
 - **Token.**
   - The token is 32 random bytes, freshly made at each launch and held only in memory. It is never written to disk.
-  - Every route needs `Authorization: Bearer <token>`, compared in constant time. This is the PORT of `wb:internal/desktopbridge/bridge.go:228,601`.
+  - Every route needs `Authorization: Bearer <token>`, compared in constant time. **EXISTS (A1)**, ported from `wb:internal/desktopbridge/bridge.go:228,601`.
+  - An allowed-origin `OPTIONS` preflight needs no token and invokes no resource handler. Actual requests always need the bearer header; A1 accepts no query token.
   - `EventSource` cannot set headers. The Rust core therefore opens the SSE stream and forwards events over a Tauri channel. The alternative is `?access=<token>` on `/app/v1/events` only, as a one-route exception (§3).
-- **Origin and Host guard.** PORT `wb:origin.go:29-37`:
+- **Origin and Host guard.** **EXISTS (A1)**, ported from `wb:origin.go:29-37`:
   - A foreign `Origin` gets 403. A non-loopback `Host` gets 421, which defeats DNS rebinding.
-  - Allowed origins are `tauri://localhost`, `http://tauri.localhost` and the dev origin.
+  - Allowed origins are `tauri://localhost`, `http://tauri.localhost`, `http://localhost:1420` and `http://127.0.0.1:1420`. A request without Origin (the Rust core) still needs the token. Empty or repeated Origin headers are refused. Host must be a loopback IP or `localhost` with a numeric port from 1 through 65535.
 - **Loopback is not trust.** On Linux, other local users can reach 127.0.0.1. The in-process solo factory therefore runs with `Access: "token"` and accepts the same per-launch token as its host token. Today the factory treats loopback as the owner (`v2:internal/factory/serve/access.go`). That is a factory delta (§2.22, F-1).
 - **Life.**
   - The binary exits when stdin reaches EOF or when `--parent-pid` dies. A crashed app therefore never leaves an engine running.
   - Running processes stop on exit (X1: processes stop when the app quits). That is why the app asks first on Quit, using `GET /app/v1/processes?state=running`.
   - Before it quits, the app calls `POST /app/v1/shutdown {reason}`. That stops processes, writes a receipt for each one and flushes the ledger.
+  - **A1 status:** stdin EOF, parent death (checked at launch and every 1 s), SIGINT, SIGTERM and authenticated shutdown end the HTTP server. `--parent-pid 0` disables parent checking, never stdin life. Shutdown flushes `{ok:true}` before stopping, allows up to 3 s for HTTP requests to finish, then closes remaining connections. Process receipts and ledger flushing arrive with their owning lanes; A1 starts no processes or agents. Stdin handoff data is drained without logging; key ingestion is A2.
 
 ### 1.2 Key handoff (never disk)
 
@@ -418,6 +421,21 @@ Deltas the factory lanes must add (t-v2-factory-jobs, t-v2-factory-people). Most
 | F-6 | Typed SSE events for every new kind: `job.state` with `{job, state, reason}`, `runner` (renamed from `machine`), `activity` | both |
 | F-7 | A per-person `dismissed` flag and `is:dismissed`; a `priority` + `set_by` verb; Nudge (`POST /v1/jobs/{id}/nudge`) | jobs |
 
+### 2.23 Engine health and shutdown
+
+These transport routes are available before any model key or agent exists.
+
+| Route | Body → Response | Events | Backed by | Status |
+|---|---|---|---|---|
+| `GET /app/v1/health` | → `{status:"ready", codeaf_version, contract, epoch}` | — | `internal/appapi/server.go` | EXISTS (A1) |
+| `POST /app/v1/shutdown` | `{reason?}` → `{ok:true}`, flushed before exit | — | `internal/appapi/server.go`, `cmd/codeaf/app_serve.go` | EXISTS (A1 transport; process cleanup A6) |
+
+Both require the per-launch bearer token and the origin/host guard. Unknown
+routes return 404 `not_found` only after authentication. Wrong methods return
+405 with `Allow`. Shutdown accepts one JSON object of at most 16 KiB; an empty
+body, `null`, unknown fields, a non-string reason or trailing data returns 422
+`bad_input` without stopping. Repeated valid shutdowns initiate exit once.
+
 ---
 
 ## 3. The event stream
@@ -495,27 +513,27 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 
 ### 4.3 Lanes (½–1 day each, in dependency order)
 
-| Id | Scope | Deps | Size |
-|---|---|---|---|
-| A1 | `codeaf app serve`: listener, hello line, token, origin/host guard, parent-pid and stdin life, `--home`, `/app/v1/health`, shutdown, route-table and security tests | — | 1 d |
-| A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d |
-| A3 | Stream: the hub, `e_<n>` ring 4096, epoch, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d |
-| A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d |
-| A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d |
-| A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d |
-| A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d |
-| A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d |
-| A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d |
-| A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d |
-| A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d |
-| A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d |
-| A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d |
-| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d |
-| A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d |
-| A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d |
-| A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d |
-| A15 | Engine rules (§5) that no other lane owns: `/crew` → `/seats`, idle rule, defaults | — | ½ d |
-| A16 | Contract: `docs/design/app-v2/API.md` ↔ route table law; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d |
+| Id | Scope | Deps | Size | Status |
+|---|---|---|---|---|
+| A1 | `codeaf app serve`: listener, hello line, token, origin/host guard, parent-pid and stdin life, `--home`, `/app/v1/health`, shutdown, route-table and security tests | — | 1 d | EXISTS |
+| A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d | NEW |
+| A3 | Stream: the hub, `e_<n>` ring 4096, epoch, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | NEW |
+| A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | NEW |
+| A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d | NEW |
+| A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
+| A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | NEW |
+| A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | NEW |
+| A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
+| A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | NEW |
+| A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | NEW |
+| A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | NEW |
+| A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | NEW |
+| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
+| A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | NEW |
+| A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
+| A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | NEW |
+| A15 | Engine rules (§5) that no other lane owns: `/crew` → `/seats`, idle rule, defaults | — | ½ d | NEW |
+| A16 | Contract: `docs/design/app-v2/API.md` ↔ route table law; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d | NEW |
 
 Parallel waves:
 1. A1.
