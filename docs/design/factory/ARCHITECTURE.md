@@ -1,402 +1,165 @@
 # Factory service — architecture as built
 
-Status: contract for the build on `factory/page` (2026-10-10). Every lane reads this before it codes. When the code and this file disagree, fix one of them in the same change.
-
-Companion documents: `PRODUCT.md` (what and why), `FACTORY-YAML.md` (the pipeline file), `DESIGN-BRIEF.md` (the dashboard, for the designer).
-
----
-
-## 1. The shape
-
-```
-                 ┌──────────────── factory (server) ────────────────┐
-  GitHub ◄─poll──┤ sources · intake · leases · store · record · api  │
-                 │ serves: /v1/* (JSON + SSE)  and  /  (dashboard)   │
-                 └──────▲───────────────▲───────────────▲───────────┘
-                        │ /v1 client    │ /v1 + /        │ /v1/workers (long-poll)
-                   codeaf TUI       browser / phone   codeaf worker loop
-                   (desk)           (the wall)        (executes, with its person's keys)
-```
-
-One binary. `codeaf factory` runs the server. Plain `codeaf` is the desk and the worker, **always a client of a factory**: the one it starts itself on loopback, or the one it is attached to. There is no solo code path: the TUI never reads the store directly, and no process owns execution (`run.lock` and the store mailbox are gone).
-
-What stays where it is: `internal/factory` (types, LocalSeam, recipe, policy), `internal/factory/run` (the runner and the stage executors), `internal/factory/store` (JSON files), `internal/factory/github` (the source), `internal/tui3/factory*` (the page). The page keeps calling `factory.Seam`; only *which* Seam it is given changes.
-
-## 2. Vocabulary: outside vs inside
-
-The API and the dashboard speak the product vocabulary. Go internals keep their names for now; renaming 25k lines is not this wave's job. The codec is the one place that maps.
-
-| API / UI | Go today | note |
-|---|---|---|
-| job | `factory.Item` | `Item.ID` is the job id |
-| step | `factory.Stage` (definition) · `factory.Phase` (run state) | |
-| pipeline | `factory.Recipe` | |
-| claim | `factory.Claim` | `Item.Proof` |
-| question | `Item.Question` + `QKind` | one open question; `Item.AnsweredQuestions` keeps the latest 100 answers `{by, text, at, event}` |
-| needs_you | derived | `{kind, since, who_can_answer, question?}`. Kinds: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. The queue's `needs_you` groups job ids by that kind |
-| failure | `Item.Failure` | a step that errored: `{step, code, detail, attempts, machine, next, at}` on the job and on that step. `next` is `requeued` or `stopped`. Not a question |
-| ask | `Item.Ask`, or the issue | `{text, by, at, source}` for work typed in the app or the TUI; `{issue:{number,url,title}, text}` for a GitHub issue |
-| state | `Item.State` | `new`→**backlog**, `queued`, `running`, `needs you`→**needs_you**, `landed`→**needs_you** (sub-state `ready`), `shipped`→**done**, `dismissed`→**dropped**. **done** stays the published job. PR open and Merged are `pr.state` (`open`, `merged`, `closed`), not a new job state |
-| worker | — (new) | |
-| record / audit | — (new, `events.jsonl`) | |
-| cost | `Stream.Spent`, `Item.Cap` | |
-
-## 3. Packages (new)
-
-| package | holds | depends on |
-|---|---|---|
-| `internal/factory/api` | wire types (`Queue`, `Job`, `Step`, `Claim`, `Question`, `Message`, `Event`, `Worker`, `Repo`, `Pipeline`, `DryRun`), the codec from `factory.Snapshot`/`Item`, the verb names | `internal/factory` |
-| `internal/factory/serve` | `http.Handler` over a `factory.Seam` + a `store.Store`: `/v1/*`, SSE, the worker endpoints, the record, access check; mounts the dashboard at `/` | `api`, `store` |
-| `internal/factory/client` | a `factory.Seam` over HTTP (+ SSE for change ticks) | `api` |
-| `internal/factory/lease` | the claims desk: one lease per job, expiry, re-queue, the signal channel, `leases.json`; `Doors`, the runner doors every seam hangs | `store`, `run` |
-| `internal/factory/worker` | the worker loop: attach, pull, run with this machine's Runner over a mirror store, report the runner's writes (`run.Diff`), heartbeat, carry signals, done | `client`, `run`, `lease` |
-| `internal/factory/live` | bounded `live-events.json` notification record; write-time transitions and replay ids | `internal/factory` |
-| `internal/factory/record` | append-only `events.jsonl`, bound approval ids (`evt_…`), export; accepted approval/take notifications | `store`, `live` |
-| `internal/factory/pipeline` | `.codeaf/factory.yaml` reader, `.md` conversion, `start:` evaluation, dry run | `internal/factory` (Recipe) |
-
-`cmd/codeaf` gains `factory.go` dispatch for `codeaf factory …` and `attach`/`detach`, and the launch logic in §6.
-
-## 4. The API (`/v1`)
-
-All JSON. Errors: `{error, reason?, by?, at?, now_state?, request_id}`. `reason` is `not_allowed` (403), `not_found` (404), `conflict` or `stale` (409), or `bad_input` (422). A crash is 500 and has no `reason`. `request_id` is eight hex characters. Ids are the job ids (`int`). Every response carries `factory: {address, version}`. A job read includes `version` when a store holds the document.
-
-### Read
-
-| method path | returns | from |
-|---|---|---|
-| `GET /v1/queue` | `Queue{since, jobs[] (each live hold adds held_by and CODEOWNERS adds owners[]), people{handle:{name,avatar_url}}, repos[], strip, capacity{machines_online, busy}, me, reason?}`. `since` includes `shipped`, `arrived`, `asked`, `handled`, `spent`, `spent_today`, `merged_today`, `merged_week` | `Seam.Load` plus the claims desk, then the caller's visible repositories; `spent_today` is the runner's day figure. Merge counts are pull requests this factory opened whose `merged_at` falls today or this Monday-start week |
-| `GET /v1/jobs/{id}` | `Job` (full: steps, results, claims, questions, cost, pr) | `Seam.Load` filtered |
-| `GET /v1/jobs/{id}/thread` | `{factory, messages: []Message}` | `Item.Thread`, replicated from the holding machine; max 200 lines, 16 KiB each |
-| `GET /v1/events` | SSE: `changed` (job id or `*`), plus typed `needs_you`, `question`, `approved`, `taken`, `publishing`, `published`, `publish_failed`, `machine`; 20s comment keepalive; `Last-Event-ID` replays the last 200 typed events | store watch + durable notification record |
-| `GET /v1/repos` | watched + available | `Seam.Repos` |
-| `GET /v1/repos/{owner}/{repo}/pipeline` | `Pipeline` plus `text`, `personal_text`, `personal`, `origin` (`main`, `working tree`, `defaults`), `start`, `size`, and each step's `until_sentence`. `until` stays `done`, `clean`, `green` or `proven` | `pipeline` |
-| `GET /v1/repos/{owner}/{repo}/dryrun` | `DryRun{would_start[], would_ask[], would_wait[]}`. `would_wait[]` is `{job, reason}` | `pipeline` + `Seam.Load` |
-| `GET /v1/github` | `{login, via, polling_every}` | `Seam.GitHub` |
-| `GET /v1/about` | `{factory, scheme, name, codeaf_version, contract, needs, access, polling_every, served_by}` before any token. `scheme` is `https` or `http` for the caller's own connection (a trusted proxy's `X-Forwarded-Proto` counts); `factory.address` is the public URL. `needs` is `token`, `device` or `none`. `access` is `loopback`, `token` or `tailnet`. `served_by` is `tui` or `factory` | host config |
-| `GET /v1/audit?since=` | `[]Event` | `record` |
-| `GET /v1/me` | `{codeaf_version, contract, handle, name, avatar_url, session_id, scopes[], machines[{name, os, codeaf_version, status, job, last_heartbeat}], takes_unassigned{}, access, polling_every, served_by}` | caller session; a token with no signed-in profile, the host token and open loopback use `Seam.PersonHandle`. `machines` is that handle only. `status` is `busy`, `idle` or `offline` (no heartbeat for three 2s intervals). `takes_unassigned` is the saved map, or `{}` |
-| `PUT /v1/me/takes_unassigned` | `{repo: bool}` saved for that same handle; later pulls by that handle use it | the factory store. No store answers 501 |
-| `GET /v1/members` | `{members: [{handle, name, avatar_url, joined_at, last_seen, sessions}]}` | live GitHub sign-ins, plus access-token rows that have bound a profile |
-| `GET /v1/people/{handle}` | `{handle,name,avatar_url,html_url,role,last_seen?,owns:[{repo,path}],assigned_now?,waiting_on?,questions?,machines[]}` | public GitHub profile, member/session history, visible jobs, default-branch CODEOWNERS and machine presence; Contract 1 |
-| `GET /v1/me/sessions` | `{sessions: [{id, device, created, last_seen, current}]}` | this caller's sign-ins; `device` is the User-Agent captured at sign-in |
-
-Version skew: `codeaf_version` is the build stamp; `contract` is `api.Contract`, an integer starting at 1 that is bumped only on a breaking wire change. `/v1` only adds fields; additive fields never bump it. An app newer than the factory shows "this factory runs codeaf X; update it to use Y" and keeps the read-only views.
-
-People cards use `GET /users/{handle}`, so an outside issue author needs no factory sign-in. Profiles are cached for 24 hours and revalidated with ETag; queue profile failures leave a summary from member history or blank fields, keeping the floor readable. `role` is `member` for a person in member/session history or the connected host, otherwise `outside`. Unknown last-seen and zero counts are omitted. `assigned_now` counts that person's visible jobs except shipped/dismissed; `waiting_on` counts those with a needs-you reason and `questions` counts plain questions among them. No issue author is treated as assigned merely for reporting it.
-
-Ownership reads `.github/CODEOWNERS`, then root `CODEOWNERS`, then `docs/CODEOWNERS`, stopping at the first existing file on GitHub's default branch. Reads, missing files and failures are cached until the next poll. `owns` lists declared patterns for individual handles, qualified by repository. `job.owners` is the sorted union of the last matching line's handles for planned files, source PR files and worker-reported changes. Ownerless lines clear earlier ownership. Team/email owners are not expanded into people; unsupported negation, bracket ranges and escaped patterns are skipped. Queue `people` includes every mentioned assignee, author, approver, reviewer, answerer, comment author, owner and live holder, projected onto visible jobs only. Cards filter counts and ownership before enrichment; a partial viewer sees only machines holding a visible job, so a hidden hold or idle roster cannot describe another repository.
-
-A signed-in GitHub viewer sees only repositories `GET https://api.github.com/repos/{owner}/{repo}` accepts for their token. The answer is cached for 10 minutes. Queue jobs, repositories, the strip, queued count, daily total, audit rows, `GET /v1/repos`, pipeline, dry run and a changed tick that names a job all use that set. Daily for a partial view is the sum of visible job costs, and since-counters are cleared because they are not stored per repository. `machines_online`, `busy` and `spent_today` stay floor-wide only when the viewer can see every repository; a narrower view leaves them at zero. A viewer who can see every repository still receives the factory-wide totals. A viewer who can see none receives HTTP 200 with an empty queue and `reason: "no_visible_repos"`. Loopback without a signed-in profile, and the host access token, are not filtered. A hidden job or repository answers 404.
-
-### Live notifications (additive Contract 1)
-
-`changed` keeps its plain job id or `*` body and no id. Typed events carry a
-monotonic `id: live_<number>` and small JSON `data`:
-
-| event | payload |
-|---|---|
-| `needs_you` | `{job, kind, since}`; kinds match `job.needs_you.kind`: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`; empty kind clears the need |
-| `question` | `{job, kind}`; free asks use `text`, `yes_no` or `options`, approval asks use their Needs you kind |
-| `approved` · `taken` | `{job, by}` from accepted audit receipts, including actions in another process |
-| `publishing` | `{job, state}` for every `queued`, `pushing`, `opened`, `failed` transition |
-| `published` · `publish_failed` | `{job, pr}` (`pr` is `{number,url}`, null for a comment) · `{job, reason}` (stable failure code, or detail when no code) |
-| `machine` | `{name, status}` (`busy`, `idle`, `offline`); own idle machines or a machine attached to a visible job |
-
-Store writers record each transition in `live-events.json` under a flock before
-returning. The record retains 200 typed events across restarts. The filesystem
-watch flushes within a 100ms window even during continuous writes; its 2s scan is
-only a fallback for a missing watch. SSE reads that record on a push tick, rather
-than polling jobs. Rapid transitions remain distinct, and a slow subscriber
-catches up from the retained record. Reconnect with `Last-Event-ID` to replay
-strictly later events. An unknown/expired cursor replays the retained window and
-sends `changed` with `*` to refresh current state. A first connection starts live.
-Every job event is filtered by the viewer's repository access. Machine events
-tied to a job use the same filter; idle machines without a job reach their owner. Silence becomes an offline machine event at
-its heartbeat deadline. `: keepalive` comments arrive every 20s, including on a
-factory without a store. A keepalive has no id and is not a change.
-
-### Verbs (`POST /v1/jobs/{id}/<verb>`, body as noted)
-
-| verb | body | Seam |
-|---|---|---|
-| `run` | optional `expect` | `Launch` |
-| `stop` · `pause` · `resume` | optional `expect` | `Stop` · `Hold(on)` · `Hold(off)` |
-| `drop` | `{words?, expect?}` | `Dismiss`; words are the audit detail; a holder is signaled `stop` and the branch is kept |
-| `answer` | `{yes?: bool, words?: string, commit?, choice?, reason?, expect?}` | `Answer`. `choice` is `continue`, `try_once_more`, `send_back` or `cancel_job`. `send_back` requires `reason`. An affirmative plan answer names `commit` |
-| `steer` | `{words, expect?}` | `Steer` (reply-level; records in the thread) |
-| `approve` | `{commit, edited?: bool, expect?}` → `{event: "evt_…"}` | `SignOff` (proof gate) or `Answer(yes)` (plan gate). A claim not shown refuses before any receipt. The proof receipt is written after that check and before the publish door, which reads it. A plan receipt is written only after the answer door accepts |
-| `retry_publish` | optional `expect` | Reuses the same commit's proof receipt after a failed publish; the job's person only; no new approval event |
-| `request_changes` | `{words, expect?}` | `SendBack` |
-| `recheck` | optional `expect` | `Reverify` |
-| `take` | optional `expect` | `lease.Assign(me)` |
-| `release` | optional `expect` | `lease.Release(me)` — un-take; the branch is kept; audit `released` |
-| `prioritize` | `{to: "top", expect?}` | `Mark` |
-| `reply` | `{words, expect?}` | store a pending message; `reply {id, words}` signal on heartbeat/pull; worker acknowledgment changes it to delivered |
-
-`expect` is `{state?, step?, version?}`. A field that no longer matches is HTTP 409 `{error, reason: "stale", by?, at?, now_state}`. The sentence is `already approved by @raj at 11:58` (also `approved_by`, `event`, `commit`), `already taken by @mei` (also `taker`, `at`, `machine`), or `job moved on while you looked`. A moved head is `{reason:"changed_since_opened", head_commit, by, at, commit, current_commit}`.
-
-Every job carries `can` for this caller: `{approve, run_again, cancel_job, retry_publish, answer, assign_to_me, reply}`. Approve, run again, cancel job and retry publishing are the job's person. A plain question is anyone who can see the repository. Reply is anyone who can see the job. `assign_to_me` is true only when the job has no person. A false verb answers HTTP 403 `{reason:"not_job_person", job_person}`. A wrong state stays 409. Take of someone else's job stays 409. Release of someone else's take stays `not_allowed`.
-
-**Needs you (additive, Contract 1).** `job.needs_you` is `{kind, since, who_can_answer, question?}`. The six kinds are fixed: `approve_plan`, `approve_proof`, `question`, `spending_limit`, `out_of_attempts`, `publish_failed`. Adding one is a code change. `GET /v1/queue` groups waiting jobs as `needs_you: [{kind, jobs}]` in that order, and leaves out a kind with nothing in it. `questions[]` is unchanged.
-
-`question` is `{id, kind, text, options?, from_step?, asks?, who_can_answer, answered?}`. `kind` is `text`, `yes_no` or `options`. A free question's `who_can_answer` is `anyone_with_repo`. The other five kinds are `job_person`: when the job has a person, anyone else gets HTTP 403 `only @raj can answer this`. A job with no person yet can still be answered.
-
-`spending_limit` is `{limit, spent, next_limit, currency}`. `currency` is `USD`. Answering `continue` (or yes) raises this one job's cap to `next_limit`, which is the cap doubled in codeaf. The app does not send the number. The raise is an `answered` event, not a setting. Stop does not raise it.
-
-`out_of_attempts` is a question, options `try_once_more`, `send_back` and `cancel_job`. The run asks `try once more, send it back, or cancel the job?`. `send_back` needs a reason and returns to the previous step. `cancel_job` stops the job. A loop step keeps `rounds: [{round, summary, at}]`, bounded by the step's max (or the round a try-once-more reached) and never more than 32.
-
-A step that errored is `job.failure` and the same object on that step (`tool_error`, `provider_error`, `crash`, or `machine_lost` when a lease expires), with `attempts` and `machine`. `next` `requeued` leaves the step runnable. `stopped` ends the run. The record kind is `step_failed`. It is not a question, and the job does not ask to skip it.
-
-A publish that fails stays landed with `publishing.state` `failed`, `publish_error` set, and `needs_you.kind` `publish_failed`. `POST /v1/jobs/{id}/retry_publish` uses the approval already recorded and does not write a second one.
-
-A job typed in the app or the TUI carries `ask: {text, by, at, source}` with `source` `app` or `tui`. A job from a GitHub issue carries `ask: {issue: {number, url, title}, text}`. The pull request body starts with that ask.
-
-Also: `POST /v1/jobs {repo, title, text, autostart?}` → `Seam.New`; `PUT /v1/repos {watched[]}` → `SetRepos`; `POST /v1/github/connect {token}` → `ConnectGitHub`.
-
-### Publishing (V1, additive Contract 1)
-
-`job.head_commit` is the full SHA reported by the holding worker. The proof gate
-commits outstanding work before opening, so a person approves an existing object.
-`approve {commit}` and affirmative plan `answer {commit,yes:true}` must name the
-head the person saw. A missing commit for a reported head is 422; a mismatch is
-409 `{reason:"changed_since_opened",head_commit}`. Legacy jobs without a reported
-head keep the earlier approval body. The record's approval event and PR trailer
-carry the commit. The client seam uses its last loaded head, never a fresh read
-inside SignOff. A publishing worker checks both HEAD and cleanliness before pushing.
-
-Optional `job.publishing` is `{state,code?,detail?,pr?:{number,url},attempt,at}`.
-Transitions are approval → queued → pushing → opened or failed; retry moves failed
-→ queued and increments attempt. The older `desk.publishing` flag is retained.
-Worker reports carry head and publishing snapshots through Diff and ApplyReport.
-A failure stays landed (`needs_you`, `gate:"publish_failed"`, red in the app), with
-its same-commit approval intact. `retry_publish` queues its publish signal without
-recording new consent. A changed commit requires approval again. Queued publishing
-on an offline holding machine exposes `machine_offline` and waits for that machine.
-`GET /v1/publish/codes` returns `{factory,codes:[{code,next}]}` from the fixed table
-in `internal/factory/publish/codes.go`. Connectivity and rate-limit failures are
-retried by a person; machine-offline waiting resumes through the existing lease path.
-
-Every POST accepts `Idempotency-Key`: the same credential, route and key within
-24 hours replay the first status, headers and body, including errors. Store-backed
-responses are locked across processes and persisted before being returned; handlers
-without a store use memory. Keys are hashed with the credential and route, so tokens
-never enter the file name. Approval and retry additionally share a consent lock:
-two simultaneous approvals cannot mint two receipts even with different keys.
-
-### Workers
-
-**Change facts (V7, additive Contract 1).** Every job may carry
-`change: {files: [{path, added?, removed?, status}], stat?: {files, added?, removed?}, branch?, tests?: [{step, passed?, failed?, skipped?}]}`.
-The holding machine reads its worktree after completed rounds, including failed
-checks and rechecks. Files include committed, staged, unstaged and untracked
-paths, sorted by path without the GitHub detail list's twenty-file limit.
-Statuses are `added`, `modified`, `removed`; renames report both paths. Binary
-files have no line counts. The comparison is pinned before the first round:
-an issue's initial HEAD, a PR's merge base with its target. `desk.change_base`
-and worker `change_base` preserve that commit across leases and restarts.
-
-Check counts come from explicit Go verbose/JSON outcomes, TAP outcomes, or a
-pytest summary, read before the output tail is cut. A package's `ok`, green CI,
-or exit 0 alone does not establish test counts. Each check's latest counts also
-appear at `steps[].tests`; a later count-free run removes its previous counts.
-No counts, zero totals, an empty stat or an unread change are omitted. A failed
-worktree read keeps the last successful snapshot. The factory never reads a
-remote machine's files itself; reports travel through the existing live lease
-check, `run.Diff`, codecs and store. Jobs and queue reads expose identical facts.
-Source PR jobs have optional `draft` (known true or false); published receipts
-carry `pr.draft`. Existing fields and their meaning stay intact.
-
-**Pull request follow-up (additive Contract 1).** Each poll re-reads pull
-requests the factory opened, including after they leave GitHub's open list.
-`job.pr` gains `state` (`open`, `merged`, `closed`), `merged_by`, `merged_at`,
-`review_decision` (`approved`, `changes_requested`, `review_required`),
-`reviews[]` (`by`, `state`, `at`), `required_reviews`, and
-`checks` (`passed`, `failed`, `pending`). `number`, `url`, `draft` and `ci`
-stay. Job state `done` still means the factory published. PR open is
-`pr.state` `open`. Merged is `pr.state` `merged` on that done job. The first
-time a poll sees `merged` or `closed` it appends `pr_merged` or `pr_closed`
-(`detail` `pr · <url>`). `since.merged_today` and `since.merged_week` count
-those merges. A comment-only publish keeps `pr` null and is not followed.
-
-| method path | who | what |
-|---|---|---|
-| `POST /v1/workers/attach {name, handle, os?, codeaf_version?}` | a codeaf | → `{worker_id, credential}`; handle is the worker's connected GitHub login, resolved by `Seam.PersonHandle` as for take, approve and `/v1/me`; an absent handle uses the factory's connected login, never the OS account. Loopback: no access token needed; off-loopback: the access token |
-| `GET /v1/workers/pull` | a worker (bearer credential) | long-poll (≤ 30s): `{lease, job}` or `204`. A lease is one job for one worker, with `expires_at`; heartbeat renews. Jobs are offered only to workers of the job's person, or any worker that opted into unassigned for that repo. Pending replies can lend an idle manager with `lease.thread_only: true`; the existing machine affinity still applies. |
-| `POST /v1/workers/leases/{id}/heartbeat` | worker | renews and returns signals, including unacknowledged manager replies; expired leases re-queue |
-| `POST /v1/workers/leases/{id}/report` | worker | step results, log lines, cost, claims, questions, PR facts, `thread` messages and `delivered` reply IDs — the worker's writes |
-| `POST /v1/workers/leases/{id}/done` | worker | final state; a `thread_only` lease releases the manager without changing job state or steps |
-
-Solo uses exactly these over loopback. The runner (`internal/factory/run`) keeps its state machine; its *store writes* become reports, and its *ownership* becomes a lease.
-
-**The worker's write path.** The worker's Runner runs over a mirror store on the worker's machine holding only the jobs it leased. Every `ReportEvery` (500 ms) the worker diffs the mirror against what it last sent (`run.Diff`) and posts the difference: changed steps (state, round, result), new log lines, new cost, changed claims, a new question for the person, the PR, the manager conversation, added notes, and `pipeline` when the runner reshaped the steps (the server refuses one that removes an approve step). Two things never ride a report: the job's state (the server moves it on a person's verb and on `done`) and an approve step passing (only the person's answer passes it). The final report leaves out the landing line, which `done` writes.
-
-**Replicated manager thread.** Workers read spoken manager lines on their own machine and report stable IDs in batches of at most 32. The factory merges repeated IDs once, bounds the thread to 200 messages (16 KiB per text), and never evicts pending replies. Reply writes directly to the job before signaling; heartbeat/pull offers it until `delivered` acknowledges its ID. A manager-only lease permits thread writes but no step results or costs, and done preserves the job. Offline managers keep replies pending; the pending words survive process restarts and lease expiry. `/answer` keeps the question in `questions` with `state: answered` and its answer receipt, clock and person (latest 100). All existing fields remain; Contract stays 1.
-
-**Starting a pulled job.** A pull carrying `recheck` re-runs a landed job's checks (`Runner.Reverify`); a job whose run has not begun is launched (`Runner.Launch`, so the manager shapes it); one whose run had begun — a resume, a request for changes, a worker that went away — goes on at its step (`Runner.Hold(off)` → revive).
-
-**The signal channel (server → worker).** A person's verb reaches the server, never the worker. The server's runner doors are `lease.Doors`: each changes the job's state in the store under the desk's lock and, when a worker holds the job, appends a signal to `leases.json` (`signals: {job: [{verb, yes, words}]}`). The heartbeat answer `{factory, lease, signals}` drains them (a worker beats every 2 s); a pull drains the ones left on a job before it was leased. The verbs:
-
-| person's verb | server's write (`run` helpers) | signal to the holder | worker does |
-|---|---|---|---|
-| run | `QueueItem` → `queued` (a paused job: as resume) | — | pulls, `Launch` |
-| stop | `StopItem` → `backlog`; the lease is **released** | — (the next beat or report answers 409) | `Runner.Stop`, lets go |
-| pause / resume | `Stream.Paused`; unheld resume → `queued` | `hold {yes}` | `Runner.Hold` |
-| answer | `AnswerHeld` (question down, an approve step passed on yes); unheld → `KeepAnswer` + `queued`; ask-first yes → run | `answer {yes, words}` | `Runner.Answer` |
-| steer | — | `steer {words}` | `Runner.Steer` |
-| approve (proof) | the record's approval read as the trailer (none: refused); `PublishItem` → `queued` (held: stays landed until done, which re-queues) | `publish {words: trailer}` (on the pull) | `Runner.Publish`: check the approved head and a clean worktree, push that commit on the branch (never force), open the PR (a `pr` job: one comment); reports `pr`, done `done` → shipped beside the recorded approval, record `posted` |
-| request changes | `SendBackItem` → `queued` | — | pulls, goes on |
-| recheck | `RecheckItem` → `queued` | `recheck` (on the pull) | `Runner.Reverify` |
-| shape | — when a worker holds the job. Nobody holding it: the server's Shape door runs the turn where that job's worker lives | `shape` | `Runner.ShapeAsked` (one turn, nothing launched) |
-| drop | `Dismiss` → `dropped` | `stop` | `Runner.Stop` (the branch is kept); the worker does not report the job back as backlog |
-
-Signals are dropped with the lease (expiry, stop, done). Because the doors only write files under the desk's flock, every process with the store hangs them; there is no mailbox. Shape is the one verb that is not only a lease door: a job nobody holds is shaped by the process serving the floor.
-
-### Access
-
-Loopback stays open as the owner. Remote sign-in requires an existing host or
-access token or `/access` cookie; GitHub sign-in does not bypass that gate.
-Host config `github_client_id` enables the OAuth app's device flow (which must
-also be enabled at GitHub). Optional `team: [priya, "@sam"]` restricts signed-in
-handles; others receive 403. The host token retains owner access.
-
-| method path | body | returns |
-|---|---|---|
-| `POST /v1/auth/device` | absent or `{}` | `{factory, device_code, user_code, verification_uri, interval, expires_in}` |
-| `POST /v1/auth/device/poll` | `{device_code}` with the original credential | 202 `{factory, error, interval}` while pending; 200 `{factory, access_token, token_type, expires_in, me}` plus HttpOnly cookie after GitHub `/user` succeeds |
-| `DELETE /v1/me/sessions/{id}` | — | `{factory}`; 404 `session not found` when the id is not this caller's |
-| `POST /v1/me/sessions/signout-others` | — | `{factory, signed_out}` — the calling session stays; an access-token row is not revoked |
-
-The opaque device code belongs to the requesting credential and expires on
-GitHub's schedule. Polling honors `interval`; `slow_down` adds five seconds.
-Expired codes return 410, declined sign-in or an excluded handle returns 403,
-and foreign/replayed codes return 400. The factory requests `read:user` and
-`repo` (classic device flow has no read-only private-repository scope). The
-returned scopes are GitHub's granted scopes. GitHub access and refresh tokens
-are encrypted with AES-GCM in `sessions.json` beside `tokens.json`; a random
-32-byte `sessions.key` and the session file both use mode 0600, as does the host
-config. The credential hash is authenticated associated data. Neither token is
-returned on the wire or written to `tokens.json`. Hosts without a configured
-home keep ephemeral sessions; production uses the directory of `TokensPath`
-(or `Root`/`Store.Root` when no token path is supplied).
-
-Each sign-in creates a 30-day cookie/bearer session with a separate public id.
-Restart loads saved sessions and prunes expired or revoked ones. Session maps
-and files index by SHA-256 credential hash; the bearer/cookie secret is never
-persisted. Sign-out and revoke-sessions replace the file immediately by private
-temp file and rename. Access-token rows retain their expiry
-and revocation. A presented bearer or `/access` token that is refused answers 401 `{reason: expired|revoked|unknown, invited_by?, created_at?}`. A request with no secret keeps the sign-in sentence. Revoke retires the row: the secret becomes a hash, list hides it, and a later use is `revoked`. Their first signed-in profile is persisted in `tokens.json`
-under the same lock as add and revoke. Until then reads use `Seam.PersonHandle`.
-The original bearer resolves to that profile afterward, including across
-restarts. `/v1/me` lists this caller's machines and the saved `takes_unassigned` map.
-
-Expiring device exchanges retain `refresh_token`, `expires_in` and
-`refresh_token_expires_in`. On first use within five minutes of expiry, refresh
-posts to `https://github.com/login/oauth/access_token` with `grant_type=refresh_token`,
-`client_id` and `refresh_token`, without a client secret. Rotation is serialized
-and persisted before admitting the request. Exchanges without expiry work unchanged.
-GitHub HTTP 401, `bad_refresh_token`, or refresh expiry ends the session and
-returns 401 `{factory, error:"GitHub sign-in has expired; sign in again",
-reason:"github_expired", request_id}`. A hash-only ended-session record preserves
-that reason until the factory session's expiry, including across restart. GitHub
-transport and 5xx refresh failures return 502 and retain the sign-in for retry.
-Repository 403/404 remain visibility denials; 401 is a sign-in failure. An active
-SSE connection closes if its GitHub credential becomes unusable; the next read
-receives the same 401. Contract remains 1.
-
-`GET /v1/queue` includes watched repositories even with no jobs, before applying
-the viewer filter. This supplies the new-job repository picker and Settings as
-required by PRODUCT's watched-repository visibility and DESIGN-BRIEF's Send job
-repository field. A valid sign-in with access to a watched empty repository does
-not receive `no_visible_repos`.
-
-### Security — HTTPS, proxies and secure defaults
-
-`codeaf factory serve` reads `tls: auto | files | off` from the host config.
-Unset is `files` when `cert_file` is named, `off` when `listen` is loopback, and
-`auto` otherwise; `auto` without `domain` refuses to start, naming the three
-fixes. `auto` is `golang.org/x/crypto/acme/autocert` (the module's pinned
-version) with `HostWhitelist(domain)`, TLS-ALPN-01 on the HTTPS listener,
-HTTP-01 on `:80` of the same interface when it binds, and a disk cache
-(`cache_dir`, default `tls` beside the config; folder 0700, files 0600); renewal
-is the manager's own. `files` loads `cert_file`/`key_file` at start and reloads
-when either modification time changes, keeping the last good pair on a failed
-reload. `off` serves plain HTTP and, off loopback, prints a warning naming the
-reverse-proxy option. Wiring lives in `cmd/codeaf/factory_tls.go`.
-
-When TLS is on, the port-80 door answers `/.well-known/acme-challenge/` and
-redirects everything else to `https://<domain>` with 308, and serve.json names a
-second, plain listener on a random loopback port, because the certificate names
-the domain and never `127.0.0.1`.
-
-`serve.Config.TrustedProxies` (host key `trusted_proxies`, addresses or CIDRs) is
-the only source of belief in `X-Forwarded-For`/`X-Forwarded-Proto`. The handler
-resolves the caller once per request (`internal/factory/serve/proxy.go`): the
-rightmost untrusted `X-Forwarded-For` hop and the last `X-Forwarded-Proto`, from
-a trusted peer only. That answer sets the cookie's `Secure`, HSTS
-(`max-age=31536000`, HTTPS callers only) and `/v1/about`'s `scheme`;
-`serve.ClientAddr` exposes it to any future access log (none exists today). The
-open loopback grant requires a loopback caller that nobody forwarded, or one a
-trusted proxy named: forwarding headers from an untrusted peer only remove
-access. Session cookies are always HttpOnly and SameSite=Strict. `/v1/events`
-sends `X-Accel-Buffering: no`. GitHub device sign-in is outbound-only and has no
-callback URL, so HTTPS changes nothing in it. `docs/design/factory/HTTPS.md`
-has the operator's guide and the Caddy and nginx examples.
-
-## 5. Events and SSE
-
-`record` is the source of truth for "what happened": `{id, at, kind, job, handle, cost, detail, commit?}` appended to `events.jsonl`. Kinds include `step_failed` when a step errors or a hold expires, and `pr_merged` or `pr_closed` when a poll first sees a factory-opened pull request merge or close. HTTP job actions use the caller's handle; worker posts use the registered worker's handle. Approval ids are `evt_<8 hex>`; the publisher writes `Factory-Approval: evt_… @handle <commit>` as the PR trailer. `/v1/events` streams a `changed` tick whenever the store or the record changes (fs watch on the factory root, debounced 100 ms); clients re-`GET` what changed. No state rides on SSE.
-
-## 6. Launch logic (`codeaf`, ordinary start)
-
-```
-attach.json present?  → client Seam → that url            (team, or your other machine)
-serve.json live?      → client Seam → that url            (another codeaf on this machine serves)
-else                  → start serve in-process on 127.0.0.1:0, write serve.json {url, pid, token}
-                        → client Seam → loopback
-worker loop           → attach to the same url, pull, run, report   (unless --no-worker)
-```
-
-`codeaf factory [--listen 127.0.0.1:7420] [--config ~/.codeaf/factory/config.yaml]` runs the server alone (a team box). `codeaf attach <url> [--name]` / `codeaf detach` write `attach.json`. `codeaf factory name|token|revoke|steps` are the ops verbs.
-
-`run.lock` and the file mailbox are retired: every process's verbs go through `lease.Doors`, and execution happens wherever a worker pulls. The worker loop dials through the same order each time, so a worker whose serving window closed follows the factory to whoever serves next. Its credentials are cached per factory url and slot in `~/.codeaf/v3/factory/worker.json`; a 401 re-attaches. On loopback a worker takes every unassigned job (`takes_unassigned: {"*": true}`); attached elsewhere, only repos it has a checkout of. A saved `PUT /v1/me/takes_unassigned` for that handle replaces this consent on every later pull. A process that serves in-process removes `serve.json` and releases `serve.lock` when its surface or session host ends.
-
-**Local job doors on an attached floor.** `api.ComposeJobs` leaves TUI-only
-job-id doors nil outside loopback unless `Seam.Job(id)` finds a live lease on
-this machine. Workers keep a factory-URL-bound lease receipt beside each job
-mirror, renew it on heartbeat, and remove it when they let go. `Load` discovers
-these mirrors off the UI loop; job selection reads cached capabilities, and
-each captured door checks its receipt again before acting on the mirror.
-Matching ids on this machine's own floor grant nothing. Repository-local
-doors remain local, and wired actions still reach the attached factory.
-
-## 7. The dashboard
-
-The dashboard lives in `Agent-Field/codeaf-desk` (the codeaf app), not in this binary. The factory serves no page: `GET /` answers one plain line pointing at the TUI and the app, and `/v1` (with SSE, the access token and the session cookie) is its only face. The app's build, tests and browser smokes belong to that repository.
-
-## 8. Tests that gate every lane
-
-- **Contract test** (`client_test.go`): `FixtureSeam` vs `client → serve → FixtureSeam`: identical `Snapshot` after every verb. Every exported `Seam` field is either wired or named in `api.TUIOnly` (a structural test fails on a new field that is neither).
-- **The existing page tests** (`internal/tui3/factory*_test.go`, ~40) run against the client Seam over an in-process server.
-- **E2E on a real model**: `TestTUIE2E/FactoryRunsAnIssue` on `santoshkumarradha/factory-demo` (private) with `CODEAF_E2E_MODEL=deepseek/deepseek-v4.1-flash`, plus an API-level test (`serve/publish_test.go`): `POST /v1/jobs/{id}/approve` on a fixture job → the post stage's PR body carries the trailer.
-- `make pr-ready` before any landing; `make build`; manual pages updated in the same change (the manual law).
-
-## 9. Not in this wave
-
-GitHub App, overlap warnings, routed questions, relay/compute, hosted. The API shape leaves room (`handle` on every event and lease; `repo` on every job) and nothing else.
-
-## Factory display name (Contract 1)
-
-The host config `~/.codeaf/factory/config.yaml` accepts optional `name`; omission
-stays omission when other host settings are saved. `codeaf factory name` prints
-the effective name, and `codeaf factory name "Our team"` saves it. Both accept
-`--config path` before the text. Names are trimmed, at most 40 Unicode characters,
-and reject control characters. An empty quoted string removes the setting.
-
-At service start, an unset name uses the owner of the first watched repository
-in the saved, sorted selection, or the host's short hostname when none is watched.
-Changing the config or watched selection requires a service restart to update
-that display name. All callers see the same name. Every response carrying
-`factory` adds `name` beside `address` and `version`, including `/v1/about`,
-`/v1/me`, `/v1/queue` and errors. `/v1/about` retains its top-level `name` with the
-same value. This is additive: Contract remains 1, and names do not identify
-credentials or change factory addresses.
+Contract 2 on `app/v2`, 2026-10-12. Job behaviour follows codeaf-desk's
+S0/S1/S2/X3 at canvas commit `d39636d`. Spec boards beat screens; newer screens
+beat older screens; the glossary wins. The binary owns factory state, AI calls
+and numbered rules. The app owns navigation, saved views, Inbox Later/Done,
+notifications and Mac integration.
+
+## 1. Ownership and execution
+
+One binary runs the factory service and runner processes. The service owns
+jobs, approvals, leases and append-only Activity. A runner executes the
+assignee's jobs with that person's checkout, keys and spending limits and
+reports results over `/v1/workers`. The app calls `/v1`; the service serves no
+web dashboard. `/` names the API and the app.
+
+`store` keeps versioned job documents, written under per-item locks with
+atomic rename. `lease` keeps one live runner lease per job and rejects late
+writes from stopped or replaced leases. `record` keeps append-only decisions
+and consent receipts in `events.jsonl`. `live` keeps bounded SSE replay.
+`serve` holds consent under a cross-process lock, including five-second Undo.
+`run` executes pipeline steps and publishing. `github` polls source facts and
+mirrors assignment decisions. Secrets never enter approval documents.
+
+## 2. Jobs and transitions
+
+The public job states are exactly `needs_you`, `running`, `queued`, `backlog`,
+`done`. Internal historical engine states round-trip through
+`desk.engine_state`; they are not additional public states.
+
+| Trigger | Result |
+| --- | --- |
+| issue read / New job | Backlog |
+| Run / Start now | Queued; Start now takes precedence over the ordinary queue |
+| free runner | Running |
+| plan / proof / start approval, question, budget, out of rounds, failure | Needs you |
+| approval after Undo, answer, raise budget | run resumes or queues |
+| published PR waiting on CI or review | Running, `reason: github` |
+| changes requested / merge conflict | Needs you, `reason: changes_requested` / `conflict` |
+| PR merged / closed without merge | Done, `done_how: merged` / `closed` |
+| no-diff answer published as a comment | Done, `done_how: answered` |
+| Stop | Backlog; branch kept; five-second Undo restores the saved run |
+| Drop | Done, `done_how: dropped`; final; GitHub issue stays open |
+| Unassign | Running work stops first; Backlog with no assignee |
+| Run again | failed work or a closed, unmerged PR queues again; merged and dropped work refuses |
+
+Dismiss is a per-person `dismissed_by` flag, never a state. GitHub activity
+clears it. The default queue hides the caller's flagged rows;
+`q=is:dismissed` retrieves them. Direct job reads retain the caller's
+`dismissed` flag. No state transition or runner stop accompanies Dismiss.
+
+`done_at` supports the app's one-day Done retention in the Running view.
+Jobs and Activity are kept forever. A dropped branch has `branch_delete_at`
+seven days after Drop. The service deletes its GitHub factory ref and the
+local factory worktree/branch where present, then writes `branch_deleted`.
+Failed cleanup retries; `branch_deleted_at` is stamped only after success.
+The person's checkout is never removed or reset.
+
+## 3. Fields and derivations
+
+`id` is a human reference such as `api#1498`. `document_id` preserves numeric
+binary identity; job routes accept either. `ref` is retained as an additive
+reference alias. Encode `#` in route URLs. Runner protocol ids remain numeric.
+
+`priority` is `{value,set_by?}`: urgent/high/medium/low. A person's override
+wins. Otherwise labels supply priority:urgent/P0, priority:high/P1,
+priority:medium/P2, priority:low/P3; bug defaults to medium only without an
+explicit priority label. Unset sorts last. Runner pulls order by Start now,
+priority, then oldest creation time. AI priority is not exposed as job priority.
+
+`size` comes only from size:XS/S/M/L/XL. `budget` comes from pipeline
+`default_budget`, default $3, not a task cap. A personal pipeline can tighten
+it. Raise accepts a higher $5/$10/$20/$30 budget. A reached budget is a question.
+
+`reason` is a finite Needs you / Running explanation. `waiting_for: @login`
+is derived for non-assignees. `overlap` is derived from two Running jobs in
+the same repository changing the same file, not their planned file lists.
+No app-specific state is stored on a job.
+
+## 4. HTTP doors
+
+All reads and errors carry factory identity. `/v1/about` and `/v1/me` report
+`contract: 2`. Existing authentication, visibility, idempotency and runner
+routes remain. A hidden repository and a missing job both answer 404.
+
+| Job verb | Body and effect |
+| --- | --- |
+| `run`, `start_now` | optional expect; queue Backlog work; start approval cannot be bypassed |
+| `stop`, `undo` | optional expect; end a run or withdraw this caller's pending decision |
+| `dismiss`, `drop` | optional expect; Drop also accepts words for Activity |
+| `assign_to_me`, `unassign` | optional expect; authenticated ownership decision |
+| `change_assignee` | assignee plus optional expect |
+| `nudge` | optional words and expect; addressed to the assignee in Activity |
+| `priority` | priority plus optional expect; records set_by |
+| `raise_budget` | budget plus optional expect; assignee only |
+| `run_again` | optional expect; closed without merge only |
+| `approve` | commit, edited?, words?, expect?; creates a delayed decision |
+| `answer` | yes / words / choice, optional expect; first accepted plain answer wins |
+
+The existing pause/resume, take/release, prioritize, steer, reply, shape,
+request_changes, recheck and retry_publish doors remain for binary clients.
+`expect` can carry state, step and document version. Stale reads refuse with
+409 before invoking a door; malformed inputs use 422, ownership failures 403.
+
+`GET /v1/activity` reads Activity and exports CSV with `format=csv`; `since`
+limits by timestamp. Old took/released records are presented as
+assigned/unassigned. The `/v1/audit` alias preserves historical record names.
+Activity cannot be edited or deleted. Existing numeric event `job` ids remain.
+
+## 5. Approvals and collisions
+
+Approval kinds are plan, proof and start. Start retains `matched`, the rule
+and fact that asked first. Only an assigned job's assignee approves. Proof
+pins the exact head commit and checks unproven claims before scheduling.
+
+Approve stores `state: approving`, `decided_by`, `at`, `undo_until`, commit and
+edited consent. Until decided_at + five seconds, it invokes no answer or
+publish door and writes no approved receipt. The assignee can Undo. A timer
+settles the decision; reads and restart recovery also settle due decisions
+under the same cross-process consent lock. Settlement rechecks the head and
+ownership. Refusal leaves `state: waiting` and an error; success records
+approved and resumes or publishes. Approval receipts provide PR trailers.
+A publish retry keeps the existing approval.
+
+A plain question is open to everyone with repository access. Its answer is
+serialized under the same consent lock. The second writer receives exactly
+“@jm answered this 10s ago. Your answer wasn't sent.” with the actual person
+and elapsed seconds. Their answer is not sent to the runner.
+
+## 6. Contract compatibility and evidence
+
+Contract 2 is a deliberate breaking semantic change: job id becomes text,
+Drop becomes Done, open published PRs remain Running, and approval returns a
+pending decision instead of an immediate receipt. Numeric document and runner
+identities, old verb aliases, `gate`, and failure `attempts`/`machine` remain
+for binary compatibility. Canonical failure fields are `rounds` and `runner`;
+canonical job approval is `approval`.
+
+Model, wire and real HTTP transition tests live in `jobs_test.go`,
+`api/jobs_contract_test.go`, and `serve/jobs_v2_test.go`. They advance clocks
+without sleeps, exercise consent across server restart, and prove personal
+Dismiss, final Drop, Stop Undo, assignment, budget, priority, question
+collision and closed-PR rerun. GitHub-write tests stub only transport;
+branch cleanup tests use a real temporary git checkout.
+
+Gates: `make test-quick` and
+`go test ./internal/factory/... ./cmd/...`.
+
+## 7. Runners, access and HTTPS
+
+The v2 runner roster, people directory, solo/team modes and operator access
+links are documented in `docs/factory-v2-people-runners.md`. Solo responses
+omit team assignment; team operators manage access without inheriting job
+approval rights. Runner heartbeat expiry places held work in Needs you with
+`reason: runner_offline` instead of silently reassigning it. Activity includes
+runner, access-link and repository decisions as well as job decisions, and
+its list and CSV export share the same filters.
+
+HTTPS configuration and trusted reverse proxies are documented in
+`docs/design/factory/HTTPS.md`. The host supports automatic certificates,
+certificate files and HTTP behind a proxy. Public factory identity retains
+the HTTPS URL; local discovery uses a separate loopback listener. Only
+explicitly trusted proxy addresses supply forwarded client addresses and
+schemes. HTTPS requests set Secure cookies and HSTS, and SSE disables proxy
+buffering. `/v1/about` exposes the effective scheme and factory identity.
