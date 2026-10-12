@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport built, 2026-10-12; remaining lanes are design. Branch `app/v2`.
+Status: A1 transport and A3 event stream built, 2026-10-12; remaining lanes are design. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -439,28 +439,31 @@ body, `null`, unknown fields, a non-string reason or trailing data returns 422
 
 ## 3. The event stream
 
-`GET /app/v1/events` streams SSE in the factory's style (`v2:internal/factory/serve/events.go:16-103`):
+`GET /app/v1/events` streams SSE in the factory's style (`v2:internal/factory/serve/events.go:16-103`). **EXISTS (A3):** `internal/appapi/stream.go` and `event.go`; resource producers arrive with their owning lanes.
 
 ```
-id: e_18422
+id: e_<epoch>_18422
 event: task.changed
 data: {"agent":"a_…","task":"t_…","state":"your_call","at":"…"}
 
 ```
 
-- **Ids** are `e_<n>`, monotonic within one engine **epoch**. The `hello` carries an `epoch`, and an id from another epoch counts as unknown.
+- **Ids** are `e_<epoch>_<n>`, with a monotonic sequence within one engine **epoch**. The epoch is the launch's independent 64-hex identity from stdout hello and health, never its token. The draft's bare `e_<n>` could collide after a restart, so the opaque cursor includes the epoch. Sequence zero is the live baseline before the first publication.
 - **Replay.** `Last-Event-ID` replays strictly later events from a ring of 4096 records, the same size as `wb:worldstream.go:22` (`WorldRing`).
-  - An unknown or expired id gets one `reset` event, `{epoch, reason}`, and the client re-reads.
-  - A first connection starts live.
+  - An unknown or expired id gets one `reset` event, `{epoch, reason}`, and the client re-reads. Reasons are `unknown`, `expired` and `epoch_changed`. Empty, repeated, malformed, future and bare numeric cursors are unknown. An evicted cursor is expired even if the immediately following event is retained.
+  - A first connection starts live. Its `hello` carries the current cursor. A reconnect's `hello` has no `id`, preserving the old cursor until replay succeeds. `reset` assigns the current head and continues live without sending a partial replay.
+  - A slow reader that falls outside the retained ring also gets a reset. Readers share the ring and wake-up channel; publishers never wait on a reader or maintain per-window queues. Shutdown wakes idle streams. A blocked write has a 10 s deadline.
   - This mirrors `/v1` (200-record window, `changed *`) and `wb:` (`after=N`, gap → full snapshot).
 - **Keepalive** is a `: keepalive` comment every 20 s.
 - **Size.** Events carry ids and small facts, not whole objects, except `turn.entry` and `turn.delta`, which carry the text. Clients re-`GET` the full object.
-- **One stream for all agents.** Per-agent filtering is `?agent=<id>` (repeatable). The default is everything except `turn.delta` for agents not named. This keeps a 14-tab window cheap.
+- **One stream for all agents.** Per-agent filtering is `?agent=<id>` (repeatable). Without it, everything except `turn.delta` is included. With it, agent-scoped events and deltas are included only for the named agents; events without an `agent` remain visible. Filtering applies equally to replay and live delivery. Repeated ids are harmless; an empty agent id returns 422 `bad_input`. This keeps a 14-tab window cheap.
+- **Publication.** Resource handlers use `Server.Events().Publish(EventType, payload)`. The hub freezes JSON object payloads and accepts only the named main-stream event types below. Publishers own resource payloads and throttling (including `spend.changed`). `hello` and `reset` are transport-owned; `process.output` and AI deltas belong to separate follow responses. No engine producer is started by A3.
+- **Authentication.** The Rust core sends the bearer header and forwards the stream. Query credentials remain refused, including on this route; the optional EventSource exception is not enabled.
 
 | Event | Data | Source |
 |---|---|---|
-| `hello` | `{epoch, codeaf_version, contract}` (first frame) | NEW |
-| `reset` | `{epoch, reason}` | `wb:worldstream.go:320-328` |
+| `hello` | `{epoch, codeaf_version, contract}` (first frame) | EXISTS (A3) |
+| `reset` | `{epoch, reason}` | EXISTS (A3), ported from `wb:worldstream.go:320-328` |
 | `agent.created` · `agent.changed` · `agent.removed` | `{agent, fields[]}` (name, state, glyph, model, budget, closed) | `wb:worldrows.go` `world` rows |
 | `turn.started` · `turn.ended` | `{agent, turn, how: "done"\|"stopped"\|"failed", receipt?}` | `wb:` kinds `turnDone`, `assistantDone`, `error` |
 | `turn.delta` | `{agent, turn, kind: "text"\|"thinking", text}` | `wb:` `text`, `thinking`, `reasoning` |
@@ -516,7 +519,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 |---|---|---|---|---|
 | A1 | `codeaf app serve`: listener, hello line, token, origin/host guard, parent-pid and stdin life, `--home`, `/app/v1/health`, shutdown, route-table and security tests | — | 1 d | EXISTS |
 | A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d | NEW |
-| A3 | Stream: the hub, `e_<n>` ring 4096, epoch, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | NEW |
+| A3 | Stream: the hub, epoch-qualified `e_<epoch>_<n>` ring 4096, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | EXISTS |
 | A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | NEW |
 | A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d | NEW |
 | A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
