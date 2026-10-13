@@ -332,7 +332,7 @@
     },
     {
       "method": "DELETE",
-      "path": "/app/v1/crews/{cid}/items/{ref}",
+      "path": "/app/v1/crews/{cid}/items/{ref...}",
       "request": "common.json#/$defs/ExpectRequest",
       "response": "common.json#/$defs/ActionResponse"
     },

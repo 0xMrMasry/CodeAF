@@ -494,7 +494,7 @@ S2 fields: `id, name, tint (iris·sage·sand·tide·rose·graphite), goal, manag
 | `POST /app/v1/crews/{cid}/replace-manager` | `{member_id \| role}` | `crew.changed` | `teams.SetManager`, retaining the former manager as a member | EXISTS (A10a) |
 | `POST /app/v1/crews/{cid}/wrap-up` · `POST /app/v1/crews/{cid}/keep-going` · `POST /app/v1/crews/{cid}/finish` · `POST /app/v1/crews/{cid}/reopen` · `POST /app/v1/crews/{cid}/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | native wrap directive, `teams.UpdateClosing`, manager engine | EXISTS (A10b) |
 | `GET /app/v1/crews/{cid}/log?before=` | members talking, newest first | `crew.log` | native `teams.ReadTraffic` | EXISTS (A10b) |
-| `POST /app/v1/crews/{cid}/items` · `DELETE /app/v1/crews/{cid}/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | preserved native document extension | EXISTS (A10b) |
+| `POST /app/v1/crews/{cid}/items` · `DELETE /app/v1/crews/{cid}/items/{ref}` | `{ref \| url}` or `{kind:"record", app, type, id}`; delete ref `app:<app>/<type>/<id>` | `crew.changed` | record links are links, not copies; detail is read live | EXISTS (A10b) |
 | `GET /app/v1/crews/{cid}/summary-since?at=` | "While you were away · 3h" | — | deterministic native log digest after ≥1 h away | EXISTS (A10b) |
 
 ### 2.10 Member

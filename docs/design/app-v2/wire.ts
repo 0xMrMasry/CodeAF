@@ -1563,7 +1563,7 @@ export interface AppRoutes {
   "POST /app/v1/crews/{cid}/archive": { request: ExpectRequest; response: ActionResponse };
   "POST /app/v1/crews/{cid}/bring-in-helpers": { request: CrewHelpersRequest; response: HelperProposal };
   "POST /app/v1/crews/{cid}/finish": { request: ExpectRequest; response: ActionResponse };
-  "DELETE /app/v1/crews/{cid}/items/{ref}": { request: ExpectRequest; response: ActionResponse };
+  "DELETE /app/v1/crews/{cid}/items/{ref...}": { request: ExpectRequest; response: ActionResponse };
   "POST /app/v1/crews/{cid}/items": { request: CrewItemRequest; response: CrewItem };
   "POST /app/v1/crews/{cid}/keep-going": { request: ExpectRequest; response: ActionResponse };
   "GET /app/v1/crews/{cid}/log": { request: never; response: CrewLogResponse };
