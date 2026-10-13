@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A11a settings/setup, A12 search/history/Activity and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -397,10 +397,10 @@ S2 fields: `id, name, tint (iris·sage·sand·tide·rose·graphite), goal, manag
 | `POST /app/v1/crews` | `{from: "proposal", proposal_id, edits?}` or `{from: "agents", agent_ids[], name, goal, manager: "new"\|agent_id, members[]}` | `crew.created`, `agent.changed` | `teams.Update`; short handover notes become a native manager directive, and the manager writes the summary without merging chats | EXISTS (A10a) |
 | `PATCH /app/v1/crews/{cid}` | `{name?, tint?, goal?, budget?, ends_at?}` | `crew.changed` | `teams.Update`; six tints map to native hue slots | EXISTS (A10a) |
 | `POST /app/v1/crews/{cid}/replace-manager` | `{member_id \| role}` | `crew.changed` | `teams.SetManager`, retaining the former manager as a member | EXISTS (A10a) |
-| `POST /app/v1/crews/{cid}/wrap-up` · `POST /app/v1/crews/{cid}/keep-going` · `POST /app/v1/crews/{cid}/finish` · `POST /app/v1/crews/{cid}/reopen` · `POST /app/v1/crews/{cid}/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | wire `Teams.WrapUp`, `Teams.AcceptClosing` (`v2:internal/remote/wire_teams*.go:64-65`) | NEW (HTTP) |
-| `GET /app/v1/crews/{cid}/log?before=` | members talking, newest first | `crew.log` | wire `Teams.Traffic` (`wire_teams.go:44`) | NEW (HTTP) |
-| `POST /app/v1/crews/{cid}/items` · `DELETE /app/v1/crews/{cid}/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | NEW | NEW |
-| `GET /app/v1/crews/{cid}/summary-since?at=` | "While you were away · 3h" | — | NEW | NEW |
+| `POST /app/v1/crews/{cid}/wrap-up` · `POST /app/v1/crews/{cid}/keep-going` · `POST /app/v1/crews/{cid}/finish` · `POST /app/v1/crews/{cid}/reopen` · `POST /app/v1/crews/{cid}/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | native wrap directive, `teams.UpdateClosing`, manager engine | EXISTS (A10b) |
+| `GET /app/v1/crews/{cid}/log?before=` | members talking, newest first | `crew.log` | native `teams.ReadTraffic` | EXISTS (A10b) |
+| `POST /app/v1/crews/{cid}/items` · `DELETE /app/v1/crews/{cid}/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | preserved native document extension | EXISTS (A10b) |
+| `GET /app/v1/crews/{cid}/summary-since?at=` | "While you were away · 3h" | — | deterministic native log digest after ≥1 h away | EXISTS (A10b) |
 
 ### 2.10 Member
 
@@ -438,11 +438,9 @@ Ask before emitting `ask.created`. Raising the relevant cap through PATCH clears
 that Ask. `CrewBudgetAsks` exposes the waiting set to A8/A9. `CrewAllowsMessage`
 and `RecordCrewMessage` are the guarded A4b turn route's admission/log hooks; `CrewQuestionPath` is
 A8/A10b's read-only visible path. Native question packets already climb managers;
-permission decisions remain the person's. A10a does not implement the reserved
-ask-answer, Inbox, role, sub-crew, report or item routes. Crew GET's plan
-and items stay empty until their resource producers supply them. Existing role
-ids resolve through `Options.CrewRoles` (a `CrewRoleSource` interface), or through
-inline roles already saved in crew metadata.
+permission decisions remain the person's. Ask-answer and Inbox behavior belongs
+to A8/A9. Crew GET reads linked items and the manager's task snapshot; native
+roles saved inline remain readable alongside A10b's durable role store.
 
 ### 2.11 Role
 
@@ -450,17 +448,48 @@ inline roles already saved in crew metadata.
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/roles` · `POST /app/v1/roles` · `PATCH /app/v1/roles/{rid}` | an edit updates every copy's instructions at its next step | `role.changed` | no crew-role store exists (`internal/roles` holds *model* roles) | NEW |
+| `GET /app/v1/roles` · `POST /app/v1/roles` · `PATCH /app/v1/roles/{rid}` | an edit updates every copy's instructions at its next step | `role.changed` | private `<home>/v3/app/roles.json`; native directives apply instructions at the next boundary | EXISTS (A10b) |
 
 ### 2.12 Sub-crew and report
 
-- A sub-crew is a crew with `parent_id`. `POST /app/v1/crews/{cid}/bring-in-helpers` on a member makes one.
+- A sub-crew is a crew with `parent_id`. `POST /app/v1/crews/{cid}/bring-in-helpers` accepts `{member_id, expect?}` and returns an editable proposal without changing membership. Accept it through `POST /app/v1/crews` with `from:"proposal"`; that same non-manager member becomes the child manager and keeps its conversation.
   - At depth 3 the route answers 409 "Crews nest 3 deep at most."
   - Defaults come from `DefaultTeamsDepthLimit = 3` and `DefaultTeamsSubSharePct = 50` (`v2:internal/config/teamdefaults.go:44-45`).
-  - Status: **NEW** (HTTP).
+  - Status: **EXISTS (A10b)**. Acceptance rechecks parent revision, source membership, depth and budget. Each child budget is at most 50% of its parent, including edits; parent spend includes descendants with conversations counted once.
 - A report is `GET /app/v1/crews/{cid}/report` → `{shipped, decisions[], files[], left_open[{text, hand_off?}], cost, markdown}`.
-  - It is backed by the report packet `Team.Report` (`teams.go:81`). The five-part structure is **NEW**.
-- Questions climb through `Teams.Raise`, `Teams.Decide` and `Teams.Escalate` (`wire_teams.go:43-47`). They surface as one `Ask` with `path[]` (§2.7). The `path` field is **NEW**.
+  - **EXISTS (A10b)**. Native closing packets supply shipped/files/left open; decided person packets supply decisions. Cost comes from actual crew usage. Markdown contains the same five parts. Report publication is saved once before `report.ready`.
+- Questions climb through `Teams.Raise`, `Teams.Decide` and `Teams.Escalate` (`wire_teams.go:43-47`). They surface as one `Ask` with `path[]` (§2.7). `CrewQuestionPath` supplies the visible path with the original source; A8 owns its Ask codec.
+
+
+A10b details: role names have 1–40 characters, instructions 1–16000 bytes,
+models 1–256 bytes, effort Low/Medium/High (Medium if omitted). Role PATCH
+updates every live copy's definition/model/effort and sends its instructions
+through native member directives; work and memory stay per conversation.
+Role POST/PATCH replies include a numeric ETag; PATCH accepts that version.
+Moving a member also refuses a duplicate role in the destination crew.
+
+Wrap up records the native fifteen-minute clock once and asks the manager to
+finish. Keep going clears the pending report and end date. Finish refuses
+409 `open_items` while tasks, unresolved report work or linked work remain.
+With no report yet, Finish asks the idle manager to write one through its
+normal billed engine (two-minute ceiling), then rechecks the crew before
+closing. `teams.UpdateClosing` serializes report acceptance with lifecycle
+writes. Finish stops only members without another open crew; linked jobs
+are untouched. Reopen restores the roster and report, including descendants.
+Archive requires a finished crew; neither state deletes history. Retired-member
+spend stays in the lifetime pool; closing freezes spend and reopening excludes
+work done during the closed interval.
+
+Items accept exactly one ref or HTTP(S) URL without credentials, at most 256
+links. URL-only links receive an opaque ref used to unlink them. Solo factory
+state is read through its store interface using the canonical job state;
+`Options.CrewItems` supplies a read-only source for other resources/factories.
+An unknown or unavailable link stays unfinished; unlink removes only the
+reference. Log returns up to 100 entries newest first with `before` as the
+next page's cursor. `summary-since?at=<RFC3339>` returns a deterministic log
+digest only after at least an hour away with new entries; otherwise text is
+empty. An elapsed end date saves one question exposed through `CrewWorkAsks`;
+it never closes a crew by itself.
 
 ### 2.13 Inbox (derived)
 
@@ -812,7 +841,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
 | A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | BUILT — typed producers/resolvers; attachment lifecycle A14 |
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
-| A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | NEW |
+| A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | EXISTS |
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
 | A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | EXISTS |
