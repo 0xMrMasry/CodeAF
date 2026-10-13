@@ -129,6 +129,12 @@
     },
     "AgentSnapshot": {
       "properties": {
+        "asleep": {
+          "type": "boolean"
+        },
+        "day_cap_reached": {
+          "type": "boolean"
+        },
         "entries": {
           "items": {
             "$ref": "#/$defs/DisplayEntry"
@@ -157,6 +163,8 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
+        "asleep",
+        "day_cap_reached",
         "entries",
         "queue",
         "open_asks",

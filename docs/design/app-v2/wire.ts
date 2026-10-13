@@ -79,6 +79,8 @@ export interface ActivityResponse {
 }
 
 export interface AddMcpServerRequest {
+  "name"?: string;
+  "access"?: "yes" | "ask_first" | "off";
   "address": string;
 }
 
@@ -146,6 +148,8 @@ export interface AgentResponse {
 }
 
 export interface AgentSnapshot {
+  "asleep": boolean;
+  "day_cap_reached": boolean;
   "entries": Array<DisplayEntry> | null;
   "queue": Array<QueueItem> | null;
   "open_asks": Array<Ask> | null;
@@ -486,6 +490,10 @@ export interface FactoryAccessRequest {
   "verb": "sign_in" | "cancel";
 }
 
+export interface FactoryAdvancedRequest {
+  "runner_timeout_s": number;
+}
+
 export interface FactoryChangedEvent {
   "factory": string;
   "state": string;
@@ -513,12 +521,19 @@ export interface FactoryLinkRequest {
 }
 
 export interface FactoryLinkResponse {
+  "name": string;
+  "detail": string;
   "id": string;
   "url": string;
 }
 
 export interface FactoryRepoRequest {
   "enabled": boolean | null;
+}
+
+export interface FactoryRunnerRequest {
+  "keep_output_days"?: number;
+  "keep_output_mb"?: number;
 }
 
 export interface FactorySettingsDetails {
@@ -1042,7 +1057,7 @@ export interface ProviderSignInResponse {
 }
 
 export interface ProviderSignInStatusResponse {
-  "state": string;
+  "state": "waiting" | "signed_in" | "failed" | "canceled";
   "error": string;
 }
 
@@ -1196,6 +1211,10 @@ export interface ServiceAction {
 
 export interface ServiceConnectResponse {
   "connect_url": string;
+}
+
+export interface ServicePollResponse {
+  "state": "connected" | "waiting" | "revoked";
 }
 
 export type Settings = Record<string, JsonValue> | null;
@@ -1493,9 +1512,13 @@ export interface Usage {
 // Canonical method/path templates; request: never means this route has no JSON body.
 // Responses describe success JSON. SSE and follow modes use AppEvents; errors use AppError.
 export interface AppRoutes {
+  "POST /app/v1/accounts/{id}/access/{action_id}": { request: ServiceAccessRequest; response: ActionResponse };
+  "POST /app/v1/accounts/{id}/access": { request: ServiceAccessRequest; response: ActionResponse };
   "PATCH /app/v1/accounts/{id}/actions/{aid}": { request: ServiceAccessRequest; response: ConnectedService };
   "GET /app/v1/accounts/{id}/connect": { request: never; response: AccountConnectResponse };
   "POST /app/v1/accounts/{id}/connect": { request: EmptyRequest; response: ServiceConnectResponse };
+  "POST /app/v1/accounts/{id}/disconnect": { request: EmptyRequest; response: ActionResponse };
+  "POST /app/v1/accounts/{id}/poll": { request: EmptyRequest; response: ServicePollResponse };
   "DELETE /app/v1/accounts/{id}": { request: never; response: ActionResponse };
   "PATCH /app/v1/accounts/{id}": { request: ServiceAccessRequest; response: ConnectedService };
   "GET /app/v1/accounts": { request: never; response: AccountsResponse };
@@ -1563,10 +1586,16 @@ export interface AppRoutes {
   "GET /app/v1/factories/solo": { request: never; response: FactorySettingsDetails };
   "PATCH /app/v1/factories/solo": { request: PatchFactorySettingsRequest; response: FactorySettingsDetails };
   "POST /app/v1/factories/solo": { request: ExpectRequest; response: Factory };
-  "DELETE /app/v1/factories/{id}/links/{link}": { request: never; response: ActionResponse };
+  "POST /app/v1/factories/{id}/advanced": { request: FactoryAdvancedRequest; response: ActionResponse };
+  "DELETE /app/v1/factories/{id}/links/{link_id}": { request: never; response: ActionResponse };
+  "POST /app/v1/factories/{id}/links/{link_id}": { request: EmptyRequest; response: ActionResponse };
   "DELETE /app/v1/factories/{id}/links": { request: DeleteFactoryLinkRequest; response: ActionResponse };
   "POST /app/v1/factories/{id}/links": { request: FactoryLinkRequest; response: FactoryLinkResponse };
-  "PATCH /app/v1/factories/{id}/repos/{rid}": { request: FactoryRepoRequest; response: ActionResponse };
+  "PATCH /app/v1/factories/{id}/repos/{repo_id}": { request: FactoryRepoRequest; response: ActionResponse };
+  "POST /app/v1/factories/{id}/repos/{repo_id}": { request: FactoryRepoRequest; response: ActionResponse };
+  "POST /app/v1/factories/{id}/revoke-sessions": { request: EmptyRequest; response: ActionResponse };
+  "POST /app/v1/factories/{id}/runner": { request: FactoryRunnerRequest; response: ActionResponse };
+  "GET /app/v1/factories/{id}/settings": { request: never; response: FactorySettingsDetails };
   "POST /app/v1/factories/{id}/sign-out": { request: EmptyRequest; response: ActionResponse };
   "DELETE /app/v1/factories/{id}": { request: ExpectRequest; response: ActionResponse };
   "GET /app/v1/factories/{id}": { request: never; response: FactorySettingsDetails };
@@ -1582,6 +1611,7 @@ export interface AppRoutes {
   "DELETE /app/v1/keys/{provider}": { request: ExpectRequest; response: ActionResponse };
   "PUT /app/v1/keys/{provider}": { request: PutKeyRequest; response: KeyCheckResult };
   "GET /app/v1/keys": { request: never; response: KeysResponse };
+  "POST /app/v1/mcp/{id}/access": { request: ServiceAccessRequest; response: ActionResponse };
   "DELETE /app/v1/mcp/{id}": { request: never; response: ActionResponse };
   "PATCH /app/v1/mcp/{id}": { request: ServiceAccessRequest; response: McpServer };
   "GET /app/v1/mcp": { request: never; response: McpServersResponse };

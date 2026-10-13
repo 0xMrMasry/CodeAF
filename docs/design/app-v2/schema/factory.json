@@ -192,6 +192,18 @@
         "verb"
       ]
     },
+    "FactoryAdvancedRequest": {
+      "properties": {
+        "runner_timeout_s": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "runner_timeout_s"
+      ]
+    },
     "FactoryChangedEvent": {
       "properties": {
         "factory": {
@@ -275,6 +287,12 @@
     },
     "FactoryLinkResponse": {
       "properties": {
+        "name": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
         "id": {
           "type": "string"
         },
@@ -285,6 +303,8 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
+        "name",
+        "detail",
         "id",
         "url"
       ]
@@ -300,6 +320,18 @@
       "required": [
         "enabled"
       ]
+    },
+    "FactoryRunnerRequest": {
+      "properties": {
+        "keep_output_days": {
+          "type": "integer"
+        },
+        "keep_output_mb": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "FactorySettingsDetails": {
       "properties": {
@@ -902,6 +934,12 @@
       "$ref": "#/$defs/PatchFactorySettingsRequest"
     },
     {
+      "$ref": "#/$defs/FactoryAdvancedRequest"
+    },
+    {
+      "$ref": "#/$defs/FactoryRunnerRequest"
+    },
+    {
       "$ref": "#/$defs/FactoryRepoRequest"
     },
     {
@@ -961,8 +999,20 @@
       "response": "factory.json#/$defs/Factory"
     },
     {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/advanced",
+      "request": "factory.json#/$defs/FactoryAdvancedRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
       "method": "DELETE",
-      "path": "/app/v1/factories/{id}/links/{link}",
+      "path": "/app/v1/factories/{id}/links/{link_id}",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/links/{link_id}",
+      "request": "setting.json#/$defs/EmptyRequest",
       "response": "common.json#/$defs/ActionResponse"
     },
     {
@@ -979,9 +1029,32 @@
     },
     {
       "method": "PATCH",
-      "path": "/app/v1/factories/{id}/repos/{rid}",
+      "path": "/app/v1/factories/{id}/repos/{repo_id}",
       "request": "factory.json#/$defs/FactoryRepoRequest",
       "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/repos/{repo_id}",
+      "request": "factory.json#/$defs/FactoryRepoRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/revoke-sessions",
+      "request": "setting.json#/$defs/EmptyRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/runner",
+      "request": "factory.json#/$defs/FactoryRunnerRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/factories/{id}/settings",
+      "response": "factory.json#/$defs/FactorySettingsDetails"
     },
     {
       "method": "POST",

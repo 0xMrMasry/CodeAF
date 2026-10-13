@@ -718,15 +718,15 @@ spend from `/app/v1/spending/today`. No price estimate is presented to the perso
 | `PUT /app/v1/models/pinned` · `PUT /app/v1/models/default` | `{models:[id,id,id]}` · `{model, effort?}`; empty pinned slots are `""` | `internal/appapi/models.go`, ported from `wb:modelpinned.go` | EXISTS (A11a) |
 | `GET /app/v1/models/roles` · `PUT /app/v1/models/roles/{role}` | → `{roles[{id,model,effort}]}` · `{model, effort}`. Only `checks` and `planner`; empty model follows the agent | `internal/appapi/models.go`, `internal/config/appsettings.go` | EXISTS (A11a) |
 | `GET /app/v1/keys` · `PUT /app/v1/keys/{provider}` · `DELETE /app/v1/keys/{provider}` | §1.2 | `internal/appapi/keys.go`, `internal/config/appcredentials.go` | EXISTS (A2) |
-| `POST /app/v1/providers/{p}/sign-in` | `{}` → `{verification_uri}`, then `keys.changed`. OpenRouter browser sign-in, no browser wait timeout | `internal/appapi/providers.go`, `internal/openrouterauth` | EXISTS (A11a) |
-| `GET /app/v1/providers/{p}/sign-in` · `DELETE /app/v1/providers/{p}/sign-in` | → `{state,error}` (`waiting`, `signed_in`, `failed`, `canceled`; empty state before a first attempt) · cancel `{ok:true}` | `internal/appapi/providers.go` | EXISTS (A11a) |
+| `POST /app/v1/providers/{p}/sign-in` | `{}` → `{verification_uri}`, then `keys.changed`. OpenRouter or ChatGPT PKCE browser sign-in, no browser wait timeout | `internal/appapi/providers.go`, `internal/openrouterauth` | EXISTS (A11a) |
+| `GET /app/v1/providers/{p}/sign-in` · `DELETE /app/v1/providers/{p}/sign-in` | → `{state,error}` (`waiting`, `signed_in`, `failed`, `canceled`; initial state reflects the handed-over credential) · disconnect/cancel `{ok:true}` | `internal/appapi/providers.go` | EXISTS (A11a) |
 | `POST /app/v1/providers/{p}/sign-in/claim` | `{}` → `{provider,key}`, one logical claim by the authenticated native core for Keychain / Secret Service | `internal/appapi/providers.go` | EXISTS (A11a) |
 
 Effort on the wire is `low|medium|high`. The binary's `xhigh` and `max` (`v2:internal/effort/effort.go:27`) stay for the TUI and are never shown to the app. Higher saved TUI rungs read as `high`; auto or an unknown rung reads as `medium`. App writes refuse other rungs.
 
 A successful key check's ordered model listing is reused for 15 minutes. Stdin keys discover models lazily on the first model read with the same 10 s authenticated listing door. Provider order starts with the most recently connected provider, then provider id; a provider's model order remains exactly what it returned. Non-default connections qualify ids with their configured connection name, just as the engine does. Saved default and pinned models from a removed provider stay visible as `available:false`, and cannot be newly selected. A checked provider without a resolved engine transport (including native Anthropic) also lists its models as unavailable; key validation alone does not make a model executable. No model is ranked or selected by AI.
 
-Browser sign-in is backed only for OpenRouter; other providers return 422 `bad_input` with "this provider has no app browser sign-in". A concurrent browser flow returns 409. GET status never returns a credential. The native core listens for `keys.changed`, claims the returned key once, saves it under service `ai.codeaf.app`, and sends it back through the normal memory handoff on restart. The claim response is an authenticated, `no-store` secret transfer, not a model-facing GET. Reusing its Idempotency-Key retries the same logical claim; a fresh second claim returns 409. Cancel, shutdown and launch cancellation release the callback listener. A key PUT/DELETE made while the browser is waiting wins over its late completion.
+Browser sign-in is backed for OpenRouter and ChatGPT (`{p}` is `openrouter` or `chatgpt`); other providers return 422 `bad_input` with "this provider has no app browser sign-in". A concurrent browser flow returns 409. GET status never returns a credential. The native core listens for `keys.changed`, claims the returned key once, saves it under service `ai.codeaf.app`, and sends it back through the normal memory handoff on restart. The claim response is an authenticated, `no-store` secret transfer, not a model-facing GET. Every second claim returns 409, including a reused Idempotency-Key; no credential claim response is retained for replay. ChatGPT returns the complete refreshable token bundle as an opaque JSON key string, handed back under `keys.chatgpt` on restart; its native model namespace remains `codex/`. Refresh stays in app memory. DELETE clears the connected credential and cancels any pending callback. Shutdown and launch cancellation release the callback listener. A key PUT/DELETE made while the browser is waiting wins over its late completion.
 
 ### 2.17 Search (⌘K) and History
 
@@ -759,7 +759,7 @@ match. Unsupported filters, unfinished quotes and invalid values return 422.
 
 ### 2.18 Settings that belong to the binary
 
-**EXISTS (A11a):** `GET /app/v1/settings` → a flat `{key: value}` object containing only binary-owned, non-secret settings. `PATCH /app/v1/settings` with `{key: value, expect?:{version}}` validates the whole patch and returns 422 with the reason; nothing is partly saved. Money values are `{usd:"20.00"}`; zero means off for the per-conversation ceiling. Unknown keys, UI-only keys, credential keys and removal of a mandatory always-ask action are refused.
+**EXISTS (A11a):** `GET /app/v1/settings` → a flat `{key: value}` object containing only binary-owned, non-secret settings. `PATCH /app/v1/settings` with `{changes:{key:value}, expect?:{version}}` (or the original flat `{key:value, expect?:{version}}`) validates the whole patch and returns 422 with the reason; nothing is partly saved. Money values are `{usd:"20.00"}`; zero means off for the per-conversation ceiling. Unknown keys, UI-only keys, credential keys and removal of a mandatory always-ask action are refused.
 
 GET settings, model and setup reads return an opaque profile version in `ETag` (exposed to app origins). Every PUT/PATCH and setup POST accepts `expect:{version}`; a mismatch returns 409 `stale`. The comparison and write hold the same cross-process profile lock as terminal settings. Unsupported `expect.state` is refused rather than ignored. Successful writes publish `settings.changed {keys[]}` after one atomic private-file replacement. Existing terminal credentials and unrelated profile keys are preserved.
 
@@ -1265,3 +1265,48 @@ Queue and job detail include `display.running_visible`; merged jobs retain it
 until the exact 24-hour boundary at `pr.merged_at + 24h`. Day summaries count
 visible started, posted and merged jobs once each in the server calendar day;
 unknown median waiting time is null. These rules require no renderer clock.
+
+
+### Settings route-gap additions
+
+`factory.done_days` is a numeric binary setting, default 1, accepting whole days
+0–3650. `PATCH /app/v1/settings {changes:{"factory.done_days":7}}` returns
+Settings. The app-hosted factory applies the interval since `merged_at` to
+`display.running_visible` on queue and job reads. Zero hides merged jobs
+immediately; the upper bound is exclusive. History stays readable.
+
+`GET /app/v1/agents/{id}` returns AgentResponse whose snapshot includes
+required boolean `asleep` (the last successful app power event) and
+`day_cap_reached` (measured calendar-day spend at the effective day cap).
+
+
+### Canonical Settings routes from the W3/V60 boards
+
+The binary serves these typed equivalents. App callers bind them only after
+updating their binary pin; the original PATCH and DELETE adapters remain served.
+
+| Route | Request | Response |
+| --- | --- | --- |
+| POST /app/v1/accounts/{id}/access | `{access:"yes"|"ask_first"|"off"}` | ActionResponse `{ok:true}` |
+| POST /app/v1/accounts/{id}/access/{action_id} | ServiceAccessRequest | ActionResponse |
+| POST /app/v1/accounts/{id}/poll | `{}` | ServicePollResponse `{state:"connected"|"waiting"|"revoked"}` |
+| POST /app/v1/accounts/{id}/disconnect | `{}` | ActionResponse |
+| POST /app/v1/mcp/{id}/access | ServiceAccessRequest | ActionResponse |
+| GET /app/v1/factories/{id}/settings | none | FactorySettingsDetails |
+| POST /app/v1/factories/{id}/repos/{repo_id} | `{enabled:boolean}` | ActionResponse |
+| POST /app/v1/factories/{id}/links/{link_id} | `{}` | ActionResponse |
+| POST /app/v1/factories/{id}/revoke-sessions | `{}` | ActionResponse |
+| POST /app/v1/factories/{id}/advanced | `{runner_timeout_s:number}` | ActionResponse |
+| POST /app/v1/factories/{id}/runner | `{keep_output_days?:number,keep_output_mb?:number}` | ActionResponse |
+
+`POST /app/v1/accounts/{id}/connect {}` retains its `{connect_url}` response.
+`POST /app/v1/mcp` accepts `{name?,address,access?}` and returns McpServer;
+omitted name defaults to the address host, omitted access follows the stored
+choice or Ask first. Name and access are validated and saved atomically with
+the address. `POST /app/v1/factories/{id}/links {}` returns
+`{id,name,detail,url}`. Listing links never returns their secret URL.
+Canonical account polling reports progress without consuming a completed grant;
+the authenticated native core uses the existing GET connect door to claim it once.
+Repository ids are owner/name, encoded as one path segment. Native factory routes
+retain their operator checks. Runner output retention belongs to this machine.
+`DELETE /app/v1/factories/{id}` still leaves the factory, with its existing behavior.

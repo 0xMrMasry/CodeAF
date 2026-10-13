@@ -247,7 +247,13 @@
     "ProviderSignInStatusResponse": {
       "properties": {
         "state": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "waiting",
+            "signed_in",
+            "failed",
+            "canceled"
+          ]
         },
         "error": {
           "type": "string"

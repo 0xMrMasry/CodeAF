@@ -61,6 +61,17 @@
     },
     "AddMcpServerRequest": {
       "properties": {
+        "name": {
+          "type": "string"
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "ask_first",
+            "off"
+          ]
+        },
         "address": {
           "type": "string"
         }
@@ -253,6 +264,23 @@
         "connect_url"
       ]
     },
+    "ServicePollResponse": {
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "connected",
+            "waiting",
+            "revoked"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state"
+      ]
+    },
     "Settings": {
       "additionalProperties": true,
       "type": "object"
@@ -354,6 +382,9 @@
       "$ref": "#/$defs/ServiceConnectResponse"
     },
     {
+      "$ref": "#/$defs/ServicePollResponse"
+    },
+    {
       "$ref": "#/$defs/AccountConnectResponse"
     },
     {
@@ -369,6 +400,18 @@
   "title": "codeaf app setting contract",
   "x-events": {},
   "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/accounts/{id}/access/{action_id}",
+      "request": "setting.json#/$defs/ServiceAccessRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/accounts/{id}/access",
+      "request": "setting.json#/$defs/ServiceAccessRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
     {
       "method": "PATCH",
       "path": "/app/v1/accounts/{id}/actions/{aid}",
@@ -387,6 +430,18 @@
       "response": "setting.json#/$defs/ServiceConnectResponse"
     },
     {
+      "method": "POST",
+      "path": "/app/v1/accounts/{id}/disconnect",
+      "request": "setting.json#/$defs/EmptyRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/accounts/{id}/poll",
+      "request": "setting.json#/$defs/EmptyRequest",
+      "response": "setting.json#/$defs/ServicePollResponse"
+    },
+    {
       "method": "DELETE",
       "path": "/app/v1/accounts/{id}",
       "response": "common.json#/$defs/ActionResponse"
@@ -401,6 +456,12 @@
       "method": "GET",
       "path": "/app/v1/accounts",
       "response": "setting.json#/$defs/AccountsResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/mcp/{id}/access",
+      "request": "setting.json#/$defs/ServiceAccessRequest",
+      "response": "common.json#/$defs/ActionResponse"
     },
     {
       "method": "DELETE",
