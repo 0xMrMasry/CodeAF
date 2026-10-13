@@ -210,6 +210,9 @@ through an authenticated proxy instead of starting another floor. Runner routes
 retain their factory-issued credentials through that proxy. The mount follows
 service election when the hosting window closes, allowing another app to take
 over the same store.
+The app's discovery file contains an address, PID and app marker, without its
+launch bearer. Other local windows obtain that bearer from the elected host's
+private runtime socket; terminal-only discovery retains its existing format.
 
 The app and TUI share `~/.codeaf` (or `CODEAF_HOME`), `serve.lock`, and
 `worker.lock`. One elected worker process serves all attached factories, each

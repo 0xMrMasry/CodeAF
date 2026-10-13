@@ -765,6 +765,9 @@ lease and presence routes use factory-issued worker credentials after the same
 Origin/Host checks. A discovered TUI solo service is reused behind the mount,
 preserving factory-issued runner credentials. The mount follows service election
 when that host closes; a surviving app can take over the same solo store.
+An app host writes only its address, PID and app marker in `serve.json`; another
+process retrieves the launch bearer through a private `.solo` runtime socket.
+The app's launch bearer is never persisted.
 `serve.lock` elects the solo host; `worker.lock` elects one worker process for the
 shared home. Its private runtime socket under `/tmp/codeaf-runners-<uid>/` accepts app factory sessions in memory,
 so a TUI that owns the worker can execute work for newly attached teams. Each
