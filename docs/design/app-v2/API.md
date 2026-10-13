@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A11b spending/memory, A12 search/history/Activity, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -233,9 +233,8 @@ stable id ties. `state=` and `q` support plain name words, `state:` (including
 `open`), `kind:agent`, `model:`, `crew:`, `pinned:true|false` and `since:YYYY-MM-DD`.
 Unsupported tokens return 422; A12 adds quoted phrases, transcript `said:` and actual-spend `cost:` search through the shared history grammar.
 The seven-day idle selection and `close-idle` remain with their owning rule lane.
-A4b supplies the full turn snapshot, queue and tool routes; file browsing remains reserved. Budget writes
-bind the existing adjustable session rail; aggregate agent spend and cap asks
-remain A11b.
+A4b supplies the full turn snapshot, queue and tool routes; file browsing remains reserved. Budget writes bind the daily agent allowance through `SetAppBudget`; A11b
+checks root-attributed receipts and maintains budget questions.
 
 ### A4b turn core implementation
 
@@ -588,56 +587,83 @@ Answer-once:
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | wire `Memory.Snapshot`, `Memory.List` (`v2:internal/remote/memory.go:99,106`) | PARTIAL (A11b native shelves/read; crew backend seam) |
-| `PATCH /app/v1/memory/{id}` · `POST /app/v1/memory/{id}/forget` · `POST /app/v1/memory/{id}/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | `Memory.Update`, `Memory.Forget`, `Memory.Restore` (`memory.go:108-112`) | PARTIAL (A11b edit/undo; shelf moves need owner) |
-| setting `memory.agents_may_add` | | | A11a saved key | EXISTS (key only; engine add enforcement pending) |
+| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | native `graph.db`, crew membership through `teams.Snapshot` | EXISTS (A11b) |
+| `PATCH /app/v1/memory/{id}` · `POST /app/v1/memory/{id}/forget` · `POST /app/v1/memory/{id}/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | transactional `Store.EditMemory` | EXISTS (A11b) |
+| setting `memory.agents_may_add` | | | profile key read by the session's tool belt and extraction | EXISTS (A11b enforcement) |
 
-A11b native reads use the canonical `graph.db` and its existing owner shelves:
-Yours, This machine and project owners. They do not invent crew owners. Text edit,
-forget and restore are implemented; a changed shelf returns 409 `not_allowed`
-until a crew-owned `MemoryBackend` is supplied through `WithMemoryBackend` in
-`Options.Context`. Forget immediately removes a memory from native retrieval;
-restore succeeds strictly before five seconds, including from another launch
-sharing the home. The deadline is kept privately in `v3/app/memory-undo.json`.
-A keyed retry replays the original result and never extends that deadline.
-Native `expect.state`/`expect.version` compare the store status/journal sequence;
-the app resource lock serializes app writes, but native terminal writers do not
-share it, so conditional edits across those surfaces need a store transaction seam.
+The native adapter reads canonical `graph.db`, including Yours, This machine,
+project owners and active crews' shelves (including crews with no memories).
+Crew owners are `crew:<id>`; retrieval grants that owner only to a member of
+that native crew. Child tasks inherit their admitted crew scope. PATCH edits
+wording, moves a memory to a valid owner shelf, or does both atomically. Unknown,
+closed or root crews cannot receive a shelf transfer. Crew execution/resource
+adapters may also supply `MemoryBackend` through `WithMemoryBackend`.
+
+`expect.state`/`expect.version` compare status/journal sequence inside the same
+SQLite write transaction as the action, including against terminal writers.
+Forget tombstones the row immediately and stores its undo deadline and tombstone
+version in `graph.db`'s `memory_undo` table in that transaction. Restore succeeds
+strictly before five seconds, including after restart and from another window.
+An intervening terminal restore/forget invalidates the old undo. Keyed retries
+never extend its deadline. At expiry the response is 409 `conflict` with
+`the five-second memory undo window has ended`.
+
+With `memory.agents_may_add:false`, the session leaves the `remember` tool off
+its belt and stops automatic post-turn extraction. Existing memory reads and
+explicit person saves remain available; an already-issued tool call rechecks
+the setting before writing.
 
 ### 2.15 Spending ledger and caps
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/spending?when=&by=` | → `{today:{spent, cap}, rows[{at, who:{kind,id}, what, cost, model}], by_agent[]}` | `spend.changed` (throttled 1/s) | wire `Places.Ledger` (`v2:internal/remote/wire_places.go:42`), `v2:internal/router/ledger.go:44`, `Agent.Usage` (`session/agent.go:633`) | PARTIAL (A11b measured native ledger) |
-| `GET /app/v1/spending/today` | → `{spent, cap}` (the empty app line "Day cap $20.00 · $0.00 spent today") | | `DailyBudgetUSDAt` (`v2:internal/config/budget.go:24`) | EXISTS (A11b app settings day cap) |
-| `POST /app/v1/caps/raise` | `{scope: "day"\|"agent"\|"member"\|"crew"\|"task", id?, to, for: "today"\|"for_good"}` | `inbox.resolved` | `SetSpendRail` (`wire.go:492`), `Teams.Spend`, `WriteDailyBudgetUSD` (`budget.go:45`) | PARTIAL (A11b permanent day/agent raises; owner seam for others) |
+| `GET /app/v1/spending?when=&by=` | → `{today:{spent, cap}, rows[{at, who:{kind,id}, what, cost, model}], by_agent[]}` | `spend.changed` (throttled 1/s) | native `v3/usage.jsonl` | EXISTS (A11b) |
+| `GET /app/v1/spending/today` | → `{spent, cap}` | | shared `config.AppCapAt` | EXISTS (A11b) |
+| `POST /app/v1/caps/raise` | `{scope: "day"\|"agent"\|"member"\|"crew"\|"task", id?, to, for: "today"\|"for_good"}` | actual budget `inbox.resolved` | profile cap store, native agent binder, task guard | EXISTS (A11b day/agent/task; member/crew via owner backend) |
 
-A11b reads measured `v3/usage.jsonl` costs, keeping sub-cent receipts until totals
-are summed. `when` accepts today (default), week (today and the previous six local
-calendar days) or all; future rows are excluded. `by` accepts agent (default),
-crew, job or model and orders rows; native rows retain only known attribution,
-using root agent ids for child task calls. `by_agent` totals the selected range;
-`today.spent` always totals today. Money on the wire has two decimal places.
+Costs are measured provider receipts. Sub-cent receipts are summed before money
+is formatted to two decimals. `when` is today (default), week (today and the
+previous six local calendar days) or all; future receipts are excluded. `by`
+is agent (default), crew, job or model and orders known attribution; the adapter
+never invents a crew/job id. Child calls belong to their root agent. `by_agent`
+totals the selected range, and `today.spent` always totals today.
 
-Permanent day raises update the native profile setting; permanent agent raises
-update both the saved agent and `SetSpendRail`. Non-raises, disabled caps,
-invalid inputs and stale agent expectations refuse. Day expectations use the
-settings route's ETag, because its version is a different contract. Native
-`for:today` raises refuse 409 `not_allowed`: the current execution owner has no
-midnight expiry seam. Member, crew and task raises also need their owning
-resource's `SpendingBackend`, supplied with `WithSpendingBackend` in
-`Options.Context`. No other resource's disk state is edited here.
+Defaults are $20/day across the home, $5/agent/day (including child tasks), and
+$2/task across its lifetime. App children and joined TUI hosts use the additive
+`SetAppBudget` protocol method; this is distinct from `SetSpendRail`, which
+remains a lifetime conversation/crew-member limit. Agent budget PATCH and cap
+raises bind the daily allowance. The native session checks measured receipts
+before admitting a turn and before each model call. Task guards read changed
+caps before every call without resetting reservations or measured spend.
 
-`CheckSpending` supplies $20 day, $5 agent/day and $2 task admission checks to
-AI/turn owners; their existing SpendGuard still owns reservations. This hook is
-not yet connected to native turn admission, so this lane does not claim daily
-agent enforcement or a new budget ask. `PublishSpending` is the call-completion
-hook and is also refreshed by reads/raises; events publish at most once per
-second per launch/home and do not invent Inbox resolutions. Native ledger writes
-do not call the hook yet. Execution integration remains blocked by the current
-handler-only lane scope.
+Permanent day raises update the native profile default; permanent agent raises
+update the saved agent and its execution owner. Day, agent and task temporary
+raises live beside their base in the locked profile and expire at the next local
+midnight, including a DST transition or engine restart. They never overwrite
+permanent settings. The comparison and save share the profile's cross-process
+lock; disabled caps and non-raises refuse. Agent expectations use the saved
+agent's state/version. Day/task expectations must use the owning settings/task
+route; they are refused here instead of silently ignored.
 
-The settings keys are in §2.18. The app's "Run 3 · up to $9" cost check reads job budgets from `/v1` and today's spend from `/app/v1/spending/today`. No estimate is made anywhere.
+Task numbers are local to an agent. A cap id is `<agent-id>:<task-number>`;
+a bare task number is accepted only if it belongs to exactly one known agent.
+`TaskCapID` exposes the spelling to task/AI resource adapters. Member and crew
+caps remain their execution owner's `SpendingBackend` seam; A11b does not edit
+those resources' stores. The backend owns conditional writes and expiry.
+
+The home observer refreshes native receipts once per second and publishes
+`spend.changed` at most once per second. `RefreshSpending` is its synchronous
+producer/test door. Reached day, agent and task caps create one restart-safe
+budget question. `SpendingBudgetAsks` supplies that typed waiting set to asks and
+Inbox. A real raise or midnight reset resolves its actual saved item; a raise
+with no waiting question emits no invented resolution. A refused app turn stays
+`needs_you`, and leaves its text unsent until the person raises the cap and sends
+it again. Already admitted provider calls finish; no further call starts once
+measured costs have reached a cap. Existing SpendGuard reservations remain in
+force for priced task calls, with the existing cross-process in-flight limitation.
+
+The app's "Run 3 · up to $9" cost check reads job budgets from `/v1` and today's
+spend from `/app/v1/spending/today`. No price estimate is presented to the person.
 
 ### 2.16 Models, effort, providers
 
@@ -979,7 +1005,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | EXISTS |
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
-| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | PARTIAL — HTTP/native ledger, permanent day/agent raises, memory edit/5 s undo; execution-owner seams pending |
+| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | EXISTS — engine day/agent/task caps and temporary raises; shelves, atomic memory edit/5 s undo and add switch |
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | EXISTS |
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | BUILT |
@@ -1018,8 +1044,8 @@ Parallel waves:
 | Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `app_process_output.go`, `app_processes.go`, A6 | EXISTS — app single-file 10 MiB window and leased seven-day expiry |
 | Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | EXISTS for close/quit; `StopAllProcesses` is the A14 power hook |
 | Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 | BUILT — default $2, saved limits preserved |
-| Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b | — |
-| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **EXISTS (A11a setup)**: setup writes 20 for a fresh app; existing shared-home choices and the TUI built-in default remain | A11a | BUILT — setup persistence A11a; cap asks A11b |
+| Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b | BUILT — daily agent accounting and budget questions |
+| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **EXISTS (A11a setup)**: setup writes 20 for a fresh app; existing shared-home choices and the TUI built-in default remain | A11a | BUILT — setup persistence A11a; cap questions A11b |
 | Sub-crew depth 3, share 50% | `teamdefaults.go:44-45` | **EXISTS** | — | — |
 | Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a | EXISTS — positive cents, lifetime pool, one saved budget Ask |
 | Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a | EXISTS — six tints mapped to native hues |
