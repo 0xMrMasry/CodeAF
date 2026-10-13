@@ -30,6 +30,9 @@
     },
     "Ask": {
       "properties": {
+        "permission": {
+          "$ref": "#/$defs/Permission"
+        },
         "id": {
           "type": "string"
         },
@@ -348,6 +351,71 @@
       "required": [
         "error",
         "route"
+      ]
+    },
+    "Permission": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "class": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "why": {
+          "type": "string"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "batch": {
+          "items": {
+            "$ref": "#/$defs/PermissionCommand"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "command",
+        "irreversible",
+        "why",
+        "before"
+      ]
+    },
+    "PermissionCommand": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "command"
       ]
     },
     "RouteContract": {

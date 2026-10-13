@@ -15,6 +15,9 @@
     },
     "Ask": {
       "properties": {
+        "permission": {
+          "$ref": "#/$defs/Permission"
+        },
         "id": {
           "type": "string"
         },
@@ -288,10 +291,7 @@
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "verb"
-      ]
+      "type": "object"
     },
     "PermissionRule": {
       "properties": {

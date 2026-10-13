@@ -145,6 +145,7 @@ export interface AnswerAskRequest {
 }
 
 export interface Ask {
+  "permission"?: Permission;
   "id": string;
   "kind": "question" | "clarification" | "permission" | "your_call" | "proposal" | "budget" | "order_ask" | "reminder";
   "source": SourceRef;
@@ -799,7 +800,7 @@ export interface PermissionDecision {
 }
 
 export interface PermissionRequest {
-  "verb": "allow_once" | "deny" | "always";
+  "verb"?: "allow_once" | "deny" | "always";
   "rule"?: PermissionRuleChoice;
   "items"?: Array<PermissionDecision>;
   "expect"?: AgentExpect;

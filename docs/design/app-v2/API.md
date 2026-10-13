@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A11b spending/memory, A12 search/history/Activity, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A8 asks/permissions, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A11b spending/memory, A12 search/history/Activity, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -425,19 +425,19 @@ A permission is `{id, agent_id, task_id?, command, class?, irreversible, why, be
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `POST /app/v1/permissions/{id}` | `{verb: "allow_once"\|"deny"\|"always", rule?:{match, who}, items?[{id, verb}]}` (batch: Allow all · Deny all · One by one) | `ask.resolved`, receipt, `rule.created` | wire `ResolveConsent`, `ResolveConsentRemember` (`v2:wire.go:496-497`); `wb:bridge.go:826-876` (`/answer`) | PORT |
-| `GET /app/v1/rules` · `DELETE /app/v1/rules/{id}` · `POST /app/v1/rules/{id}/restore` | Settings → Permissions, remove with undo | `rule.changed` | `v2:internal/config/approvalmemory.go` (`tools.approval` map) | NEW (HTTP; ids are new) |
-| `GET /app/v1/rules/{id}/why` | → `{rule, matched}` (the "Why?" on a receipt) | — | NEW | NEW |
-| Settings keys `permissions.mode`, `permissions.always_ask[]`, `permissions.question_clock_min` | see §2.18 | | wire `ResolvedApproval`, `SetApproval` (`v2:wire.go:619-620`), `v2:internal/session/approvalposture.go:56,69` | PORT (`wb:settings_permissions.go`) + NEW clock |
+| `POST /app/v1/permissions/{id}` | `{verb: "allow_once"\|"deny"\|"always", rule?:{match, who}, items?[{id, verb}]}` (batch: Allow all · Deny all · One by one) | `ask.resolved`, receipt, `rule.created` | wire `ResolveConsent`, `ResolveConsentRemember` (`v2:wire.go:496-497`); `wb:bridge.go:826-876` (`/answer`) | EXISTS (A8) |
+| `GET /app/v1/rules` · `DELETE /app/v1/rules/{id}` · `POST /app/v1/rules/{id}/restore` | Settings → Permissions, remove with undo | `rule.changed` | `v2:internal/config/approvalmemory.go` (`tools.approval` map) | EXISTS (A8) |
+| `GET /app/v1/rules/{id}/why` | → `{rule, matched}` (the "Why?" on a receipt) | — | NEW | EXISTS (A8) |
+| Settings keys `permissions.mode`, `permissions.always_ask[]`, `permissions.question_clock_min` | see §2.18 | | wire `ResolvedApproval`, `SetApproval` (`v2:wire.go:619-620`), `v2:internal/session/approvalposture.go:56,69` | EXISTS (A8 enforcement; A11a settings) |
 
 ### 2.7 Clarification and question (agent side)
 
-One `Ask` object covers every engine kind: `{id, kind: "question"\|"clarification"\|"permission"\|"your_call"\|"proposal"\|"budget"\|"order_ask"\|"reminder", source:{kind, id}, path[], title, options[], suggested?, irreversible, touches_prod?, clock?:{starts_at? \| pauses_at?}, before[2], state: "waiting"\|"answered"\|"withdrawn", receipt?}`.
+One `Ask` object covers every engine kind: `{id, kind: "question"\|"clarification"\|"permission"\|"your_call"\|"proposal"\|"budget"\|"order_ask"\|"reminder", source:{kind, id}, path[], title, options[], suggested?, irreversible, touches_prod?, clock?:{starts_at? \| pauses_at?}, before[2], state: "waiting"\|"answered"\|"withdrawn", permission?: Permission, receipt?}`.
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `POST /app/v1/asks/{id}/answer` | `{choice?, words?, verb?: "later"\|"you_decide", expect?}`. A second answer gets 409 `{by, at}` and the sentence "@jm answered this 10s ago. Your answer wasn't sent." | `ask.resolved` | wire `ResolveQuestion`, `Question.Hold` (`v2:wire.go:510,522`); `wb:bridge.go:826-876`, `routes.go:136` | PORT |
-| `GET /app/v1/asks/{id}` | → `Ask` with `before[2]` (the two turns before it) | — | wire `Held.Questions` (`v2:wire.go:733`); `v2:internal/session/question.go:713` | PORT |
+| `POST /app/v1/asks/{id}/answer` | `{choice?, words?, verb?: "later"\|"you_decide", expect?}`. A second answer gets 409 `{by, at}` and "@<by> answered this <seconds>s ago. Your answer wasn't sent." | `ask.resolved` | wire `ResolveQuestion`, `Question.Hold` (`v2:wire.go:510,522`); `wb:bridge.go:826-876`, `routes.go:136` | EXISTS (A8) |
+| `GET /app/v1/asks/{id}` | → `Ask` with `before[2]` (the two turns before it) | — | wire `Held.Questions` (`v2:wire.go:733`); `v2:internal/session/question.go:713` | EXISTS (A8) |
 
 "Later" on an ask is the engine-side hold ("folds into the header count"). The Inbox's Later is app state (§2.13). These are two different things, and the app sends both.
 
@@ -447,7 +447,36 @@ Receipts and notices are transcript entries, not resources. Each is a `DisplayEn
 - They arrive as `turn.entry` events.
 - They are written by the engine for every decision, including automatic ones and answers given in the Inbox (X1 Receipts).
 - Backed by `wb:bridge.go:504-580` (event kinds `notice`, `jobUpdate`, `questionAnswered`).
-- Status: **PORT** for notices. Receipts made uniform for every decision path are **NEW**.
+- Status: **EXISTS (A8)** for question/permission receipts, automatic rules and answers from other windows; other resource lanes own their decision receipts.
+
+**A8 behaviour:** Ask ids qualify the native question token with its agent and
+kind and creation time, so restarted counters cannot collide. The binary freezes two context slots on first observation; an early
+conversation uses blank slots for absent context. Command permission asks also include
+`permission` with the command, shown class and any waiting task batch. Exact
+rules compare literal commands, including shell wildcard text; class rules use
+the existing bounded shell shapes and never match compound commands. Rules
+persist beside the profile, retain removed records for restore, and Why reads
+the latest matched command. Explicit deny policies still refuse; irreversible
+calls and mandatory or extra always-ask rows cannot be automatically allowed.
+
+App attachment enables scoped rules on a shared TUI owner through
+`App.Permissions`, without changing its naming mode. A dedicated question
+subscription observes creation, external answers and
+withdrawals without taking the task lane. Its connection observer also feeds
+Inbox resolution, so Inbox never replaces the remote question subscription.
+Source cards and Inbox use one five-second Undo hold before engine resolution.
+The owning Ask handler validates before that hold, and submitting an answer
+holds the question pause clock while Undo is available. Task permissions use the parent
+conversation's consent ids and answer channels. `App.ReplyRunning` keeps a
+task-only ask from blocking a new chat message while protecting an inline reply
+running in the app or joined TUI. Batch input is checked in full
+before answers are sent; one-by-one may answer a subset. Later holds an ask
+without answering it. You decide refuses irreversible asks and choices with no
+suggestion; a clarification without a suggestion hands the choice back in words.
+Blocking permissions and questions use the saved 1–1440 minute clock (15 by
+default), including irreversible permissions: expiry stops work, never answers,
+and leaves a pause receipt. Cancelled pending calls are withdrawn; a fresh
+message continues the work. Autonomous question defaults stay off in app mode.
 
 ### 2.9 Crew
 
@@ -1007,8 +1036,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | EXISTS (engine hooks and HTTP) |
 | A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | EXISTS (power stop door built; `/power` calls it in A14) |
 | A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | EXISTS |
-
-| A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
+| A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | EXISTS |
 | A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | BUILT — typed producers/resolvers; attachment lifecycle A14 |
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | EXISTS |
@@ -1048,7 +1076,7 @@ Parallel waves:
 | Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 | BUILT — default $0.40, saved rails preserved |
 | Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 | EXISTS (A5) — before-write captures, Undo and promotion before file 31 or shell execution |
 | Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 | EXISTS (A5) — saved/default 12 s, per-task typing hold and irreversible no-clock |
-| Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 | POLICY BUILT — `QuestionClock`; pause enforcement A8 |
+| Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 | EXISTS — binary-owned pause timer, saved duration, no automatic answer |
 | Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `app_process_output.go`, `app_processes.go`, A6 | EXISTS — app single-file 10 MiB window and leased seven-day expiry |
 | Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | EXISTS for close/quit; `StopAllProcesses` is the A14 power hook |
 | Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 | BUILT — default $2, saved limits preserved |
@@ -1060,7 +1088,7 @@ Parallel waves:
 | Idle agent: no message 7 days and nothing running; nothing closes on its own | none | **NEW** derived flag | A15 | BUILT — `AgentIsIdle`; list/close routes A4a |
 | Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **EXISTS (A4b recovery)**: terminal engine failure enables Retry/Switch model; fixed three-call patience remains a gap | A4b | — |
 | Running long: one line at 3:00 per reply; Move it to a task | none | **EXISTS (A4b)**: one 180 s event; explicit handoff through StartTask | A4b | — |
-| Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 | — |
+| Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 | EXISTS — question/permission receipts, automatic rules and external answers |
 | Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2 and engine A9 | | — |
 | Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — | — |
 | Glossary: TUI `/crew` (a task's model seats) → `/seats` | `CrewCommand = "/crew"` (`config/crew.go:103`) | **CHANGED**: `/seats`, with `/crew` an alias for one release; manual pages | A15 | BUILT — canonical `/seats`, `/crew` alias for one release |
