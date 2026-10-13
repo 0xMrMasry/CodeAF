@@ -48,6 +48,19 @@ export interface AccessFactory {
   "repos": Array<string> | null;
 }
 
+export interface AccountConnectResponse {
+  "id": string;
+  "name": string;
+  "state": "connected" | "disconnected" | "revoked";
+  "detail": string;
+  "access": "yes" | "ask_first" | "off";
+  "actions": Array<ServiceAction> | null;
+  "connect_url": string;
+  "credential"?: string;
+}
+
+export type AccountsResponse = Array<ConnectedService> | null;
+
 export interface ActionResponse {
   "ok": boolean;
   "receipt"?: DisplayEntry;
@@ -63,6 +76,10 @@ export interface Activity {
 
 export interface ActivityResponse {
   "items": Array<Activity> | null;
+}
+
+export interface AddMcpServerRequest {
+  "address": string;
 }
 
 export interface Agent {
@@ -226,6 +243,16 @@ export interface ConflictResponse {
   "running"?: RunningCounts;
   "changed_since"?: Array<string>;
   "open_items"?: number;
+}
+
+export interface ConnectedService {
+  "id": string;
+  "name": string;
+  "state": "connected" | "disconnected" | "revoked";
+  "detail": string;
+  "access": "yes" | "ask_first" | "off";
+  "actions": Array<ServiceAction> | null;
+  "connect_url": string;
 }
 
 export interface CreateAgentRequest {
@@ -392,6 +419,10 @@ export interface DefaultModelResponse {
   "effort": "low" | "medium" | "high";
 }
 
+export interface DeleteFactoryLinkRequest {
+  "id": string;
+}
+
 export interface DisplayEntry {
   "id"?: string;
   "kind": string;
@@ -407,6 +438,8 @@ export interface DisplayEntry {
   "answered"?: boolean;
   "card"?: Ask;
 }
+
+export type EmptyRequest = Record<string, never>;
 
 export interface EntriesResponse {
   "entries": Array<DisplayEntry> | null;
@@ -471,6 +504,57 @@ export interface FactoryEvent {
   "factory": string;
   "type": string;
   "data": JsonValue;
+}
+
+export interface FactoryLinkRequest {
+  "login"?: string;
+  "name"?: string;
+  "expires_at"?: string;
+}
+
+export interface FactoryLinkResponse {
+  "id": string;
+  "url": string;
+}
+
+export interface FactoryRepoRequest {
+  "enabled": boolean | null;
+}
+
+export interface FactorySettingsDetails {
+  "id": string;
+  "mode": "solo" | "team";
+  "host": string;
+  "sign_in_link"?: string;
+  "login": string;
+  "signed_in": boolean;
+  "attached": boolean;
+  "operator": boolean;
+  "repos": Array<FactorySettingsRepo> | null;
+  "links": Array<FactorySettingsLink> | null;
+  "people": Array<FactorySettingsPerson> | null;
+  "runner_timeout_s": number;
+  "keep_output_days": number;
+  "keep_output_mb": number;
+}
+
+export interface FactorySettingsLink {
+  "id": string;
+  "name": string;
+  "detail": string;
+}
+
+export interface FactorySettingsPerson {
+  "id": string;
+  "name": string;
+  "initial": string;
+  "hue": number;
+}
+
+export interface FactorySettingsRepo {
+  "id": string;
+  "names": Array<string> | null;
+  "enabled": boolean;
 }
 
 export interface FactorySetup {
@@ -672,6 +756,18 @@ export interface KeysChangedEvent {
 
 export type KeysResponse = Array<KeyStatus> | null;
 
+export interface McpServer {
+  "id": string;
+  "name": string;
+  "address": string;
+  "tools": number;
+  "state": "connected" | "not_answering";
+  "since"?: string;
+  "access": "yes" | "ask_first" | "off";
+}
+
+export type McpServersResponse = Array<McpServer> | null;
+
 export interface Member {
   "crew_id": string;
   "agent_id": string;
@@ -812,6 +908,12 @@ export interface PatchCrewRequest {
   "budget"?: Money;
   "ends_at"?: string;
   "expect"?: AgentExpect;
+}
+
+export interface PatchFactorySettingsRequest {
+  "runner_timeout_s"?: number;
+  "keep_output_days"?: number;
+  "keep_output_mb"?: number;
 }
 
 export interface PatchMemberRequest {
@@ -1078,6 +1180,22 @@ export interface SendHandOffRequest {
   "start"?: "now" | "backlog";
   "assignee"?: string;
   "expect"?: AgentExpect;
+}
+
+export interface ServiceAccessRequest {
+  "access": "yes" | "ask_first" | "off";
+}
+
+export interface ServiceAction {
+  "id": string;
+  "label": string;
+  "scope": string;
+  "access": "yes" | "ask_first" | "off";
+  "acting_as_you": boolean;
+}
+
+export interface ServiceConnectResponse {
+  "connect_url": string;
 }
 
 export type Settings = Record<string, JsonValue> | null;
@@ -1375,6 +1493,12 @@ export interface Usage {
 // Canonical method/path templates; request: never means this route has no JSON body.
 // Responses describe success JSON. SSE and follow modes use AppEvents; errors use AppError.
 export interface AppRoutes {
+  "PATCH /app/v1/accounts/{id}/actions/{aid}": { request: ServiceAccessRequest; response: ConnectedService };
+  "GET /app/v1/accounts/{id}/connect": { request: never; response: AccountConnectResponse };
+  "POST /app/v1/accounts/{id}/connect": { request: EmptyRequest; response: ServiceConnectResponse };
+  "DELETE /app/v1/accounts/{id}": { request: never; response: ActionResponse };
+  "PATCH /app/v1/accounts/{id}": { request: ServiceAccessRequest; response: ConnectedService };
+  "GET /app/v1/accounts": { request: never; response: AccountsResponse };
   "GET /app/v1/activity": { request: never; response: ActivityResponse };
   "POST /app/v1/agents/close-idle": { request: CloseIdleRequest; response: CloseIdleResponse };
   "POST /app/v1/agents/{id}/archive": { request: ExpectRequest; response: Agent };
@@ -1436,8 +1560,17 @@ export interface AppRoutes {
   "GET /app/v1/crews": { request: never; response: CrewsResponse };
   "POST /app/v1/crews": { request: CreateCrewRequest; response: Crew };
   "GET /app/v1/events": { request: never; response: StreamHelloEvent };
+  "GET /app/v1/factories/solo": { request: never; response: FactorySettingsDetails };
+  "PATCH /app/v1/factories/solo": { request: PatchFactorySettingsRequest; response: FactorySettingsDetails };
   "POST /app/v1/factories/solo": { request: ExpectRequest; response: Factory };
+  "DELETE /app/v1/factories/{id}/links/{link}": { request: never; response: ActionResponse };
+  "DELETE /app/v1/factories/{id}/links": { request: DeleteFactoryLinkRequest; response: ActionResponse };
+  "POST /app/v1/factories/{id}/links": { request: FactoryLinkRequest; response: FactoryLinkResponse };
+  "PATCH /app/v1/factories/{id}/repos/{rid}": { request: FactoryRepoRequest; response: ActionResponse };
+  "POST /app/v1/factories/{id}/sign-out": { request: EmptyRequest; response: ActionResponse };
   "DELETE /app/v1/factories/{id}": { request: ExpectRequest; response: ActionResponse };
+  "GET /app/v1/factories/{id}": { request: never; response: FactorySettingsDetails };
+  "PATCH /app/v1/factories/{id}": { request: PatchFactorySettingsRequest; response: FactorySettingsDetails };
   "GET /app/v1/factories": { request: never; response: FactoriesResponse };
   "POST /app/v1/factories": { request: AttachFactoryRequest; response: Factory };
   "GET /app/v1/health": { request: never; response: HealthResponse };
@@ -1449,6 +1582,10 @@ export interface AppRoutes {
   "DELETE /app/v1/keys/{provider}": { request: ExpectRequest; response: ActionResponse };
   "PUT /app/v1/keys/{provider}": { request: PutKeyRequest; response: KeyCheckResult };
   "GET /app/v1/keys": { request: never; response: KeysResponse };
+  "DELETE /app/v1/mcp/{id}": { request: never; response: ActionResponse };
+  "PATCH /app/v1/mcp/{id}": { request: ServiceAccessRequest; response: McpServer };
+  "GET /app/v1/mcp": { request: never; response: McpServersResponse };
+  "POST /app/v1/mcp": { request: AddMcpServerRequest; response: McpServer };
   "POST /app/v1/memory/{id}/forget": { request: ExpectRequest; response: ActionResponse };
   "POST /app/v1/memory/{id}/restore": { request: ExpectRequest; response: ActionResponse };
   "PATCH /app/v1/memory/{id}": { request: PatchMemoryRequest; response: MemoryItem };

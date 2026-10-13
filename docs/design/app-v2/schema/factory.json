@@ -59,6 +59,18 @@
         "url"
       ]
     },
+    "DeleteFactoryLinkRequest": {
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id"
+      ]
+    },
     "FactoriesResponse": {
       "items": {
         "$ref": "#/$defs/Factory"
@@ -245,6 +257,193 @@
         "data"
       ]
     },
+    "FactoryLinkRequest": {
+      "properties": {
+        "login": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "FactoryLinkResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "url"
+      ]
+    },
+    "FactoryRepoRequest": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "FactorySettingsDetails": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "solo",
+            "team"
+          ]
+        },
+        "host": {
+          "type": "string"
+        },
+        "sign_in_link": {
+          "type": "string"
+        },
+        "login": {
+          "type": "string"
+        },
+        "signed_in": {
+          "type": "boolean"
+        },
+        "attached": {
+          "type": "boolean"
+        },
+        "operator": {
+          "type": "boolean"
+        },
+        "repos": {
+          "items": {
+            "$ref": "#/$defs/FactorySettingsRepo"
+          },
+          "type": "array"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/FactorySettingsLink"
+          },
+          "type": "array"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/FactorySettingsPerson"
+          },
+          "type": "array"
+        },
+        "runner_timeout_s": {
+          "type": "integer"
+        },
+        "keep_output_days": {
+          "type": "integer"
+        },
+        "keep_output_mb": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "mode",
+        "host",
+        "login",
+        "signed_in",
+        "attached",
+        "operator",
+        "repos",
+        "links",
+        "people",
+        "runner_timeout_s",
+        "keep_output_days",
+        "keep_output_mb"
+      ]
+    },
+    "FactorySettingsLink": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "detail"
+      ]
+    },
+    "FactorySettingsPerson": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "initial": {
+          "type": "string"
+        },
+        "hue": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "initial",
+        "hue"
+      ]
+    },
+    "FactorySettingsRepo": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "names",
+        "enabled"
+      ]
+    },
     "FactorySetup": {
       "properties": {
         "id": {
@@ -423,6 +622,21 @@
       "required": [
         "running_visible"
       ]
+    },
+    "PatchFactorySettingsRequest": {
+      "properties": {
+        "runner_timeout_s": {
+          "type": "integer"
+        },
+        "keep_output_days": {
+          "type": "integer"
+        },
+        "keep_output_mb": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "PowerRequest": {
       "properties": {
@@ -671,6 +885,33 @@
     },
     {
       "$ref": "#/$defs/FactoryEvent"
+    },
+    {
+      "$ref": "#/$defs/FactorySettingsDetails"
+    },
+    {
+      "$ref": "#/$defs/FactorySettingsRepo"
+    },
+    {
+      "$ref": "#/$defs/FactorySettingsLink"
+    },
+    {
+      "$ref": "#/$defs/FactorySettingsPerson"
+    },
+    {
+      "$ref": "#/$defs/PatchFactorySettingsRequest"
+    },
+    {
+      "$ref": "#/$defs/FactoryRepoRequest"
+    },
+    {
+      "$ref": "#/$defs/FactoryLinkRequest"
+    },
+    {
+      "$ref": "#/$defs/FactoryLinkResponse"
+    },
+    {
+      "$ref": "#/$defs/DeleteFactoryLinkRequest"
     }
   ],
   "title": "codeaf app factory contract",
@@ -703,6 +944,17 @@
       "response": "factory.json#/$defs/HandOffCard"
     },
     {
+      "method": "GET",
+      "path": "/app/v1/factories/solo",
+      "response": "factory.json#/$defs/FactorySettingsDetails"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/factories/solo",
+      "request": "factory.json#/$defs/PatchFactorySettingsRequest",
+      "response": "factory.json#/$defs/FactorySettingsDetails"
+    },
+    {
       "method": "POST",
       "path": "/app/v1/factories/solo",
       "request": "common.json#/$defs/ExpectRequest",
@@ -710,9 +962,49 @@
     },
     {
       "method": "DELETE",
+      "path": "/app/v1/factories/{id}/links/{link}",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/factories/{id}/links",
+      "request": "factory.json#/$defs/DeleteFactoryLinkRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/links",
+      "request": "factory.json#/$defs/FactoryLinkRequest",
+      "response": "factory.json#/$defs/FactoryLinkResponse"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/factories/{id}/repos/{rid}",
+      "request": "factory.json#/$defs/FactoryRepoRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/factories/{id}/sign-out",
+      "request": "setting.json#/$defs/EmptyRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "DELETE",
       "path": "/app/v1/factories/{id}",
       "request": "common.json#/$defs/ExpectRequest",
       "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/factories/{id}",
+      "response": "factory.json#/$defs/FactorySettingsDetails"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/factories/{id}",
+      "request": "factory.json#/$defs/PatchFactorySettingsRequest",
+      "response": "factory.json#/$defs/FactorySettingsDetails"
     },
     {
       "method": "GET",

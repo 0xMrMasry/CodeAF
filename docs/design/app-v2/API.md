@@ -786,6 +786,67 @@ Model default/effort, day cap, per-task cap, per-conversation ceiling, proposal 
 
 UI-only keys stay in the app: theme, tint, text size, open at login, banners, sound, dock badge, density, auto-update, and "Later 09:00".
 
+### 2.18a Accounts, MCP and factory settings routes
+
+All routes use the existing launch bearer and loopback guard. Public reads
+and preferences contain no credentials; app account grants and renewals stay
+in the launch's memory source, without opening terminal credentials.json.
+
+| Route | Request | Reply |
+|---|---|---|
+| `GET /app/v1/accounts` | — | `ConnectedService[]` |
+| `PATCH /app/v1/accounts/{id}` | `{access}` | `ConnectedService` |
+| `PATCH /app/v1/accounts/{id}/actions/{aid}` | `{access}` | `ConnectedService` |
+| `POST /app/v1/accounts/{id}/connect` | `{}` | `{connect_url}` |
+| `GET /app/v1/accounts/{id}/connect` | — | `AccountConnectResponse` |
+| `DELETE /app/v1/accounts/{id}` | — | `{ok}` |
+| `GET /app/v1/mcp` | — | `McpServer[]` |
+| `POST /app/v1/mcp` | `{address}` | `McpServer` |
+| `PATCH /app/v1/mcp/{id}` | `{access}` | `McpServer` |
+| `DELETE /app/v1/mcp/{id}` | — | `{ok}` |
+| `GET /app/v1/factories/{id}` | — | `FactorySettingsDetails` |
+| `PATCH /app/v1/factories/{id}` | `{runner_timeout_s?,keep_output_days?,keep_output_mb?}` | `FactorySettingsDetails` |
+| `GET /app/v1/factories/solo` | — | `FactorySettingsDetails` |
+| `PATCH /app/v1/factories/solo` | same settings patch | `FactorySettingsDetails` |
+| `POST /app/v1/factories/{id}/sign-out` | `{}` | `{ok}` |
+| `PATCH /app/v1/factories/{id}/repos/{rid}` | `{enabled}` | `{ok}` |
+| `POST /app/v1/factories/{id}/links` | `{login?,name?,expires_at?}` | `{id,url}` |
+| `DELETE /app/v1/factories/{id}/links` | `{id}` | `{ok}` |
+| `DELETE /app/v1/factories/{id}/links/{link}` | — | `{ok}` |
+
+Account access is `yes`, `ask_first` or `off`; acting-as-you action rows always
+use `ask_first`. Google and Slack connect use native browser grants with a
+five-minute deadline. GitHub returns its token settings link and receives a
+token through the app's pipe. Disconnect cancels the callback and a revision
+check refuses a late grant. Google actions describe its current Gmail and
+Calendar tools rather than promising Drive. The first completed connect poll includes the opaque `credential` payload
+for the app to save to Keychain. It is consumed once; later polls and launch
+credentials are never exported. Account lists and events contain only public state.
+
+MCP addresses persist without credentials, query strings or fragments. Remote
+addresses require HTTPS. Discovery lists real tools, at most four two-second
+probes concurrently; failure reports `not_answering`. Tokens use the launch
+key `mcp:<id>`. Saved servers become live native tool sources on the next belt rebuild,
+with the same per-service access gate and no credential or registration files.
+Removal drops the source. Vendor authorization remains distinct from adding
+a server; authenticated endpoints use the token supplied by the app. The profile accepts at most 64 saved addresses.
+
+Factory repo ids are URL-encoded owner/name. Repository and access-link actions
+forward to the selected factory using the person's session, preserving its
+operator checks. Sign-out revokes this person's session, clears its memory-only
+token and keeps the attachment; solo sign-out refuses. Factory settings reads
+include operator-only repos, links and people only for the operator.
+
+Runner timeout changes the factory's saved lease and presence deadline. Output
+retention belongs to this Mac's profile, including team-worker mirrors, and
+can be changed by a non-operator. Limits are 1–86400 seconds, 1–3650 days and
+1–1024 MiB. Native hosts expose the saved deadline at GET/PATCH /v1/settings.
+The dotted settings codec also returns and validates the existing `advanced.*`,
+`crews.depth`, `crews.share_pct`, `crews.wake`, `factory.polling_s` and the new
+`factory.runner_timeout_s`, `factory.keep_output_days`, `factory.keep_output_mb`
+rows. Local output limits are consumed by process launch and completed-log
+sweeps; factory logs trim oldest-first on reads and writes.
+
 ### 2.19 First run
 
 - `GET /app/v1/setup` → `{step, has_key, default_model?, day_cap, complete}`. Steps 1–4 are J01; step 5 means complete. The binary persists `app.setup.step` so a quit mid-way resumes at the same step, separately from the terminal's welcome marker. A GitHub key alone does not satisfy `has_key`.

@@ -1,6 +1,180 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "AccountConnectResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "connected",
+            "disconnected",
+            "revoked"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "ask_first",
+            "off"
+          ]
+        },
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ServiceAction"
+          },
+          "type": "array"
+        },
+        "connect_url": {
+          "type": "string"
+        },
+        "credential": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "state",
+        "detail",
+        "access",
+        "actions",
+        "connect_url"
+      ]
+    },
+    "AccountsResponse": {
+      "items": {
+        "$ref": "#/$defs/ConnectedService"
+      },
+      "type": "array"
+    },
+    "AddMcpServerRequest": {
+      "properties": {
+        "address": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    },
+    "ConnectedService": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "connected",
+            "disconnected",
+            "revoked"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "ask_first",
+            "off"
+          ]
+        },
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ServiceAction"
+          },
+          "type": "array"
+        },
+        "connect_url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "state",
+        "detail",
+        "access",
+        "actions",
+        "connect_url"
+      ]
+    },
+    "EmptyRequest": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "McpServer": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "integer"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "connected",
+            "not_answering"
+          ]
+        },
+        "since": {
+          "type": "string"
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "ask_first",
+            "off"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "address",
+        "tools",
+        "state",
+        "access"
+      ]
+    },
+    "McpServersResponse": {
+      "items": {
+        "$ref": "#/$defs/McpServer"
+      },
+      "type": "array"
+    },
     "Money": {
       "properties": {
         "usd": {
@@ -16,6 +190,68 @@
     "PatchSettingsRequest": {
       "additionalProperties": true,
       "type": "object"
+    },
+    "ServiceAccessRequest": {
+      "properties": {
+        "access": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "ask_first",
+            "off"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "access"
+      ]
+    },
+    "ServiceAction": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "ask_first",
+            "off"
+          ]
+        },
+        "acting_as_you": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "scope",
+        "access",
+        "acting_as_you"
+      ]
+    },
+    "ServiceConnectResponse": {
+      "properties": {
+        "connect_url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "connect_url"
+      ]
     },
     "Settings": {
       "additionalProperties": true,
@@ -98,11 +334,96 @@
     },
     {
       "$ref": "#/$defs/SetupRequest"
+    },
+    {
+      "$ref": "#/$defs/EmptyRequest"
+    },
+    {
+      "$ref": "#/$defs/ServiceAction"
+    },
+    {
+      "$ref": "#/$defs/ConnectedService"
+    },
+    {
+      "$ref": "#/$defs/AccountsResponse"
+    },
+    {
+      "$ref": "#/$defs/ServiceAccessRequest"
+    },
+    {
+      "$ref": "#/$defs/ServiceConnectResponse"
+    },
+    {
+      "$ref": "#/$defs/AccountConnectResponse"
+    },
+    {
+      "$ref": "#/$defs/McpServer"
+    },
+    {
+      "$ref": "#/$defs/McpServersResponse"
+    },
+    {
+      "$ref": "#/$defs/AddMcpServerRequest"
     }
   ],
   "title": "codeaf app setting contract",
   "x-events": {},
   "x-routes": [
+    {
+      "method": "PATCH",
+      "path": "/app/v1/accounts/{id}/actions/{aid}",
+      "request": "setting.json#/$defs/ServiceAccessRequest",
+      "response": "setting.json#/$defs/ConnectedService"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/accounts/{id}/connect",
+      "response": "setting.json#/$defs/AccountConnectResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/accounts/{id}/connect",
+      "request": "setting.json#/$defs/EmptyRequest",
+      "response": "setting.json#/$defs/ServiceConnectResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/accounts/{id}",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/accounts/{id}",
+      "request": "setting.json#/$defs/ServiceAccessRequest",
+      "response": "setting.json#/$defs/ConnectedService"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/accounts",
+      "response": "setting.json#/$defs/AccountsResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/mcp/{id}",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/mcp/{id}",
+      "request": "setting.json#/$defs/ServiceAccessRequest",
+      "response": "setting.json#/$defs/McpServer"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/mcp",
+      "response": "setting.json#/$defs/McpServersResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/mcp",
+      "request": "setting.json#/$defs/AddMcpServerRequest",
+      "response": "setting.json#/$defs/McpServer"
+    },
     {
       "method": "GET",
       "path": "/app/v1/settings",
