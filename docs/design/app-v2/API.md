@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff and A3 event stream built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes are design. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream and A4a agent lifecycle built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes are design. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -134,11 +134,11 @@ S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[],
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/agents?q=&state=` | → `{agents[]}` (rail, All crews and agents) | — | `wb:worldrows.go`, `world.go` (rows), `wb:history.go:243` (closed/archived) | PORT |
-| `POST /app/v1/agents` | `{text?, model?, effort?, budget?, approvals?, context[]?, start: "send"\|"empty"}` → `Agent` (name from text, ≤40 chars) | `agent.created`, then `turn.*` | `wb:bridge.go:644-765` (POST /sessions), remote `Session.New` (`v2:internal/remote/wire.go:642`) | PORT |
-| `GET /app/v1/agents/{id}` | → `Agent` + `snapshot` (entries tail, queue, open asks, tasks summary, usage) | — | `wb:bridge.go:72-96,779`, `snapshotview.go` | PORT |
-| `PATCH /app/v1/agents/{id}` | `{name?, model?, effort?, budget?, pinned?}` | `agent.changed` | wire `SetModel`, `SetEffort`, `SetSpendRail` (`v2:wire.go:491,492,600`). Rename and pin are NEW | PORT+NEW |
-| `POST /app/v1/agents/{id}/close` · `/archive` · `/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | PORT |
+| `GET /app/v1/agents?q=&state=` | → `{agents[]}` (rail, All crews and agents) | — | `wb:worldrows.go`, `world.go` (rows), `wb:history.go:243` (closed/archived) | EXISTS (A4a; search expansion A12) |
+| `POST /app/v1/agents` | `{text?, model?, effort?, budget?, approvals?, context[]?, start: "send"\|"empty"}` → `Agent` (name from text, ≤40 chars) | `agent.created`, then `turn.*` | `wb:bridge.go:644-765` (POST /sessions), remote `Session.New` (`v2:internal/remote/wire.go:642`) | EXISTS (A4a) |
+| `GET /app/v1/agents/{id}` | → `Agent` + `snapshot` (entries tail, queue, open asks, tasks summary, usage) | — | `wb:bridge.go:72-96,779`, `snapshotview.go` | EXISTS (A4a saved/live entries, tasks, usage; full snapshot A4b) |
+| `PATCH /app/v1/agents/{id}` | `{name?, model?, effort?, budget?, pinned?}` | `agent.changed` | wire `SetModel`, `SetEffort`, `SetSpendRail` (`v2:wire.go:491,492,600`). Rename and pin are NEW | EXISTS (A4a) |
+| `POST /app/v1/agents/{id}/close` · `/archive` · `/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | EXISTS (A4a) |
 | `POST /app/v1/agents/close-idle` | `{ids[]}` (the app picked them with `?q=idle:true`) → `{closed[]}` | `agent.changed`×n | NEW (idle = no message 7 days and nothing running; S2) | NEW |
 | `POST /app/v1/agents/{id}/turn` | `{text, mode: "send"\|"steer"\|"queue", context[]?, files[]?}` → `{accepted, turn_id}`. 409 if running and mode is `send` | `turn.*` | `wb:bridge.go:877-952`, wire `Submit`, `Steer`, `FollowUp` (`v2:wire.go:449-464`) | PORT |
 | `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE …` | `{text}` edit · remove | `queue.changed` | `wb:queue.go`, `queue_send.go`, wire `UnqueueFollowUp` (`v2:wire.go:462`) | PORT |
@@ -148,6 +148,53 @@ S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[],
 | `GET /app/v1/agents/{id}/entries?before=&limit=` | earlier transcript | — | wire `Transcript`, `EarlierHistory` (`v2:wire.go:556-557`); `wb:` `?since=` tail | PORT |
 | `GET /app/v1/agents/{id}/tools/{call_id}` | → `{output, full}` (1 MiB) | — | `wb:bridge.go:793,1096` | PORT |
 | `GET /app/v1/agents/{id}/files…` | `text`, `stat`, `find`, `changes`, `diff` (chips, "Not found on this Mac", @mention, file chips) | — | `wb:routes.go:10-52`, `files.go`, `fileslist.go`, `workview.go` | PORT |
+
+A4a implementation: `internal/appapi/agents.go` and `agents_routes.go` port the
+bridge's attached-session and saved-history split without its places or model pin.
+`cmd/codeaf/app_agents.go` opens the canonical remote engine through an app-owned
+child pipe, or joins a saved conversation already held by the TUI host. New app
+children receive memory credentials through A2's inherited `--keys-fd` pipe and
+do not start detached hosts. App shutdown releases those child pipes;
+joining a TUI host does not make that host belong to the app.
+
+- The registry is `<home>/v3/app/agents.json`, with private atomic replacement and
+  `agents.lock` across launches. Records name existing transcript ids and paths;
+  the canonical home walk also exposes TUI conversations. No agent is deleted.
+- Create requires `start`. `send` needs nonblank `text`; `empty` refuses text and
+  remains unnamed until the first message or a rename. Defaults are effort
+  `medium` and budget `{usd:"5.00"}`; the engine resolves an omitted model.
+  Approvals are `risky`, `everything` or `none` and map to the engine's own posture.
+  Context chips take an absolute `path` and kind `file`, `folder` or `repo`; their
+  existence is derived. Initial send carries these references, never a place.
+- Names fold whitespace and keep at most 40 Unicode characters. Explicit rename
+  wins over an outstanding naming errand and is journaled through `Rename` on
+  the canonical wire. App sessions set `LaunchShape.DeterministicNames`, leaving
+  the TUI's AI title behaviour available for TUI sessions.
+- Reads derive `needs_you` before `running`, and preserve `failed`, `closed` and
+  `archived`. A persisted running/waiting claim with no live connection or fresh
+  presence reads `idle`, with `Stopped · codeaf restarted`. Failed state is a
+  final engine turn error here; A4b owns provider retry/recovery semantics.
+- Close refuses active replies, tasks or processes without `stop_running:true`,
+  returning 409 `conflict` and `running:{processes,tasks}`. Crew members must leave
+  their crew first. Archive requires Closed; reopen accepts Closed or Archived
+  and clears lifecycle timestamps, keeping the transcript, name and settings.
+
+Mutation bodies are strict JSON objects, limited to 1 MiB. Unknown fields, null
+values, invalid effort/names/budgets and trailing data return 422 `bad_input`.
+`expect.state` and `expect.version` mismatch return 409 `stale` before action.
+POST idempotency responses are persisted with the mutation, scoped by bearer,
+route and key, retained for 24 hours up to 4096 responses. Replays emit no second
+event. Every mutation publishes `agent.created` or `agent.changed` after saving.
+Initial send publishes `turn.started`; stream completion publishes `turn.ended`.
+
+Lists include open, closed and archived records, newest last-message first, with
+stable id ties. `state=` and `q` support plain name words, `state:` (including
+`open`), `kind:agent`, `model:`, `crew:`, `pinned:true|false` and `since:YYYY-MM-DD`.
+Unsupported tokens return 422; transcript `said:` and `cost:` search are A12.
+The seven-day idle selection and `close-idle` remain with their owning rule lane.
+The full turn snapshot, queue, tool and file routes remain A4b. Budget writes
+bind the existing adjustable session rail; aggregate agent spend and cap asks
+remain A11b.
 
 ### 2.2 Task
 
@@ -537,7 +584,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A1 | `codeaf app serve`: listener, hello line, token, origin/host guard, parent-pid and stdin life, `--home`, `/app/v1/health`, shutdown, route-table and security tests | — | 1 d | EXISTS |
 | A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d | EXISTS |
 | A3 | Stream: the hub, epoch-qualified `e_<epoch>_<n>` ring 4096, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | EXISTS |
-| A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | NEW |
+| A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | EXISTS |
 | A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d | NEW |
 | A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
 | A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | NEW |
@@ -576,7 +623,7 @@ Parallel waves:
 
 | Rule (board) | Now on `app/v2` | Change | Where |
 |---|---|---|---|
-| Agent names are deterministic: first words, ≤40 chars, until renamed (S0, S2; AI titles backlog) | AI title through `roles.RoleTitle` (`v2:internal/session/handlepick.go:210-222`) | **CHANGED**: in app mode, names come from the first words of the first message. The AI title stays for the TUI. See Q2 | `session/handlepick.go`, A4a |
+| Agent names are deterministic: first words, ≤40 chars, until renamed (S0, S2; AI titles backlog) | AI title through `roles.RoleTitle` (`v2:internal/session/handlepick.go:210-222`) | **EXISTS (A4a)**: in app mode, names come from the first words of the first message. The AI title stays for the TUI. See Q2 | `session/appnames.go`, `session/title.go`, A4a |
 | Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS** (number). Check the reset-on-Not-right and Skip semantics | `standing/words.go`, A7 |
 | Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 |
 | Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 |
