@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff and A3 event stream built, 2026-10-12; remaining lanes are design. Branch `app/v2`.
+Status: A1 transport, A2 key handoff and A3 event stream built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes are design. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -412,15 +412,30 @@ The engine adds only the following:
 
 Deltas the factory lanes must add (t-v2-factory-jobs, t-v2-factory-people). Most are already in their briefs:
 
-| # | Delta | Lane |
-|---|---|---|
-| F-1 | `Config.Access` mode where the per-launch app token is the host token and loopback is not the owner; `served_by: "app"` | jobs (small, `serve/access.go`) |
-| F-2 | Server-side approval hold: `undo_until` = decided + 5 s, plus `POST /v1/jobs/{id}/undo` | jobs |
-| F-3 | Needs-you kinds `approve_start`, `failed`, `changes_requested`, `conflict`, `runner_offline`. Renames `out_of_attempts`→`out_of_rounds`, `spending_limit`→`budget` (Contract 2, or additive aliases) | jobs |
-| F-4 | `POST /v1/jobs` accepts `source: "hand-off"`, `from_ref: {kind: "agent", id, title}`, `assignee`, `start` | jobs |
-| F-5 | Runner `asleep` state, set by the engine on power events (`POST /v1/workers/{id}/asleep` or a heartbeat field) | people |
-| F-6 | Typed SSE events for every new kind: `job.state` with `{job, state, reason}`, `runner` (renamed from `machine`), `activity` | both |
-| F-7 | A per-person `dismissed` flag and `is:dismissed`; a `priority` + `set_by` verb; Nudge (`POST /v1/jobs/{id}/nudge`) | jobs |
+| # | Delta | Lane | Status |
+|---|---|---|---|
+| F-1 | `Config{ServedBy:"app", AccessToken:<launch token>}` enforces bearer-only person routes, including about/access; loopback never grants ownership; `served_by:"app"`, `access:"token"` | deltas | EXISTS |
+| F-2 | Server-side approval hold: `undo_until` = decided + 5 s, plus `POST /v1/jobs/{id}/undo`; restart-safe and caller-only | jobs | EXISTS |
+| F-3 | Needs-you kinds `approve_start`, `failed`, `changes_requested`, `conflict`, `runner_offline`; Contract 2 renames `out_of_attempts`→`out_of_rounds`, `spending_limit`→`budget` | deltas | EXISTS |
+| F-4 | `POST /v1/jobs` accepts `source:"hand-off"`, `from_ref:{kind:"agent",id,title}`, `assignee`, `start:"now"\|"queued"\|"backlog"`; persists `ask.from_ref`, applies pipeline budget on start | deltas | EXISTS |
+| F-5 | `POST /v1/runners/presence {asleep}` with runner credential sets persistent sleep state; awake resumes pulls | people | EXISTS |
+| F-6 | Typed SSE `job.state {job,state,reason}` on every projected state or reason change; typed `runner` and `activity` already supplied | deltas + people | EXISTS |
+| F-7 | Per-person dismissal and `is:dismissed`; `priority {value,set_by}`; `POST /v1/jobs/{id}/nudge` enters Activity | jobs | EXISTS |
+
+The deltas lane reuses jobs' F-2/F-7 and people's F-5 plus runner/Activity
+producers. It adds the missing app authentication, needs-you codec, hand-off
+metadata and `job.state` producer. Numeric SSE job ids and persisted question
+kinds retain their binary protocol bytes. Assign to me refuses an already
+assigned job; only the current assignee can Change assignee or Unassign, and
+GitHub writes succeed before the stored person changes. A14 still owns the
+app factory mount, factory connection routes, hand-off card and power forwarding.
+
+Hand-off validates source, agent ref, start choice and assignee before creation.
+`now` queues with precedence, `queued` uses the ordinary queue, and `backlog`
+starts no work. An explicitly empty assignee leaves Backlog unassigned; a team
+job cannot start with an explicitly empty assignee. The legacy `autostart`
+field remains accepted but cannot be combined with `start`. New metadata
+requires a store-backed factory; a missing store refuses before creating a job.
 
 ### 2.23 Engine health and shutdown
 
@@ -580,7 +595,7 @@ Parallel waves:
 | Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **NEW** | A4b |
 | Running long: one line at 3:00 per reply; Move it to a task | none | **NEW** | A4b/A5 |
 | Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 |
-| Approve/answer 5 s hold, server-side | none (engine); factory none | **NEW** (A9, F-2) | |
+| Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2; engine A9 remains NEW | |
 | Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — |
 | Glossary: TUI `/crew` (a task's model seats) → `/seats` | `CrewCommand = "/crew"` (`config/crew.go:103`) | **CHANGED**: `/seats`, with `/crew` an alias for one release; manual pages | A15 |
 | Glossary: background job → process; teams → crews; managers/traffic → manager/log; machine → runner; audit → Activity; attempts → rounds | Go names | **CHANGED on the wire only**. The codec maps; Go keeps names | A4–A10, factory lanes |
@@ -594,6 +609,6 @@ Parallel waves:
 1. **Home sharing — decided.** Owner decision in codeaf-desk `src/design/source/DECISIONS.md` supersedes the previous separate-home assumption: the app engine and TUI use `~/.codeaf` (or `CODEAF_HOME`), share agents, history and settings, and elect one factory runner for that home. The app's Keychain/Secret Service handoff stays in process memory; sharing the home never permits those keys to be saved in a profile. Worker registration credentials are separate factory credentials, shared privately for takeover.
 2. **Titles: deterministic or AI?** S0 rules names deterministic and lists the Titles-and-summaries role as backlog. The brief says AI through the binary is allowed. Should v2 ship deterministic names only, with no AI title even through the door? This file assumes yes. The AI door ships with no app role registered until you name one.
 3. **Per-agent budget period.** S2 says "budget default $5.00; asks at it", which reads as a lifetime figure. X4 Settings says "Per agent $5.00 · each agent, each day". Which is it?
-4. **Factory Contract 2.** Renaming needs-you kinds (`out_of_attempts`→`out_of_rounds`, `spending_limit`→`budget`) and `machine`→`runner` on `/v1` breaks the shipped desk R1. Should we bump Contract to 2, or keep the old names on `/v1` and map only in the app?
+4. **Factory Contract 2 — decided and built.** Factory responses use Contract 2, including needs-you `approve_start`, `budget`, `out_of_rounds`, and typed runner events. The app maps nothing; persisted question kinds and numeric runner protocol ids remain compatible.
 5. **Keychain service name.** S0 says `ai.codeaf.app`; the shipped desk uses `ai.agentfield.codeaf-desk`. Should we migrate the stored entries at first v2 launch, or keep the old name?
 

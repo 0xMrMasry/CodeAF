@@ -75,13 +75,21 @@ it. Raise accepts a higher $5/$10/$20/$30 budget. A reached budget is a question
 `reason` is a finite Needs you / Running explanation. `waiting_for: @login`
 is derived for non-assignees. `overlap` is derived from two Running jobs in
 the same repository changing the same file, not their planned file lists.
-No app-specific state is stored on a job.
+Needs-you groups use `approve_start`, `approve_plan`, `approve_proof`,
+`question`, `budget`, `out_of_rounds`, `publish_failed`, `runner_offline`,
+`failed`, `changes_requested` and `conflict`. Failed work and PR attention
+are grouped even when the underlying engine state is not a historical wait.
+No app UI state is stored on a job; hand-offs retain an originating agent ref.
 
 ## 4. HTTP doors
 
 All reads and errors carry factory identity. `/v1/about` and `/v1/me` report
 `contract: 2`. Existing authentication, visibility, idempotency and runner
-routes remain. A hidden repository and a missing job both answer 404.
+routes remain. An in-process app host supplies `ServedBy: "app"` and its
+per-launch `AccessToken`. This selects `access: "token"` and requires that
+bearer on every person route, including `/v1/about`; socket loopback and
+browser sessions cannot grant app ownership. Runner credentials continue to
+authorize runner protocol routes. A hidden repository and a missing job both answer 404.
 
 | Job verb | Body and effect |
 | --- | --- |
@@ -97,6 +105,15 @@ routes remain. A hidden repository and a missing job both answer 404.
 | `approve` | commit, edited?, words?, expect?; creates a delayed decision |
 | `answer` | yes / words / choice, optional expect; first accepted plain answer wins |
 
+`POST /v1/jobs` accepts repo, title, text, source, from_ref, assignee and start.
+A `hand-off` source requires `{kind:"agent",id,title}` and stores it under
+`ask.from_ref`. Start is now (queue precedence), queued or backlog; the first
+two apply the pipeline budget. An explicitly empty team assignee can only
+create Backlog. Invalid metadata is refused before creation. Idempotency
+prevents repeat sends from creating another job. Legacy autostart remains.
+Assign to me is only for unassigned jobs. Change assignee and Unassign belong
+to the current assignee, and GitHub writes precede local ownership changes.
+
 The existing pause/resume, take/release, prioritize, steer, reply, shape,
 request_changes, recheck and retry_publish doors remain for binary clients.
 `expect` can carry state, step and document version. Stale reads refuse with
@@ -106,6 +123,11 @@ request_changes, recheck and retry_publish doors remain for binary clients.
 limits by timestamp. Old took/released records are presented as
 assigned/unassigned. The `/v1/audit` alias preserves historical record names.
 Activity cannot be edited or deleted. Existing numeric event `job` ids remain.
+`/v1/events` durably replays typed `job.state {job,state,reason}`, `runner`
+and `activity`. State events include creation, projected state changes and
+reason changes without a state change, including PR review/conflict updates.
+An empty reason clears the old explanation. Unrelated writes emit no state
+notification; visibility filters apply equally to replay and live delivery.
 
 ## 5. Approvals and collisions
 
