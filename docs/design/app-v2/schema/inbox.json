@@ -262,6 +262,15 @@
     },
     "InboxItem": {
       "properties": {
+        "answer": {
+          "$ref": "#/$defs/InboxAnswerRequest"
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        },
+        "resolved": {
+          "$ref": "#/$defs/InboxResolvedEvent"
+        },
         "id": {
           "type": "string"
         },
@@ -570,6 +579,11 @@
       "path": "/app/v1/inbox/{id}/undo",
       "request": "common.json#/$defs/ExpectRequest",
       "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/inbox/{id}",
+      "response": "inbox.json#/$defs/InboxItem"
     },
     {
       "method": "GET",

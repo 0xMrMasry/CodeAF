@@ -514,6 +514,24 @@
         "text"
       ]
     },
+    "ReorderQueueRequest": {
+      "properties": {
+        "order": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "order"
+      ]
+    },
     "SourceRef": {
       "properties": {
         "kind": {
@@ -993,6 +1011,9 @@
       "$ref": "#/$defs/TurnResponse"
     },
     {
+      "$ref": "#/$defs/ReorderQueueRequest"
+    },
+    {
       "$ref": "#/$defs/QueueItem"
     },
     {
@@ -1055,6 +1076,12 @@
       "method": "POST",
       "path": "/app/v1/agents/{id}/queue/{qid}",
       "request": "common.json#/$defs/TextRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "PUT",
+      "path": "/app/v1/agents/{id}/queue",
+      "request": "turn.json#/$defs/ReorderQueueRequest",
       "response": "common.json#/$defs/ActionResponse"
     },
     {

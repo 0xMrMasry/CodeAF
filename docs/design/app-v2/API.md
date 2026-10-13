@@ -182,6 +182,7 @@ S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[],
 | `POST /app/v1/agents/{id}/close` · `POST /app/v1/agents/{id}/archive` · `POST /app/v1/agents/{id}/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | EXISTS (A4a) |
 | `POST /app/v1/agents/close-idle` | `{ids[]}` (the app picked them with `?q=idle:true`) → `{closed[]}` | `agent.changed`×n | NEW (idle = no message 7 days and nothing running; S2) | NEW |
 | `POST /app/v1/agents/{id}/turn` | `{text, mode: "send"\|"steer"\|"queue", context[]?, files[]?}` → `{accepted, turn_id}`. 409 if running and mode is `send` | `turn.*` | `wb:bridge.go:877-952`, wire `Submit`, `Steer`; durable pending rows (`v2:wire.go:449-464`) | EXISTS (A4b) |
+| `PUT /app/v1/agents/{id}/queue` | `{order:[qid], expect?}` → `{ok}`; exact permutation of pending ids, 422 for malformed orders, 409 for stale/incomplete orders | `queue.changed` | binary-owned durable pending rows | EXISTS |
 | `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE /app/v1/agents/{id}/queue/{qid}` | `{text}` edit · remove | `queue.changed` | `wb:queue.go` port adapted to binary-owned pending rows | EXISTS (A4b) |
 | `POST /app/v1/agents/{id}/stop` | → receipt "Stopped by you" | `turn.ended` | `wb:bridge.go:959`, wire `StopWork` (`v2:wire.go:486`) | EXISTS (A4b) |
 | `POST /app/v1/agents/{id}/retry` · `POST /app/v1/agents/{id}/switch-model` | after terminal provider failure (fixed ×3 ceiling remains a gap) | `agent.changed` | canonical terminal stream error and model setter | EXISTS (A4b) |
@@ -238,7 +239,7 @@ checks root-attributed receipts and maintains budget questions.
 
 ### A4b turn core implementation
 
-`turn_handlers.go` serves all nine turn routes through the same registry and
+`turn_handlers.go` serves the turn routes through the same registry and
 transport guard. `GET /agents/{id}` returns `AgentResponse`: the last 100 app
 entries, pending queue, open engine asks, task summaries and usage. Saved agents
 retain their transcript and app receipts; live asks/tasks/usage come from the
@@ -249,7 +250,9 @@ an opaque `before` cursor, default 100 and limit 1–500. Unknown cursors return
 Pending messages are saved with the agent and admitted by the binary, one at a
 time after normal completion. The canonical wire has no queue-edit method:
 keeping unsubmitted rows in the registry lets edits/removals and admission share
-one lock. Removing or editing a row already admitted returns 409
+one lock. Whole-queue reorder requires every pending id exactly once, keeps
+text/context/files intact, and rejects a stale or incomplete order atomically.
+Removing or editing a row already admitted returns 409
 `that message has already been sent`. Queueing while idle starts immediately.
 Failure or interruption holds pending rows; Stop clears them. Restart preserves
 pending rows without starting work on its own. Another surface's active reply
@@ -584,6 +587,11 @@ empty. An elapsed end date saves one question exposed through `CrewWorkAsks`;
 it never closes a crew by itself.
 
 ### 2.13 Inbox (derived)
+
+`GET /app/v1/inbox/{id}` returns one `InboxItem`, with optional `answer`,
+`receipt` and `resolved` after resolution. Resolved snapshots remain readable
+for 24 hours in the current binary launch; a restart clears this cache. Unknown
+or expired ids return 404. Held and undone answers are not completed receipts.
 
 `GET /app/v1/inbox` returns `{items[]}`, the **waiting** set only, oldest first. An item is `{id, kind, source:{kind, id, factory?}, title, path[], created_at, context:{before[2]}, verbs[], who_can_answer}`.
 

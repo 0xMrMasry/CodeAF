@@ -564,6 +564,9 @@ export interface InboxContext {
 }
 
 export interface InboxItem {
+  "answer"?: InboxAnswerRequest;
+  "receipt"?: DisplayEntry;
+  "resolved"?: InboxResolvedEvent;
   "id": string;
   "kind": "question" | "clarification" | "permission" | "your_call" | "approval_plan" | "approval_proof" | "approval_start" | "budget" | "out_of_rounds" | "failed" | "changes_requested" | "conflict" | "publish_failed" | "runner_offline" | "order_ask" | "reminder";
   "source": SourceRef;
@@ -938,6 +941,11 @@ export interface ReminderChangeRequest {
   "expect"?: AgentExpect;
 }
 
+export interface ReorderQueueRequest {
+  "order": Array<string> | null;
+  "expect"?: AgentExpect;
+}
+
 export interface ReplaceManagerRequest {
   "member_id"?: string;
   "role"?: string;
@@ -1298,6 +1306,7 @@ export interface AppRoutes {
   "POST /app/v1/agents/{id}/processes/stop-all": { request: ExpectRequest; response: ActionResponse };
   "DELETE /app/v1/agents/{id}/queue/{qid}": { request: ExpectRequest; response: ActionResponse };
   "POST /app/v1/agents/{id}/queue/{qid}": { request: TextRequest; response: ActionResponse };
+  "PUT /app/v1/agents/{id}/queue": { request: ReorderQueueRequest; response: ActionResponse };
   "GET /app/v1/agents/{id}/quick-tasks": { request: never; response: QuickTasksResponse };
   "POST /app/v1/agents/{id}/reopen": { request: ExpectRequest; response: Agent };
   "POST /app/v1/agents/{id}/retry": { request: ExpectRequest; response: ActionResponse };
@@ -1345,6 +1354,7 @@ export interface AppRoutes {
   "GET /app/v1/history": { request: never; response: HistoryResponse };
   "POST /app/v1/inbox/{id}/answer": { request: InboxAnswerRequest; response: InboxAnswerResponse };
   "POST /app/v1/inbox/{id}/undo": { request: ExpectRequest; response: ActionResponse };
+  "GET /app/v1/inbox/{id}": { request: never; response: InboxItem };
   "GET /app/v1/inbox": { request: never; response: InboxResponse };
   "DELETE /app/v1/keys/{provider}": { request: ExpectRequest; response: ActionResponse };
   "PUT /app/v1/keys/{provider}": { request: PutKeyRequest; response: KeyCheckResult };
