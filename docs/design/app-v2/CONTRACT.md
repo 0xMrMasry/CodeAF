@@ -48,8 +48,11 @@ Enum tags become literal unions. Size, range and clock rules are enforced by
 the engine and schemas, not by TypeScript types.
 
 `AppRoutes` keys are method plus canonical path template, without query values.
-`request: never` means no JSON body. Responses describe successful JSON;
-failures use `AppError`, including guarded `NotBuiltResponse` reservations.
+`request: never` means no JSON body. Responses describe successful JSON or a
+native TypeScript `Blob` for raw binary responses, such as the agent image route.
+Fetch a binary response with the bearer header and read it with `Response.blob()`;
+its schema route metadata uses `response: "binary"` instead of a JSON definition.
+Failures use `AppError`, including guarded `NotBuiltResponse` reservations.
 SSE modes are not JSON responses: main `/events`, process output `?follow=1`
 and AI `stream:true` use `AppEvents` and the discriminated `AppEvent` union.
 The event types describe parsed `event`/`data`, not raw SSE framing; ids and

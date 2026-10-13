@@ -189,7 +189,20 @@ S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[],
 | `POST /app/v1/agents/{id}/move-reply-to-task` | → `{task_id}` (running long, 3:00) | `task.created`, receipt | canonical `Interrupt` and `StartTask` | EXISTS (A4b) |
 | `GET /app/v1/agents/{id}/entries?before=&limit=` | earlier transcript | — | wire `Transcript`, `EarlierHistory` (`v2:wire.go:556-557`); `wb:` `?since=` tail | EXISTS (A4b) |
 | `GET /app/v1/agents/{id}/tools/{call_id}` | → `{output, full}` (1 MiB) | — | `wb:bridge.go:793,1096` | EXISTS (A4b) |
+| `GET /app/v1/agents/{id}/image?path=` | → raw PNG, JPEG, GIF or WebP bytes (10 MiB maximum) for an inline markdown image | — | agent workspace or own session directory; `internal/appapi/image_handlers.go` | EXISTS |
 | `GET /app/v1/agents/{id}/files/text` · `GET /app/v1/agents/{id}/files/stat` · `GET /app/v1/agents/{id}/files/find` · `GET /app/v1/agents/{id}/files/changes` · `GET /app/v1/agents/{id}/files/diff` | `text`, `stat`, `find`, `changes`, `diff` (chips, "Not found on this Mac", @mention, file chips) | — | `wb:routes.go:10-52`, `files.go`, `fileslist.go`, `workview.go` | PORT |
+
+The image route uses the same bearer, origin and host guard as other app routes.
+`path` may be absolute or relative to the agent's workspace. Both roots and the
+file are made absolute and resolved through symlinks; only files within the
+workspace or the directory containing this agent's session transcript may be
+read. Escapes return 403, unknown agents or missing images 404, missing `path`
+422, unsupported or mismatched extension/content 415, and files over 10 MiB 413.
+PNG, JPEG (`.jpg` or `.jpeg`), GIF and WebP must match their sniffed content type;
+SVG is refused. Success sets the image `Content-Type`, `Cache-Control: no-store`
+and `X-Content-Type-Options: nosniff`. Errors use the normal JSON error body.
+The app fetches these bytes with its bearer credential to display markdown such
+as `![Monthly totals](charts/totals.png)` in the chat.
 
 A4a implementation: `internal/appapi/agents.go` and `agents_routes.go` port the
 bridge's attached-session and saved-history split without its places or model pin.

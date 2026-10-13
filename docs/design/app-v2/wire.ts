@@ -1510,7 +1510,7 @@ export interface Usage {
 }
 
 // Canonical method/path templates; request: never means this route has no JSON body.
-// Responses describe success JSON. SSE and follow modes use AppEvents; errors use AppError.
+// Responses describe success JSON or a binary Blob. SSE and follow modes use AppEvents; errors use AppError.
 export interface AppRoutes {
   "POST /app/v1/accounts/{id}/access/{action_id}": { request: ServiceAccessRequest; response: ActionResponse };
   "POST /app/v1/accounts/{id}/access": { request: ServiceAccessRequest; response: ActionResponse };
@@ -1537,6 +1537,7 @@ export interface AppRoutes {
   "POST /app/v1/agents/{id}/hand-off/{card}/send": { request: SendHandOffRequest; response: HandOffResponse };
   "GET /app/v1/agents/{id}/hand-off/{card}": { request: never; response: HandOffCard };
   "POST /app/v1/agents/{id}/hand-off": { request: ExpectRequest; response: HandOffCard };
+  "GET /app/v1/agents/{id}/image": { request: never; response: Blob };
   "POST /app/v1/agents/{id}/move-reply-to-task": { request: ExpectRequest; response: MoveReplyResponse };
   "POST /app/v1/agents/{id}/orders/pause-all": { request: ExpectRequest; response: ActionResponse };
   "GET /app/v1/agents/{id}/orders": { request: never; response: OrdersResponse };

@@ -201,6 +201,11 @@
       "method": "GET",
       "path": "/app/v1/agents/{id}/files/text",
       "response": "file.json#/$defs/FileTextResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}/image",
+      "response": "binary"
     }
   ]
 }
