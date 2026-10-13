@@ -587,7 +587,7 @@ Answer-once:
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | native `graph.db`, crew membership through `teams.Snapshot` | EXISTS (A11b) |
+| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at, state, version}]}` | — | native `graph.db`, crew membership through `teams.Snapshot` | EXISTS (A11b) |
 | `PATCH /app/v1/memory/{id}` · `POST /app/v1/memory/{id}/forget` · `POST /app/v1/memory/{id}/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | transactional `Store.EditMemory` | EXISTS (A11b) |
 | setting `memory.agents_may_add` | | | profile key read by the session's tool belt and extraction | EXISTS (A11b enforcement) |
 
@@ -599,6 +599,7 @@ wording, moves a memory to a valid owner shelf, or does both atomically. Unknown
 closed or root crews cannot receive a shelf transfer. Crew execution/resource
 adapters may also supply `MemoryBackend` through `WithMemoryBackend`.
 
+Reads and edits expose `state` and `version` on every memory item.
 `expect.state`/`expect.version` compare status/journal sequence inside the same
 SQLite write transaction as the action, including against terminal writers.
 Forget tombstones the row immediately and stores its undo deadline and tombstone

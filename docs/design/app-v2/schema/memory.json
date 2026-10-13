@@ -15,6 +15,17 @@
     },
     "MemoryItem": {
       "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "forgotten",
+            "superseded"
+          ]
+        },
+        "version": {
+          "type": "integer"
+        },
         "id": {
           "type": "string"
         },
@@ -35,6 +46,8 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
+        "state",
+        "version",
         "id",
         "text",
         "shelf",
