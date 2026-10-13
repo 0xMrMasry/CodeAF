@@ -144,6 +144,19 @@ ownership. Refusal leaves `state: waiting` and an error; success records
 approved and resumes or publishes. Approval receipts provide PR trailers.
 A publish retry keeps the existing approval.
 
+The assignee's leased runner owns publishing in both team and solo factories.
+It resolves a local GitHub credential, checks its login against the assignee,
+and uses that one credential to push the approved SHA and open or update the
+PR body, or post the proof comment. An app GitHub handoff takes precedence over
+shell and profile credentials, including when the app removes its key. The
+runner scopes its source to the leased job's repository without requiring a
+local watch list. The factory server polls checks, reviews and merge/close
+state and records the reported receipt; its GitHub connection never publishes
+the job. Publish errors keep their stable codes and `publish_failed` gate.
+An expired publish lease stays Needs you with `runner_offline` and
+“Runner went offline mid-step”; `try_once_more` preserves the recovered trailer
+and resumes on the same machine. HTTP `Idempotency-Key` replays are unchanged.
+
 A plain question is open to everyone with repository access. Its answer is
 serialized under the same consent lock. The second writer receives exactly
 “@jm answered this 10s ago. Your answer wasn't sent.” with the actual person
