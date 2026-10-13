@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -762,7 +762,9 @@ requires a store-backed factory; a missing store refuses before creating a job.
 
 A14 status: **BUILT**. `/v1/*` shares the app listener and launch bearer. Worker pull,
 lease and presence routes use factory-issued worker credentials after the same
-Origin/Host checks. A discovered TUI solo service is reused behind the mount.
+Origin/Host checks. A discovered TUI solo service is reused behind the mount,
+preserving factory-issued runner credentials. The mount follows service election
+when that host closes; a surviving app can take over the same solo store.
 `serve.lock` elects the solo host; `worker.lock` elects one worker process for the
 shared home. Its private runtime socket under `/tmp/codeaf-runners-<uid>/` accepts app factory sessions in memory,
 so a TUI that owns the worker can execute work for newly attached teams. Each
@@ -781,7 +783,9 @@ factory. Cards expire after one hour and are bounded to 256 per launch. A change
 agent returns 409 `stale`; each card is idempotent through the factory's job door.
 The source keeps running if creation fails. Task snapshots and final transitions
 can be supplied through `FactoryTaskSource`; otherwise the task route and engine
-stop door remain authoritative. Task hand-off leaves unrelated replies running.
+stop door remain authoritative. App task ids are decoded to their engine-local
+ids, with graph and plan cancellation kept distinct. A changed task answers 409
+`stale` before creating a job. Task hand-off leaves unrelated replies running.
 The factory records `ask.from_ref`, and the source receives "Handed to the factory".
 The current job creation contract uses the repository pipeline. `issue:true` or
 a custom `pipeline` returns 422 `not_allowed`; neither is silently ignored.

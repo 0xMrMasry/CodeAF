@@ -206,7 +206,10 @@ loopback listener. Person routes require the launch bearer, including `/v1/about
 worker pull, lease and presence routes authenticate factory-issued credentials
 inside the same Origin/Host boundary. Before solo creation they return
 `404 no_factory`. The app reuses a live solo service discovered from the TUI
-through an authenticated proxy instead of starting another floor.
+through an authenticated proxy instead of starting another floor. Runner routes
+retain their factory-issued credentials through that proxy. The mount follows
+service election when the hosting window closes, allowing another app to take
+over the same store.
 
 The app and TUI share `~/.codeaf` (or `CODEAF_HOME`), `serve.lock`, and
 `worker.lock`. One elected worker process serves all attached factories, each
