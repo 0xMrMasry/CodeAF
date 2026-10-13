@@ -480,6 +480,8 @@ export interface FileTextResponse {
 }
 
 export interface HandOffCard {
+  "factory": string;
+  "factories": Array<Factory> | null;
   "id": string;
   "title": string;
   "brief": string;
@@ -999,6 +1001,7 @@ export interface SearchRow {
 }
 
 export interface SendHandOffRequest {
+  "factory"?: string;
   "title"?: string;
   "brief"?: string;
   "repo"?: string;

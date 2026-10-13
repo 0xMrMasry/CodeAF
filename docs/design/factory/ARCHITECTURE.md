@@ -198,3 +198,29 @@ the HTTPS URL; local discovery uses a separate loopback listener. Only
 explicitly trusted proxy addresses supply forwarded client addresses and
 schemes. HTTPS requests set Secure cookies and HSTS, and SSE disables proxy
 buffering. `/v1/about` exposes the effective scheme and factory identity.
+
+## App factory lifecycle and the shared runner
+
+`codeaf app serve` mounts its solo `serve.Handler` at `/v1/` on the app's
+loopback listener. Person routes require the launch bearer, including `/v1/about`;
+worker pull, lease and presence routes authenticate factory-issued credentials
+inside the same Origin/Host boundary. Before solo creation they return
+`404 no_factory`. The app reuses a live solo service discovered from the TUI
+through an authenticated proxy instead of starting another floor.
+
+The app and TUI share `~/.codeaf` (or `CODEAF_HOME`), `serve.lock`, and
+`worker.lock`. One elected worker process serves all attached factories, each
+with an isolated hashed mirror below `workers/<pid>/`. A private runtime socket under `/tmp/codeaf-runners-<uid>/`
+accepts factory sessions from another app process; those sessions remain in
+memory. Worker registration credentials keep their separate private takeover
+file. `attach.json` contains a first-team URL for older terminal clients and a
+`factories` array of stable ids, addresses and modes. App session tokens and
+provider keys never enter that file.
+
+The app's power route stops its connected processes with a sleep receipt and
+reports asleep/awake using the elected runner's existing saved credential.
+It does not register a second runner. Factory event streams merge person-scoped
+Inbox items and relay typed runner, job and Activity events to the app stream.
+Hand-off cards choose a factory, create the job with its source reference, and
+only then stop the origin with "Handed to the factory". Task ownership stays
+with the task resource through the typed `FactoryTaskSource` interface.

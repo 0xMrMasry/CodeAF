@@ -98,20 +98,20 @@ Rules (**EXISTS, A2**, in `internal/config` and `internal/appapi`):
 - Agents survive an engine restart because their transcripts are on disk. Connection ids last for one engine lifetime. The stable id is the agent `id` (§2.1), not the connection.
 - After a restart the app re-reads the `hello`, calls `GET /app/v1/agents`, and reconnects the stream with `Last-Event-ID`. An unknown cursor answers with `reset` (§3).
 - Agents that were running when the engine died come back `idle` with a receipt "Stopped · codeaf restarted". Processes come back under Ended with state `stopped`.
-- The design's "Mac asleep" banner (U2, U3) needs power events from the app. `POST /app/v1/power {state: "sleeping"|"awake"}` (NEW) does three things:
+- The design's "Mac asleep" banner (U2, U3) needs power events from the app. `POST /app/v1/power {state: "sleeping"|"awake"}` (A14) does three things:
   - It stops processes and writes the "stopped while this Mac slept · Rerun" notices.
   - It marks this Mac's runner `asleep` in the factory.
-  - It records the standing triggers missed while asleep ("Missed while this Mac slept").
+  - Standing-trigger accounting belongs to the standing-order resource; this route forwards runner presence and records process sleep receipts.
 - On Linux the app learns of sleep from logind's `PrepareForSleep`. On macOS it uses `NSWorkspaceWillSleepNotification`.
 
 ### 1.4 Factories
 
-- **Solo (S1 "runs inside the app").** `app serve` starts the factory in-process with `startFactoryService` (`v2:cmd/codeaf/factory_command.go`, the same path the TUI uses, `ServedBy: "tui"` → new value `"app"`). It mounts that factory's `serve.Handler` at `/v1/*` on the same listener. Its worker loop attaches over the in-process loopback as today (`ARCHITECTURE.md` §6).
+- **Solo (S1 "runs inside the app").** `app serve` creates the factory in-process through `appFactoryHost.solo`, using the same store, seam, rule loader and GitHub policy doors as the TUI; `ServedBy` is `"app"`. It mounts that factory's `serve.Handler` at `/v1/*` on the same listener. Its worker loop attaches over the in-process loopback as today (`ARCHITECTURE.md` §6).
   - If no factory is set up, `/v1/*` answers 404 `{reason:"no_factory"}`.
   - `POST /app/v1/factories/solo` creates the factory: it writes `serve.json` and starts the service. This is the J01 / V46 "Start a factory on this Mac" step.
 - **Team (attach over HTTPS).**
   - The app keeps the factory session token in the Keychain, as the desk does now, and hands it over in `factory_sessions` (§1.2).
-  - The binary writes `attach.json` (URL only, no token) through `POST /app/v1/factories {url}` and runs its worker loop against that URL with the person's keys.
+  - The binary writes `attach.json` (connection URLs and modes only, no token) through `POST /app/v1/factories {url}` and runs its worker loop against that URL with the person's keys.
   - The app reads team pages (Jobs, Repos, People, Activity) **directly** from the team `/v1` over HTTPS, as `codeaf-desk` does today. The binary also subscribes to each factory's `/v1/events` with the person's session, so it can merge the person's factory needs-you items into the one Inbox (§2.13).
 - `GET /app/v1/factories` returns `[{id, url, name, mode: "solo"|"team", operator, state: "ok"|"unreachable"|"signed_out", last_seen}]`. It feeds the rail rows (S1: "several factories may be connected; each is a rail row").
 - `DELETE /app/v1/factories/{id}` is Leave factory….
@@ -749,7 +749,7 @@ producers. It adds the missing app authentication, needs-you codec, hand-off
 metadata and `job.state` producer. Numeric SSE job ids and persisted question
 kinds retain their binary protocol bytes. Assign to me refuses an already
 assigned job; only the current assignee can Change assignee or Unassign, and
-Solo-host GitHub writes succeed before the stored person changes; team serve persists the decision without writing to GitHub (§2.22.1). A14 still owns the
+Solo-host GitHub writes succeed before the stored person changes; team serve persists the decision without writing to GitHub (§2.22.1). A14 supplies the
 app factory mount, factory connection routes, hand-off card and power forwarding.
 
 Hand-off validates source, agent ref, start choice and assignee before creation.
@@ -758,6 +758,33 @@ starts no work. An explicitly empty assignee leaves Backlog unassigned; a team
 job cannot start with an explicitly empty assignee. The legacy `autostart`
 field remains accepted but cannot be combined with `start`. New metadata
 requires a store-backed factory; a missing store refuses before creating a job.
+
+
+A14 status: **BUILT**. `/v1/*` shares the app listener and launch bearer. Worker pull,
+lease and presence routes use factory-issued worker credentials after the same
+Origin/Host checks. A discovered TUI solo service is reused behind the mount.
+`serve.lock` elects the solo host; `worker.lock` elects one worker process for the
+shared home. Its private runtime socket under `/tmp/codeaf-runners-<uid>/` accepts app factory sessions in memory,
+so a TUI that owns the worker can execute work for newly attached teams. Each
+factory gets an isolated mirror below that worker's PID folder.
+
+`attach.json` retains a first-team `url` for terminal compatibility and a
+`factories` list for all rail connections; no app session token is stored there.
+A late stdin handoff restarts signed-out factory streams. Connection health is
+sampled every 2 seconds; Last seen is retained when a connected factory disappears.
+Leaving a team withdraws its Inbox items and stops that connection's worker loop.
+A solo factory cannot be left or shared through the team attachment route.
+
+Hand-off cards add `factory` and `factories` for the owner-decided picker;
+send accepts `factory` as an edit. The default selects a watched repository's
+factory. Cards expire after one hour and are bounded to 256 per launch. A changed
+agent returns 409 `stale`; each card is idempotent through the factory's job door.
+The source keeps running if creation fails. Task snapshots and final transitions
+can be supplied through `FactoryTaskSource`; otherwise the task route and engine
+stop door remain authoritative. Task hand-off leaves unrelated replies running.
+The factory records `ask.from_ref`, and the source receives "Handed to the factory".
+The current job creation contract uses the repository pipeline. `issue:true` or
+a custom `pipeline` returns 422 `not_allowed`; neither is silently ignored.
 
 ### 2.22.1 Team operator claim and GitHub read grant — EXISTS
 
@@ -911,7 +938,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | EXISTS |
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
-| A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | NEW |
+| A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | BUILT |
 | A15 | Shared rules in `internal/appapi/rules.go`, `/crew` → `/seats` with alias, idle selection predicate, 12 s/$2/$0.40 defaults. Resource enforcement remains with A5–A8/A11a | — | ½ d | BUILT |
 | A16 | Contract reservations, schemas, `docs/design/app-v2/API.md` ↔ route table law and generated `docs/design/app-v2/wire.ts` for the app, from registered Go wire types | A4a | ½ d | EXISTS |
 

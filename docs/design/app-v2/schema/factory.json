@@ -115,6 +115,15 @@
     },
     "HandOffCard": {
       "properties": {
+        "factory": {
+          "type": "string"
+        },
+        "factories": {
+          "items": {
+            "$ref": "#/$defs/Factory"
+          },
+          "type": "array"
+        },
         "id": {
           "type": "string"
         },
@@ -147,6 +156,8 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
+        "factory",
+        "factories",
         "id",
         "title",
         "brief",
@@ -194,6 +205,9 @@
     },
     "SendHandOffRequest": {
       "properties": {
+        "factory": {
+          "type": "string"
+        },
         "title": {
           "type": "string"
         },
