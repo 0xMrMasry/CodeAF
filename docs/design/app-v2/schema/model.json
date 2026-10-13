@@ -1,25 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "AgentExpect": {
-      "properties": {
-        "state": {
-          "type": "string"
-        },
-        "version": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
     "DefaultModelRequest": {
       "properties": {
         "model": {
           "type": "string"
         },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
         "expect": {
-          "$ref": "#/$defs/AgentExpect"
+          "$ref": "#/$defs/SettingsExpect"
         }
       },
       "additionalProperties": false,
@@ -28,31 +24,7 @@
         "model"
       ]
     },
-    "Model": {
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "available": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "id",
-        "name",
-        "provider",
-        "available"
-      ]
-    },
-    "ModelRole": {
+    "DefaultModelResponse": {
       "properties": {
         "model": {
           "type": "string"
@@ -69,6 +41,66 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
+        "model",
+        "effort"
+      ]
+    },
+    "Model": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "efforts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "provider",
+        "available",
+        "efforts"
+      ]
+    },
+    "ModelRole": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "checks",
+            "planner"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
         "model",
         "effort"
       ]
@@ -87,7 +119,7 @@
           ]
         },
         "expect": {
-          "$ref": "#/$defs/AgentExpect"
+          "$ref": "#/$defs/SettingsExpect"
         }
       },
       "additionalProperties": false,
@@ -99,18 +131,19 @@
     },
     "ModelRolesResponse": {
       "properties": {
-        "checks": {
-          "$ref": "#/$defs/ModelRole"
-        },
-        "planner": {
-          "$ref": "#/$defs/ModelRole"
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/ModelRole"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "checks",
-        "planner"
+        "roles"
       ]
     },
     "ModelsResponse": {
@@ -129,7 +162,8 @@
             "type": "string"
           },
           "type": "array",
-          "maxItems": 3
+          "maxItems": 3,
+          "minItems": 3
         }
       },
       "additionalProperties": false,
@@ -142,15 +176,33 @@
     },
     "PinnedModelsRequest": {
       "properties": {
+        "models": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "expect": {
+          "$ref": "#/$defs/SettingsExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "models"
+      ]
+    },
+    "PinnedModelsResponse": {
+      "properties": {
         "pinned": {
           "items": {
             "type": "string"
           },
           "type": "array",
-          "maxItems": 3
-        },
-        "expect": {
-          "$ref": "#/$defs/AgentExpect"
+          "maxItems": 3,
+          "minItems": 3
         }
       },
       "additionalProperties": false,
@@ -158,6 +210,27 @@
       "required": [
         "pinned"
       ]
+    },
+    "ProviderSignInClaimResponse": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "key"
+      ]
+    },
+    "ProviderSignInRequest": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
     },
     "ProviderSignInResponse": {
       "properties": {
@@ -170,6 +243,34 @@
       "required": [
         "verification_uri"
       ]
+    },
+    "ProviderSignInStatusResponse": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state",
+        "error"
+      ]
+    },
+    "SettingsExpect": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     }
   },
   "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
@@ -184,7 +285,13 @@
       "$ref": "#/$defs/PinnedModelsRequest"
     },
     {
+      "$ref": "#/$defs/PinnedModelsResponse"
+    },
+    {
       "$ref": "#/$defs/DefaultModelRequest"
+    },
+    {
+      "$ref": "#/$defs/DefaultModelResponse"
     },
     {
       "$ref": "#/$defs/ModelRole"
@@ -196,7 +303,16 @@
       "$ref": "#/$defs/ModelRoleRequest"
     },
     {
+      "$ref": "#/$defs/ProviderSignInRequest"
+    },
+    {
       "$ref": "#/$defs/ProviderSignInResponse"
+    },
+    {
+      "$ref": "#/$defs/ProviderSignInStatusResponse"
+    },
+    {
+      "$ref": "#/$defs/ProviderSignInClaimResponse"
     }
   ],
   "title": "codeaf app model contract",
@@ -206,19 +322,19 @@
       "method": "PUT",
       "path": "/app/v1/models/default",
       "request": "model.json#/$defs/DefaultModelRequest",
-      "response": "common.json#/$defs/ActionResponse"
+      "response": "model.json#/$defs/DefaultModelResponse"
     },
     {
       "method": "PUT",
       "path": "/app/v1/models/pinned",
       "request": "model.json#/$defs/PinnedModelsRequest",
-      "response": "common.json#/$defs/ActionResponse"
+      "response": "model.json#/$defs/PinnedModelsResponse"
     },
     {
       "method": "PUT",
       "path": "/app/v1/models/roles/{role}",
       "request": "model.json#/$defs/ModelRoleRequest",
-      "response": "common.json#/$defs/ActionResponse"
+      "response": "model.json#/$defs/ModelRole"
     },
     {
       "method": "GET",
@@ -232,8 +348,24 @@
     },
     {
       "method": "POST",
-      "path": "/app/v1/providers/{p}/sign-in",
-      "request": "common.json#/$defs/ExpectRequest",
+      "path": "/app/v1/providers/{provider}/sign-in/claim",
+      "request": "model.json#/$defs/ProviderSignInRequest",
+      "response": "model.json#/$defs/ProviderSignInClaimResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/providers/{provider}/sign-in",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/providers/{provider}/sign-in",
+      "response": "model.json#/$defs/ProviderSignInStatusResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/providers/{provider}/sign-in",
+      "request": "model.json#/$defs/ProviderSignInRequest",
       "response": "model.json#/$defs/ProviderSignInResponse"
     }
   ]

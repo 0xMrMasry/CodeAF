@@ -1,18 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "AgentExpect": {
-      "properties": {
-        "state": {
-          "type": "string"
-        },
-        "version": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
     "Money": {
       "properties": {
         "usd": {
@@ -33,6 +21,18 @@
       "additionalProperties": true,
       "type": "object"
     },
+    "SettingsExpect": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "SetupRequest": {
       "properties": {
         "step": {
@@ -45,7 +45,7 @@
           "$ref": "#/$defs/Money"
         },
         "expect": {
-          "$ref": "#/$defs/AgentExpect"
+          "$ref": "#/$defs/SettingsExpect"
         }
       },
       "additionalProperties": false,
@@ -67,13 +67,18 @@
         },
         "day_cap": {
           "$ref": "#/$defs/Money"
+        },
+        "complete": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "step",
-        "has_key"
+        "has_key",
+        "day_cap",
+        "complete"
       ]
     }
   },
@@ -84,6 +89,9 @@
     },
     {
       "$ref": "#/$defs/PatchSettingsRequest"
+    },
+    {
+      "$ref": "#/$defs/SettingsExpect"
     },
     {
       "$ref": "#/$defs/SetupResponse"

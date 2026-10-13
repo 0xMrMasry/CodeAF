@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream A4a agent lifecycle and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -404,13 +404,19 @@ The settings keys are in §2.18. The app's "Run 3 · up to $9" cost check reads 
 
 | Route | Body → Response | Backed by | Status |
 |---|---|---|---|
-| `GET /app/v1/models` | → `{models[{id, name, provider, available}], default, pinned[3]}` | `wb:modelroles.go:168`, `modelpinned.go:34` | PORT |
-| `PUT /app/v1/models/pinned` · `PUT /app/v1/models/default` | | `wb:modelpinned.go` | PORT |
-| `GET /app/v1/models/roles` · `PUT /app/v1/models/roles/{role}` | `{model, effort}`. Only `checks` and `planner` are shown (X4 Advanced · Model per role) | `wb:modelroles.go:172-186`; `v2:internal/roles/roles.go:35` | PORT |
+| `GET /app/v1/models` | → `{models[{id, name, provider, available, efforts[]}], default, pinned[3]}` | `internal/appapi/models.go`, ported from `wb:modelroles.go` | EXISTS (A11a) |
+| `PUT /app/v1/models/pinned` · `PUT /app/v1/models/default` | `{models:[id,id,id]}` · `{model, effort?}`; empty pinned slots are `""` | `internal/appapi/models.go`, ported from `wb:modelpinned.go` | EXISTS (A11a) |
+| `GET /app/v1/models/roles` · `PUT /app/v1/models/roles/{role}` | → `{roles[{id,model,effort}]}` · `{model, effort}`. Only `checks` and `planner`; empty model follows the agent | `internal/appapi/models.go`, `internal/config/appsettings.go` | EXISTS (A11a) |
 | `GET /app/v1/keys` · `PUT /app/v1/keys/{provider}` · `DELETE /app/v1/keys/{provider}` | §1.2 | `internal/appapi/keys.go`, `internal/config/appcredentials.go` | EXISTS (A2) |
-| `POST /app/v1/providers/{p}/sign-in` | → `{verification_uri}`, then `keys.changed`. Browser sign-in, no timeout | `v2:internal/openrouterauth` | NEW (HTTP) |
+| `POST /app/v1/providers/{p}/sign-in` | `{}` → `{verification_uri}`, then `keys.changed`. OpenRouter browser sign-in, no browser wait timeout | `internal/appapi/providers.go`, `internal/openrouterauth` | EXISTS (A11a) |
+| `GET /app/v1/providers/{p}/sign-in` · `DELETE /app/v1/providers/{p}/sign-in` | → `{state,error}` (`waiting`, `signed_in`, `failed`, `canceled`; empty state before a first attempt) · cancel `{ok:true}` | `internal/appapi/providers.go` | EXISTS (A11a) |
+| `POST /app/v1/providers/{p}/sign-in/claim` | `{}` → `{provider,key}`, one logical claim by the authenticated native core for Keychain / Secret Service | `internal/appapi/providers.go` | EXISTS (A11a) |
 
-Effort on the wire is `low|medium|high`. The binary's `xhigh` and `max` (`v2:internal/effort/effort.go:27`) stay for the TUI and are never shown to the app.
+Effort on the wire is `low|medium|high`. The binary's `xhigh` and `max` (`v2:internal/effort/effort.go:27`) stay for the TUI and are never shown to the app. Higher saved TUI rungs read as `high`; auto or an unknown rung reads as `medium`. App writes refuse other rungs.
+
+A successful key check's ordered model listing is reused for 15 minutes. Stdin keys discover models lazily on the first model read with the same 10 s authenticated listing door. Provider order starts with the most recently connected provider, then provider id; a provider's model order remains exactly what it returned. Non-default connections qualify ids with their configured connection name, just as the engine does. Saved default and pinned models from a removed provider stay visible as `available:false`, and cannot be newly selected. A checked provider without a resolved engine transport (including native Anthropic) also lists its models as unavailable; key validation alone does not make a model executable. No model is ranked or selected by AI.
+
+Browser sign-in is backed only for OpenRouter; other providers return 422 `bad_input` with "this provider has no app browser sign-in". A concurrent browser flow returns 409. GET status never returns a credential. The native core listens for `keys.changed`, claims the returned key once, saves it under service `ai.codeaf.app`, and sends it back through the normal memory handoff on restart. The claim response is an authenticated, `no-store` secret transfer, not a model-facing GET. Reusing its Idempotency-Key retries the same logical claim; a fresh second claim returns 409. Cancel, shutdown and launch cancellation release the callback listener. A key PUT/DELETE made while the browser is waiting wins over its late completion.
 
 ### 2.17 Search (⌘K) and History
 
@@ -423,35 +429,39 @@ Team factory jobs in ⌘K come from the app's own `/v1` cache. The binary search
 
 ### 2.18 Settings that belong to the binary
 
-`GET /app/v1/settings` → `{key: value}`. `PATCH /app/v1/settings` with `{key: value}` validates each value and returns 422 with the reason.
+**EXISTS (A11a):** `GET /app/v1/settings` → a flat `{key: value}` object containing only binary-owned, non-secret settings. `PATCH /app/v1/settings` with `{key: value, expect?:{version}}` validates the whole patch and returns 422 with the reason; nothing is partly saved. Money values are `{usd:"20.00"}`; zero means off for the per-conversation ceiling. Unknown keys, UI-only keys, credential keys and removal of a mandatory always-ask action are refused.
+
+GET settings, model and setup reads return an opaque profile version in `ETag` (exposed to app origins). Every PUT/PATCH and setup POST accepts `expect:{version}`; a mismatch returns 409 `stale`. The comparison and write hold the same cross-process profile lock as terminal settings. Unsupported `expect.state` is refused rather than ignored. Successful writes publish `settings.changed {keys[]}` after one atomic private-file replacement. Existing terminal credentials and unrelated profile keys are preserved.
+
+Model default/effort, day cap, per-task cap, per-conversation ceiling, proposal seconds and crew depth/share/wake use the engine's native keys. Checks and Planner write their grouped native `models.roles` pins atomically; GET derives those rows from the native pins, so terminal edits remain visible. App agent launchers use `config.AppRoleSource` around their routing source so unpinned Checks/Planner follow each agent rather than the terminal tier defaults (A4b turn-engine integration). Agent creation reads the saved default model, app effort, per-agent budget and approval mode; explicit creation fields win, and existing agents keep their own choices. New app keys use `app.*` in the same profile. Their storage/validation is implemented here; the owning agent, permissions, memory and factory lanes still supply their live enforcement. `permissions.mode` is stored under `app.permissions.mode` because the current terminal's prompt/allow/deny posture has different semantics.
 
 | Key | Default (design) | Today in v2 | Status |
 |---|---|---|---|
-| `models.default`, `models.effort`, `models.pinned[3]`, `models.roles.{checks,planner}` | first model from setup · medium | profile `config.json` | PORT (`wb:modelroles`) |
-| `spending.day_cap` | $20.00 (written at J01) | `DefaultDailyBudgetUSD = 500` (`v2:internal/config/config.go:128`) | CHANGED |
-| `spending.per_agent` | $5.00 | none (standing per-run $5, `standing.go:406`) | NEW |
-| `spending.per_task` | $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | CHANGED |
-| `spending.per_conversation_ceiling` | off | `SetSpendRail` | EXISTS (wire) |
-| `memory.agents_may_add` | on | — | NEW |
-| `permissions.mode` | ask_risky | approval posture | PORT |
-| `permissions.always_ask[]` | acting in your name, deleting outside a task, payments | `guard`, `paymentrefusal` | NEW (list) |
-| `permissions.question_clock_min` | 15 | none | NEW |
-| `accounts.{github,google,slack,mcp:*}` | ask_first | `internal/connect` | NEW (HTTP) |
-| `factory.polling_s` | 60 | `Config.PollingEvery` is unset by launchers | CHANGED |
-| `advanced.context_tokens` | 160k | ctxbudget | EXISTS (key) |
-| `advanced.work_folder` | `~/codeaf/work` | workspace flag | NEW key |
-| `advanced.proposal_s` | 12 (0–60, 0 = never) | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | CHANGED |
-| `advanced.idle_days` | 7 | — | NEW |
-| `crews.depth`, `crews.share_pct`, `crews.wake` | 3 · 50 · on | `teamdefaults.go:42-48` | EXISTS (keys) |
+| `models.default`, `models.effort`, `models.pinned[3]`, `models.roles.{checks,planner}` | first model from setup · medium | profile `config.json` | EXISTS (A11a key) |
+| `spending.day_cap` | $20.00 (written at J01) | `DefaultDailyBudgetUSD = 500` (`v2:internal/config/config.go:128`) | EXISTS (A11a key) |
+| `spending.per_agent` | $5.00 | none (standing per-run $5, `standing.go:406`) | EXISTS (A11a key) |
+| `spending.per_task` | $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | EXISTS (A11a key) |
+| `spending.per_conversation_ceiling` | off | `SetSpendRail` | EXISTS (A11a key) |
+| `memory.agents_may_add` | on | — | EXISTS (A11a key) |
+| `permissions.mode` | ask_risky | approval posture | EXISTS (A11a key) |
+| `permissions.always_ask[]` | acting in your name, deleting outside a task, payments | `guard`, `paymentrefusal` | EXISTS (A11a key) |
+| `permissions.question_clock_min` | 15 | none | EXISTS (A11a key) |
+| `accounts.{github,google,slack,mcp:*}` | ask_first | `internal/connect` | EXISTS (A11a key) |
+| `factory.polling_s` | 60 | `Config.PollingEvery` is unset by launchers | EXISTS (A11a key) |
+| `advanced.context_tokens` | 160k | ctxbudget | EXISTS (A11a key) |
+| `advanced.work_folder` | `~/codeaf/work` | workspace flag | EXISTS (A11a key) |
+| `advanced.proposal_s` | 12 (0–60, 0 = never) | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | EXISTS (A11a key) |
+| `advanced.idle_days` | 7 | — | EXISTS (A11a key) |
+| `crews.depth`, `crews.share_pct`, `crews.wake` | 3 · 50 · on | `teamdefaults.go:42-48` | EXISTS (A11a key) |
 
 UI-only keys stay in the app: theme, tint, text size, open at login, banners, sound, dock badge, density, auto-update, and "Later 09:00".
 
 ### 2.19 First run
 
-- `GET /app/v1/setup` → `{step, has_key, default_model?, day_cap?}`. The binary remembers the J01 step so that a quit mid-way resumes at the same step.
-- `POST /app/v1/setup` with `{step, …}` advances it.
+- `GET /app/v1/setup` → `{step, has_key, default_model?, day_cap, complete}`. Steps 1–4 are J01; step 5 means complete. The binary persists `app.setup.step` so a quit mid-way resumes at the same step, separately from the terminal's welcome marker. A GitHub key alone does not satisfy `has_key`.
+- `POST /app/v1/setup` with `{step, default_model?, day_cap?, expect?:{version}}` advances one step or moves backward before completion. Defaults may be changed only while on step 3. Continue to step 3 requires a model key with a successful nonempty listing; the first returned model seeds an unset default. Continue to step 4 writes the chosen default model and day cap (fresh app default `$20.00`) to the same settings keys. Existing shared-home choices are preserved. Step 4 to 5 completes the welcome; the chosen factory creation/attachment is a separate A14 call. Completed setup cannot be restarted through this route.
 - Step 2 is `PUT /app/v1/keys/{p}`. The one check call has a 10 s timeout and quotes the provider's words verbatim ("Key didn't work · the provider said: invalid API key (401)").
-- Status: **NEW**.
+- Status: **EXISTS (A11a)**. Setup and browser POSTs accept Idempotency-Key, replay the original response within this launch (last 128 requests), and refuse changed input with the same key. Bodies must be one JSON object of at most 32 KiB; unknown fields and trailing data are refused.
 
 ### 2.20 The AI door
 
@@ -662,7 +672,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | NEW |
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | NEW |
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | NEW |
-| A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | NEW |
+| A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
 | A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | NEW |
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
@@ -703,7 +713,7 @@ Parallel waves:
 | Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | — |
 | Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 | BUILT — default $2, saved limits preserved |
 | Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b | — |
-| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **CHANGED** (setup writes 20; the built-in default stays for the TUI unless the owner says otherwise) | A11a | POLICY BUILT — `DefaultDayCapUSD`; setup persistence/cap asks A11a/A11b |
+| Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **EXISTS (A11a setup)**: setup writes 20 for a fresh app; existing shared-home choices and the TUI built-in default remain | A11a | BUILT — setup persistence A11a; cap asks A11b |
 | Sub-crew depth 3, share 50% | `teamdefaults.go:44-45` | **EXISTS** | — | — |
 | Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a | — |
 | Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a | — |
