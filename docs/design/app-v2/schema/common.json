@@ -1,0 +1,486 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActionResponse": {
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ok"
+      ]
+    },
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Ask": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "question",
+            "clarification",
+            "permission",
+            "your_call",
+            "proposal",
+            "budget",
+            "order_ask",
+            "reminder"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          },
+          "type": "array"
+        },
+        "suggested": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "touches_prod": {
+          "type": "boolean"
+        },
+        "clock": {
+          "$ref": "#/$defs/AskClock"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "answered",
+            "withdrawn"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "path",
+        "title",
+        "options",
+        "irreversible",
+        "before",
+        "state"
+      ]
+    },
+    "AskClock": {
+      "properties": {
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AskOption": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "ConflictResponse": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "not_found",
+            "conflict",
+            "stale",
+            "bad_input",
+            "not_allowed",
+            "at_cap",
+            "no_factory"
+          ]
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "running": {
+          "$ref": "#/$defs/RunningCounts"
+        },
+        "changed_since": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "open_items": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "error",
+        "request_id"
+      ]
+    },
+    "DisplayEntry": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "link": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "answered": {
+          "type": "boolean"
+        },
+        "card": {
+          "$ref": "#/$defs/Ask"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    "ErrorResponse": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "not_found",
+            "conflict",
+            "stale",
+            "bad_input",
+            "not_allowed",
+            "at_cap",
+            "no_factory"
+          ]
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "error",
+        "request_id"
+      ]
+    },
+    "ExpectRequest": {
+      "properties": {
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "IDChangedEvent": {
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id"
+      ]
+    },
+    "KeysChangedEvent": {
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "keys"
+      ]
+    },
+    "ModelRequest": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "model"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "NotBuiltResponse": {
+      "properties": {
+        "error": {
+          "type": "string",
+          "enum": [
+            "not built yet"
+          ]
+        },
+        "route": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "error",
+        "route"
+      ]
+    },
+    "RouteContract": {
+      "properties": {
+        "resource": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "response": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "resource",
+        "method",
+        "path",
+        "response"
+      ]
+    },
+    "RunningCounts": {
+      "properties": {
+        "processes": {
+          "type": "integer"
+        },
+        "tasks": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "processes",
+        "tasks"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    },
+    "TextRequest": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ExpectRequest"
+    },
+    {
+      "$ref": "#/$defs/ActionResponse"
+    },
+    {
+      "$ref": "#/$defs/TextRequest"
+    },
+    {
+      "$ref": "#/$defs/ModelRequest"
+    },
+    {
+      "$ref": "#/$defs/SourceRef"
+    },
+    {
+      "$ref": "#/$defs/ErrorResponse"
+    },
+    {
+      "$ref": "#/$defs/NotBuiltResponse"
+    },
+    {
+      "$ref": "#/$defs/ConflictResponse"
+    },
+    {
+      "$ref": "#/$defs/RunningCounts"
+    },
+    {
+      "$ref": "#/$defs/IDChangedEvent"
+    },
+    {
+      "$ref": "#/$defs/KeysChangedEvent"
+    },
+    {
+      "$ref": "#/$defs/Money"
+    },
+    {
+      "$ref": "#/$defs/AgentExpect"
+    },
+    {
+      "$ref": "#/$defs/RouteContract"
+    }
+  ],
+  "title": "codeaf app common contract",
+  "x-events": {
+    "keys.changed": "#/$defs/KeysChangedEvent",
+    "memory.changed": "#/$defs/IDChangedEvent",
+    "role.changed": "#/$defs/IDChangedEvent",
+    "rule.changed": "#/$defs/IDChangedEvent",
+    "rule.created": "#/$defs/IDChangedEvent",
+    "settings.changed": "#/$defs/KeysChangedEvent"
+  },
+  "x-routes": null
+}

@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CrewItem": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CrewItemRequest": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CrewLogEntry": {
+      "properties": {
+        "crew": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "crew",
+        "from",
+        "to",
+        "text"
+      ]
+    },
+    "CrewLogEvent": {
+      "properties": {
+        "crew": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "crew",
+        "from",
+        "to",
+        "text"
+      ]
+    },
+    "CrewLogResponse": {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/CrewLogEntry"
+          },
+          "type": "array"
+        },
+        "before": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "entries"
+      ]
+    },
+    "CrewReport": {
+      "properties": {
+        "shipped": {
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "left_open": {
+          "items": {
+            "$ref": "#/$defs/ReportOpenItem"
+          },
+          "type": "array"
+        },
+        "cost": {
+          "$ref": "#/$defs/Money"
+        },
+        "markdown": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "shipped",
+        "decisions",
+        "files",
+        "left_open",
+        "cost",
+        "markdown"
+      ]
+    },
+    "CrewSummaryResponse": {
+      "properties": {
+        "since": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "text": {
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "since",
+        "text",
+        "items"
+      ]
+    },
+    "FileChange": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "state",
+        "added",
+        "removed"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "ReportOpenItem": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "hand_off": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    },
+    "ReportReadyEvent": {
+      "properties": {
+        "crew": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "crew"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/CrewItem"
+    },
+    {
+      "$ref": "#/$defs/CrewItemRequest"
+    },
+    {
+      "$ref": "#/$defs/CrewLogEntry"
+    },
+    {
+      "$ref": "#/$defs/CrewLogResponse"
+    },
+    {
+      "$ref": "#/$defs/CrewSummaryResponse"
+    },
+    {
+      "$ref": "#/$defs/CrewReport"
+    },
+    {
+      "$ref": "#/$defs/ReportOpenItem"
+    },
+    {
+      "$ref": "#/$defs/CrewLogEvent"
+    },
+    {
+      "$ref": "#/$defs/ReportReadyEvent"
+    }
+  ],
+  "title": "codeaf app crew_work contract",
+  "x-events": {
+    "crew.log": "#/$defs/CrewLogEvent",
+    "report.ready": "#/$defs/ReportReadyEvent"
+  },
+  "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/archive",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/bring-in-helpers",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "crew.json#/$defs/HelperProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/finish",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/crews/{cid}/items/{ref}",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/items",
+      "request": "crew_work.json#/$defs/CrewItemRequest",
+      "response": "crew_work.json#/$defs/CrewItem"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/keep-going",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/crews/{cid}/log",
+      "response": "crew_work.json#/$defs/CrewLogResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/reopen",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/crews/{cid}/report",
+      "response": "crew_work.json#/$defs/CrewReport"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/crews/{cid}/summary-since",
+      "response": "crew_work.json#/$defs/CrewSummaryResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/wrap-up",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    }
+  ]
+}

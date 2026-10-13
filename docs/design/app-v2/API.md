@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream and A4a agent lifecycle built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes are design. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream and A4a agent lifecycle built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -128,6 +128,36 @@ Conventions:
 - Money is `{usd: "4.20"}`, a string with two decimals.
 - Every list route accepts `?q=` with the token grammar of X3/X4 (`state:` `kind:` `since:` …). Matching is plain text and fields, with no AI.
 
+### Contract reservations and schemas (A4b–A16)
+
+Every app route below is registered. A NEW or PORT resource route whose lane has
+not landed returns HTTP 501 `{"error":"not built yet","route":"METHOD /app/v1/…"}`.
+`route` names the method and canonical path template, including `{id}` placeholders.
+Authentication and the Origin/Host guard run before that response; a wrong method
+returns 405 with `Allow`. Existing transport, key and agent lifecycle handlers keep
+serving their current responses. The A4a GET snapshot is still partial; A4b owns the
+reserved full `AgentSnapshot` shape, and this contract adds no engine behaviour.
+
+`internal/appapi/*_wire.go` owns the JSON types, one file per resource.
+`*_handlers.go` owns that resource's route table and one handler entry point.
+A resource lane replaces its handler and clears `reserved` in that file; the
+contract gate then stops expecting 501 for its built routes. It does not edit
+`server.go` or `contract.go`. A10a owns crew/member handlers; A10b owns role/crew_work handlers.
+A4b owns turn/file handlers. The idle close handler is reserved separately.
+
+Run `go generate ./internal/appapi` to regenerate `schema/*.json` from these
+Go types. Each file is a JSON Schema 2020-12 document with named `$defs`,
+`x-routes` request/response references and `x-events` payload references.
+The schemas reserve JSON shapes, including responses not yet spelled out in
+the route tables; they do not implement clocks, validation, mutations or AI calls.
+Unspecified action replies use `{ok, receipt?}`. Settings remain a dotted-key
+JSON map; each value's validation belongs to A11a. IDs, file cursors and timestamps
+remain opaque to the app. `process.output`, `ai.delta` and `ai.done` are separate
+follow-response event contracts, not main-stream publishers. No app role is enabled.
+The route law reads all explicit app method/path pairs in this document and
+compares them with the actual registered handlers; the schema gate also checks
+fresh generation and populated JSON round-trips for every registered wire type.
+
 ### 2.1 Agent
 
 S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[], pinned, created_at, created_by, last_message_at, closed_at?, archived_at?`, plus the derived `glyph` (needs_you › failed › running › queued › done/idle) and `spent`. `context[]` holds the chips (path, kind, exists).
@@ -138,16 +168,16 @@ S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[],
 | `POST /app/v1/agents` | `{text?, model?, effort?, budget?, approvals?, context[]?, start: "send"\|"empty"}` → `Agent` (name from text, ≤40 chars) | `agent.created`, then `turn.*` | `wb:bridge.go:644-765` (POST /sessions), remote `Session.New` (`v2:internal/remote/wire.go:642`) | EXISTS (A4a) |
 | `GET /app/v1/agents/{id}` | → `Agent` + `snapshot` (entries tail, queue, open asks, tasks summary, usage) | — | `wb:bridge.go:72-96,779`, `snapshotview.go` | EXISTS (A4a saved/live entries, tasks, usage; full snapshot A4b) |
 | `PATCH /app/v1/agents/{id}` | `{name?, model?, effort?, budget?, pinned?}` | `agent.changed` | wire `SetModel`, `SetEffort`, `SetSpendRail` (`v2:wire.go:491,492,600`). Rename and pin are NEW | EXISTS (A4a) |
-| `POST /app/v1/agents/{id}/close` · `/archive` · `/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | EXISTS (A4a) |
+| `POST /app/v1/agents/{id}/close` · `POST /app/v1/agents/{id}/archive` · `POST /app/v1/agents/{id}/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | EXISTS (A4a) |
 | `POST /app/v1/agents/close-idle` | `{ids[]}` (the app picked them with `?q=idle:true`) → `{closed[]}` | `agent.changed`×n | NEW (idle = no message 7 days and nothing running; S2) | NEW |
 | `POST /app/v1/agents/{id}/turn` | `{text, mode: "send"\|"steer"\|"queue", context[]?, files[]?}` → `{accepted, turn_id}`. 409 if running and mode is `send` | `turn.*` | `wb:bridge.go:877-952`, wire `Submit`, `Steer`, `FollowUp` (`v2:wire.go:449-464`) | PORT |
-| `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE …` | `{text}` edit · remove | `queue.changed` | `wb:queue.go`, `queue_send.go`, wire `UnqueueFollowUp` (`v2:wire.go:462`) | PORT |
+| `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE /app/v1/agents/{id}/queue/{qid}` | `{text}` edit · remove | `queue.changed` | `wb:queue.go`, `queue_send.go`, wire `UnqueueFollowUp` (`v2:wire.go:462`) | PORT |
 | `POST /app/v1/agents/{id}/stop` | → receipt "Stopped by you" | `turn.ended` | `wb:bridge.go:959`, wire `StopWork` (`v2:wire.go:486`) | PORT |
-| `POST /app/v1/agents/{id}/retry` · `/switch-model {model}` | after a provider failure ×3 | `agent.changed` | NEW (the failed state is not modelled on the wire) | NEW |
+| `POST /app/v1/agents/{id}/retry` · `POST /app/v1/agents/{id}/switch-model` | after a provider failure ×3 | `agent.changed` | NEW (the failed state is not modelled on the wire) | NEW |
 | `POST /app/v1/agents/{id}/move-reply-to-task` | → `{task_id}` (running long, 3:00) | `task.created`, receipt | NEW | NEW |
 | `GET /app/v1/agents/{id}/entries?before=&limit=` | earlier transcript | — | wire `Transcript`, `EarlierHistory` (`v2:wire.go:556-557`); `wb:` `?since=` tail | PORT |
 | `GET /app/v1/agents/{id}/tools/{call_id}` | → `{output, full}` (1 MiB) | — | `wb:bridge.go:793,1096` | PORT |
-| `GET /app/v1/agents/{id}/files…` | `text`, `stat`, `find`, `changes`, `diff` (chips, "Not found on this Mac", @mention, file chips) | — | `wb:routes.go:10-52`, `files.go`, `fileslist.go`, `workview.go` | PORT |
+| `GET /app/v1/agents/{id}/files/text` · `GET /app/v1/agents/{id}/files/stat` · `GET /app/v1/agents/{id}/files/find` · `GET /app/v1/agents/{id}/files/changes` · `GET /app/v1/agents/{id}/files/diff` | `text`, `stat`, `find`, `changes`, `diff` (chips, "Not found on this Mac", @mention, file chips) | — | `wb:routes.go:10-52`, `files.go`, `fileslist.go`, `workview.go` | PORT |
 
 A4a implementation: `internal/appapi/agents.go` and `agents_routes.go` port the
 bridge's attached-session and saved-history split without its places or model pin.
@@ -204,9 +234,9 @@ S2 fields: `id, agent_id, parent_id?, title, brief, state (proposed·held·waiti
 |---|---|---|---|---|
 | `GET /app/v1/agents/{id}/tasks` | → tree `{groups[], tasks[], progress:{done,total}, spent, steps}` | — | wire `PlanTasks` (`v2:wire.go:574`), `wb:` snapshot `tasks` | PORT |
 | `GET /app/v1/tasks/{tid}` | → `Task` + result, files, work log, notes, brief | — | wire `PlanTaskPage` (`v2:wire.go:575`), `wb:bridge.go:802` | PORT |
-| `POST /app/v1/tasks/{tid}/note` · `/brief` | `{text}` → note with `read_at_step` filled later | `task.changed` | wire `PlanNote`, `PlanAmend`; `wb:routes.go:78` | PORT |
-| `POST /app/v1/tasks/{tid}/pause` · `/resume` · `/stop` | — | `task.changed` | wire `PlanPause`, `PlanResume`, `PlanCancel` (`v2:wire.go:583-585`) | PORT |
-| `POST /app/v1/tasks/{tid}/start` · `/hold` · `/decline` · `/model {model}` | the proposal card: Start it · Hold · No · Change model | `task.changed`, `inbox.*` | wire `Task.Start`, `Task.Hold`, `Task.Model` (`v2:wire_task.go:17-42`) | PORT (HTTP face) |
+| `POST /app/v1/tasks/{tid}/note` · `POST /app/v1/tasks/{tid}/brief` | `{text}` → note with `read_at_step` filled later | `task.changed` | wire `PlanNote`, `PlanAmend`; `wb:routes.go:78` | PORT |
+| `POST /app/v1/tasks/{tid}/pause` · `POST /app/v1/tasks/{tid}/resume` · `POST /app/v1/tasks/{tid}/stop` | — | `task.changed` | wire `PlanPause`, `PlanResume`, `PlanCancel` (`v2:wire.go:583-585`) | PORT |
+| `POST /app/v1/tasks/{tid}/start` · `POST /app/v1/tasks/{tid}/hold` · `POST /app/v1/tasks/{tid}/decline` · `POST /app/v1/tasks/{tid}/model` | the proposal card: Start it · Hold · No · Change model | `task.changed`, `inbox.*` | wire `Task.Start`, `Task.Hold`, `Task.Model` (`v2:wire_task.go:17-42`) | PORT (HTTP face) |
 | `POST /app/v1/tasks/{tid}/typing` | holds the clock while the person types in the card | `task.changed {clock:"held"}` | wire `Typing` (`v2:wire.go:485`), but it is per conversation | NEW (per task) |
 | `POST /app/v1/tasks/{tid}/decide` | `{verb: "accept"\|"not_right"\|"tell"\|"recheck"\|"let_it_decide", words?}` (your call) | `task.changed`, `inbox.resolved` | wire `Task.Resolve`, `Task.Settle` (`v2:wire_task.go:38,52`) | PORT (verbs reshaped) |
 | `POST /app/v1/tasks/{tid}/hand-off` | see §2.22 Hand to factory | | | NEW |
@@ -219,7 +249,7 @@ S2 fields: `id, agent_id, title, files[{path, before_hash, after_hash}], added, 
 |---|---|---|---|---|
 | `GET /app/v1/agents/{id}/quick-tasks` | → list | — | tool `quick_task` (`v2:internal/session/task_quick.go:48-66`) | NEW (HTTP) |
 | `POST /app/v1/quick-tasks/{qid}/undo` | → `{undone[]}` or 409 `{changed_since[]}` ("Can't undo cleanly: 2 files changed since") | `quick_task.changed` | NEW: hashes are not recorded today | NEW |
-| `POST /app/v1/quick-tasks/{qid}/promote` · `/cancel` | answers "This is bigger than a quick task · 34 files" | `inbox.resolved` | NEW | NEW |
+| `POST /app/v1/quick-tasks/{qid}/promote` · `POST /app/v1/quick-tasks/{qid}/cancel` | answers "This is bigger than a quick task · 34 files" | `inbox.resolved` | NEW | NEW |
 
 ### 2.4 Process
 
@@ -229,7 +259,7 @@ S2 fields: `id, agent_id, name, command, url?, state (running·done·failed·sto
 |---|---|---|---|---|
 | `GET /app/v1/processes?agent=&state=` | → list (agent panel, and the Quit prompt across agents) | — | `wb:jobs.go:105,124`; `v2:internal/session/jobs.go:475` (`jobRegistry`) | PORT (renamed jobs → processes) |
 | `GET /app/v1/processes/{pid}/output?tail=&follow=1` | → `{text, truncated}`. `follow=1` is SSE | `process.output` (follow only) | `wb:jobs.go` log route; `terminal_routes.go:58` (stream pattern) | PORT |
-| `POST /app/v1/processes/{pid}/stop` · `/rerun` | | `process.changed`, notice | `wb:jobs.go:137`. Rerun is NEW | PORT+NEW |
+| `POST /app/v1/processes/{pid}/stop` · `POST /app/v1/processes/{pid}/rerun` | | `process.changed`, notice | `wb:jobs.go:137`. Rerun is NEW | PORT+NEW |
 | `POST /app/v1/agents/{id}/processes/stop-all` | | `process.changed`×n | NEW | NEW |
 
 Terminals (`wb:terminal*.go`) are dropped. The v2 design has no terminal surface.
@@ -241,11 +271,11 @@ S2 fields: `id, agent_id, title, trigger{kind: event\|schedule\|once, source, fi
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
 | `GET /app/v1/agents/{id}/orders` | → `{waiting[], active[], paused[], reminders[]}` | — | wire `Standing.Items` (`v2:wire.go:651`), `v2:internal/standing/standing.go:512` | NEW (HTTP) |
-| `POST /app/v1/orders/{oid}/ratify` · `/change` · `/not-now` | the card. `change` takes fields | `order.changed`, receipt | wire `ResolveStanding`, `Standing.Save` (`v2:wire.go:498,652`) | NEW (HTTP) |
-| `POST /app/v1/orders/{oid}/pause` · `/resume` · `/stop` | | `order.changed` | `Status` active/paused/retired (`standing.go:198-202`) | NEW (HTTP) |
+| `POST /app/v1/orders/{oid}/ratify` · `POST /app/v1/orders/{oid}/change` · `POST /app/v1/orders/{oid}/not-now` | the card. `change` takes fields | `order.changed`, receipt | wire `ResolveStanding`, `Standing.Save` (`v2:wire.go:498,652`) | NEW (HTTP) |
+| `POST /app/v1/orders/{oid}/pause` · `POST /app/v1/orders/{oid}/resume` · `POST /app/v1/orders/{oid}/stop` | | `order.changed` | `Status` active/paused/retired (`standing.go:198-202`) | NEW (HTTP) |
 | `POST /app/v1/agents/{id}/orders/pause-all` | | | NEW | NEW |
 | `POST /app/v1/orders/{oid}/runs/{rid}` | `{verb: "go"\|"skip"\|"pause"\|"not_right"\|"run_now"}` | `order.fired`, `inbox.*` | trust rule `TrustAfter = 5` (`v2:internal/standing/words.go:140`) | NEW (HTTP) |
-| `POST /app/v1/reminders/{oid}/change` · `/cancel` | `{at}`. A past time is refused with 422 "That time has passed. Pick another." | | `WhenAt`, `CardReminder` (`standing.go:209,239`) | NEW (HTTP) |
+| `POST /app/v1/reminders/{oid}/change` · `POST /app/v1/reminders/{oid}/cancel` | `{at}`. A past time is refused with 422 "That time has passed. Pick another." | | `WhenAt`, `CardReminder` (`standing.go:209,239`) | NEW (HTTP) |
 
 ### 2.6 Permission, always-allow rule, question clock
 
@@ -288,9 +318,9 @@ S2 fields: `id, name, tint (iris·sage·sand·tide·rose·graphite), goal, manag
 | `POST /app/v1/crews` | `{from: "proposal", proposal_id, edits?}` or `{from: "agents", agent_ids[], name, goal, manager: "new"\|agent_id, members[]}` | `crew.created`, `agent.changed` | wire `Teams.Update` (`wire_teams.go:40`). The summary-per-chat handover for a crew made from agents is NEW | NEW |
 | `PATCH /app/v1/crews/{cid}` | `{name?, tint?, goal?, budget?, ends_at?}` | `crew.changed` | `Teams.Name`, `Teams.Update`. Tint is NEW: the code has a float `Hue` (`teams.go:70`) | NEW |
 | `POST /app/v1/crews/{cid}/replace-manager` | `{member_id \| role}` | `crew.changed` | `FormerManager` (`teams.go:66`) | NEW (HTTP) |
-| `POST /app/v1/crews/{cid}/wrap-up` · `/keep-going` · `/finish` · `/reopen` · `/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | wire `Teams.WrapUp`, `Teams.AcceptClosing` (`v2:internal/remote/wire_teams*.go:64-65`) | NEW (HTTP) |
+| `POST /app/v1/crews/{cid}/wrap-up` · `POST /app/v1/crews/{cid}/keep-going` · `POST /app/v1/crews/{cid}/finish` · `POST /app/v1/crews/{cid}/reopen` · `POST /app/v1/crews/{cid}/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | wire `Teams.WrapUp`, `Teams.AcceptClosing` (`v2:internal/remote/wire_teams*.go:64-65`) | NEW (HTTP) |
 | `GET /app/v1/crews/{cid}/log?before=` | members talking, newest first | `crew.log` | wire `Teams.Traffic` (`wire_teams.go:44`) | NEW (HTTP) |
-| `POST /app/v1/crews/{cid}/items` · `DELETE …/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | NEW | NEW |
+| `POST /app/v1/crews/{cid}/items` · `DELETE /app/v1/crews/{cid}/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | NEW | NEW |
 | `GET /app/v1/crews/{cid}/summary-since?at=` | "While you were away · 3h" | — | NEW | NEW |
 
 ### 2.10 Member
@@ -301,7 +331,7 @@ S2 fields: `crew_id, agent_id, role_id, is_manager, reports_to, cap?, state (run
 |---|---|---|---|---|
 | `POST /app/v1/crews/{cid}/members` | `{role_id \| new_role{name, instructions, model, effort}, agent_id?, cap?, reports_to}` → member. An agent already in this crew gets 409 "already in Flaky tests" | `crew.changed` | `teams.Member` (`teams.go:~20-50`) | NEW (HTTP) |
 | `PATCH /app/v1/crews/{cid}/members/{mid}` | `{cap?, reports_to?, instructions?}` | `crew.changed`, receipt | `Teams.Spend`, `teamsettings.go` | NEW (HTTP) |
-| `POST …/members/{mid}/pause` · `/resume` · `/move {crew_id}` · `/remove` | the manager has no `remove`: 409 → replace-manager | `crew.changed`, `agent.changed` | NEW | NEW |
+| `POST /app/v1/crews/{cid}/members/{mid}/pause` · `POST /app/v1/crews/{cid}/members/{mid}/resume` · `POST /app/v1/crews/{cid}/members/{mid}/move` · `POST /app/v1/crews/{cid}/members/{mid}/remove` | the manager has no `remove`: 409 → replace-manager | `crew.changed`, `agent.changed` | NEW | NEW |
 | Messaging a member | `POST /app/v1/agents/{member.agent_id}/turn` (§2.1) | | each member is a conversation | PORT |
 
 ### 2.11 Role
@@ -310,7 +340,7 @@ S2 fields: `crew_id, agent_id, role_id, is_manager, reports_to, cap?, state (run
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/roles` · `POST` · `PATCH /app/v1/roles/{rid}` | an edit updates every copy's instructions at its next step | `role.changed` | no crew-role store exists (`internal/roles` holds *model* roles) | NEW |
+| `GET /app/v1/roles` · `POST /app/v1/roles` · `PATCH /app/v1/roles/{rid}` | an edit updates every copy's instructions at its next step | `role.changed` | no crew-role store exists (`internal/roles` holds *model* roles) | NEW |
 
 ### 2.12 Sub-crew and report
 
@@ -356,7 +386,7 @@ Answer-once:
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
 | `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | wire `Memory.Snapshot`, `Memory.List` (`v2:internal/remote/memory.go:99,106`) | NEW (HTTP) |
-| `PATCH /app/v1/memory/{id}` · `POST …/forget` · `POST …/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | `Memory.Update`, `Memory.Forget`, `Memory.Restore` (`memory.go:108-112`) | NEW (HTTP) |
+| `PATCH /app/v1/memory/{id}` · `POST /app/v1/memory/{id}/forget` · `POST /app/v1/memory/{id}/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | `Memory.Update`, `Memory.Forget`, `Memory.Restore` (`memory.go:108-112`) | NEW (HTTP) |
 | setting `memory.agents_may_add` | | | NEW key | NEW |
 
 ### 2.15 Spending ledger and caps
@@ -376,7 +406,7 @@ The settings keys are in §2.18. The app's "Run 3 · up to $9" cost check reads 
 | `GET /app/v1/models` | → `{models[{id, name, provider, available}], default, pinned[3]}` | `wb:modelroles.go:168`, `modelpinned.go:34` | PORT |
 | `PUT /app/v1/models/pinned` · `PUT /app/v1/models/default` | | `wb:modelpinned.go` | PORT |
 | `GET /app/v1/models/roles` · `PUT /app/v1/models/roles/{role}` | `{model, effort}`. Only `checks` and `planner` are shown (X4 Advanced · Model per role) | `wb:modelroles.go:172-186`; `v2:internal/roles/roles.go:35` | PORT |
-| `GET /app/v1/keys` · `PUT/DELETE /app/v1/keys/{provider}` | §1.2 | `internal/appapi/keys.go`, `internal/config/appcredentials.go` | EXISTS (A2) |
+| `GET /app/v1/keys` · `PUT /app/v1/keys/{provider}` · `DELETE /app/v1/keys/{provider}` | §1.2 | `internal/appapi/keys.go`, `internal/config/appcredentials.go` | EXISTS (A2) |
 | `POST /app/v1/providers/{p}/sign-in` | → `{verification_uri}`, then `keys.changed`. Browser sign-in, no timeout | `v2:internal/openrouterauth` | NEW (HTTP) |
 
 Effort on the wire is `low|medium|high`. The binary's `xhigh` and `max` (`v2:internal/effort/effort.go:27`) stay for the TUI and are never shown to the app.
@@ -453,7 +483,7 @@ The factory API is `/v1` as specified in `v2:docs/design/factory/ARCHITECTURE.md
 
 The engine adds only the following:
 - `POST /app/v1/factories/solo` and `POST /app/v1/factories {url}` (§1.4).
-- Hand to factory: `POST /app/v1/agents/{id}/hand-off` → a card `{title, brief, repo, pipeline, issue: bool, start: "now"\|"backlog", assignee}`, then `POST …/hand-off/{card}/send` → `{factory, job}`.
+- Hand to factory: `POST /app/v1/agents/{id}/hand-off` → a card `{title, brief, repo, pipeline, issue: bool, start: "now"\|"backlog", assignee}`, then `POST /app/v1/agents/{id}/hand-off/{card}/send` → `{factory, job}`.
   - It stops the originating task with "Handed to the factory" and writes the notice. The job's `ask.source` links back to the chat.
   - It is backed by `POST /v1/jobs` plus a NEW `from_ref`.
 
@@ -540,10 +570,10 @@ data: {"agent":"a_…","task":"t_…","state":"your_call","at":"…"}
 | `process.changed` · `process.output` | `{agent, process, state, exit_code?, url?}` · `{process, text}` (follow streams only) | `wb:` `jobUpdate` |
 | `order.changed` · `order.fired` | `{agent, order, state, trust, approved_runs}` · `{order, run, ask?}` | NEW (`Standing.Watch`) |
 | `crew.created` · `crew.changed` · `crew.log` · `report.ready` | `{crew, fields[]}` · `{crew, from, to, text}` · `{crew}` | NEW (`Teams.*`) |
-| `role.changed` · `rule.changed` · `memory.changed` · `settings.changed` · `keys.changed` | `{id}` / `{keys[]}` | NEW |
+| `role.changed` · `rule.created` · `rule.changed` · `memory.changed` · `settings.changed` · `keys.changed` | `{id}` / `{keys[]}` | NEW |
 | `inbox.added` · `inbox.resolved` · `inbox.undo_window` | `{item, kind}` · `{item, how, by, at}` · `{item, until}` | `wb:attention.go` + NEW |
 | `spend.changed` | `{today, cap, agent?}` (≤1/s) | NEW |
-| `factory.changed` | `{factory, state}`, plus each attached factory's typed events re-emitted as `factory.event {factory, type, data}` only for Inbox kinds | NEW |
+| `factory.changed` | `{factory, state}`, plus each attached factory's typed events re-emitted as `factory.event` `{factory, type, data}` only for Inbox kinds | NEW |
 | `activity` | `{at, actor, verb, object, detail}` | NEW |
 | `title.changed` | `{agent, name}` | `wb:` `titleChanged`, wire `Title.Watch` |
 
@@ -599,7 +629,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | NEW |
 | A15 | Engine rules (§5) that no other lane owns: `/crew` → `/seats`, idle rule, defaults | — | ½ d | NEW |
-| A16 | Contract: `docs/design/app-v2/API.md` ↔ route table law; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d | NEW |
+| A16 | Contract reservations, schemas and `docs/design/app-v2/API.md` ↔ route table law built; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d | NEW |
 
 Parallel waves:
 1. A1.

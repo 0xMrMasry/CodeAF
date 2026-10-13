@@ -1,0 +1,846 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CreateCrewRequest": {
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": [
+            "proposal",
+            "agents"
+          ]
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "edits": {
+          "$ref": "#/$defs/PatchCrewRequest"
+        },
+        "agent_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "manager": {
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/CreateMemberRequest"
+          },
+          "type": "array"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "from"
+      ]
+    },
+    "CreateMemberRequest": {
+      "properties": {
+        "role_id": {
+          "type": "string"
+        },
+        "new_role": {
+          "$ref": "#/$defs/NewRole"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "cap": {
+          "$ref": "#/$defs/Money"
+        },
+        "reports_to": {
+          "type": "string"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "reports_to"
+      ]
+    },
+    "Crew": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tint": {
+          "type": "string",
+          "enum": [
+            "iris",
+            "sage",
+            "sand",
+            "tide",
+            "rose",
+            "graphite"
+          ]
+        },
+        "goal": {
+          "type": "string"
+        },
+        "manager_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "share": {
+          "type": "integer"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "wrapping_up",
+            "report_ready",
+            "closed",
+            "archived"
+          ]
+        },
+        "report": {
+          "$ref": "#/$defs/CrewReport"
+        },
+        "created_from": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state_line": {
+          "type": "string"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "tint",
+        "goal",
+        "manager_id",
+        "depth",
+        "budget",
+        "share",
+        "state",
+        "created_from"
+      ]
+    },
+    "CrewChangedEvent": {
+      "properties": {
+        "crew": {
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "crew",
+        "fields"
+      ]
+    },
+    "CrewItem": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CrewReport": {
+      "properties": {
+        "shipped": {
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "left_open": {
+          "items": {
+            "$ref": "#/$defs/ReportOpenItem"
+          },
+          "type": "array"
+        },
+        "cost": {
+          "$ref": "#/$defs/Money"
+        },
+        "markdown": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "shipped",
+        "decisions",
+        "files",
+        "left_open",
+        "cost",
+        "markdown"
+      ]
+    },
+    "CrewResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tint": {
+          "type": "string",
+          "enum": [
+            "iris",
+            "sage",
+            "sand",
+            "tide",
+            "rose",
+            "graphite"
+          ]
+        },
+        "goal": {
+          "type": "string"
+        },
+        "manager_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "share": {
+          "type": "integer"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "wrapping_up",
+            "report_ready",
+            "closed",
+            "archived"
+          ]
+        },
+        "report": {
+          "$ref": "#/$defs/CrewReport"
+        },
+        "created_from": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state_line": {
+          "type": "string"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "tree": {
+          "items": {
+            "$ref": "#/$defs/Member"
+          },
+          "type": "array"
+        },
+        "plan": {
+          "items": {
+            "$ref": "#/$defs/Task"
+          },
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/CrewItem"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "tint",
+        "goal",
+        "manager_id",
+        "depth",
+        "budget",
+        "share",
+        "state",
+        "created_from",
+        "tree",
+        "plan",
+        "items"
+      ]
+    },
+    "CrewsResponse": {
+      "properties": {
+        "crews": {
+          "items": {
+            "$ref": "#/$defs/Crew"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "crews"
+      ]
+    },
+    "FileChange": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "state",
+        "added",
+        "removed"
+      ]
+    },
+    "Helper": {
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "role",
+        "model",
+        "budget"
+      ]
+    },
+    "HelperProposal": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tint": {
+          "type": "string",
+          "enum": [
+            "iris",
+            "sage",
+            "sand",
+            "tide",
+            "rose",
+            "graphite"
+          ]
+        },
+        "helpers": {
+          "items": {
+            "$ref": "#/$defs/Helper"
+          },
+          "type": "array"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "tint",
+        "helpers",
+        "budget"
+      ]
+    },
+    "Member": {
+      "properties": {
+        "crew_id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "role_id": {
+          "type": "string"
+        },
+        "is_manager": {
+          "type": "boolean"
+        },
+        "reports_to": {
+          "type": "string"
+        },
+        "cap": {
+          "$ref": "#/$defs/Money"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "idle",
+            "needs_you",
+            "paused",
+            "stopped"
+          ]
+        },
+        "also_in": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "crew_id",
+        "agent_id",
+        "role_id",
+        "is_manager",
+        "reports_to",
+        "state",
+        "also_in"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "NewRole": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "instructions",
+        "model",
+        "effort"
+      ]
+    },
+    "PatchCrewRequest": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "tint": {
+          "type": "string",
+          "enum": [
+            "iris",
+            "sage",
+            "sand",
+            "tide",
+            "rose",
+            "graphite"
+          ]
+        },
+        "goal": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ReplaceManagerRequest": {
+      "properties": {
+        "member_id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ReportOpenItem": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "hand_off": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    },
+    "Task": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "brief": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "held",
+            "waiting",
+            "running",
+            "paused",
+            "your_call",
+            "done",
+            "stopped",
+            "failed",
+            "declined",
+            "handed_off"
+          ]
+        },
+        "waits_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "clock": {
+          "$ref": "#/$defs/TaskClock"
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model": {
+          "type": "string"
+        },
+        "cap": {
+          "$ref": "#/$defs/Money"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/TaskNote"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "handed_to": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "elapsed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "title",
+        "brief",
+        "state",
+        "waits_on",
+        "clock",
+        "model",
+        "cap",
+        "step",
+        "files",
+        "notes",
+        "origin"
+      ]
+    },
+    "TaskClock": {
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "held",
+            "off"
+          ]
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "seconds": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state"
+      ]
+    },
+    "TaskNote": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "read_at_step": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Crew"
+    },
+    {
+      "$ref": "#/$defs/CrewsResponse"
+    },
+    {
+      "$ref": "#/$defs/CrewResponse"
+    },
+    {
+      "$ref": "#/$defs/Helper"
+    },
+    {
+      "$ref": "#/$defs/HelperProposal"
+    },
+    {
+      "$ref": "#/$defs/CreateCrewRequest"
+    },
+    {
+      "$ref": "#/$defs/PatchCrewRequest"
+    },
+    {
+      "$ref": "#/$defs/ReplaceManagerRequest"
+    },
+    {
+      "$ref": "#/$defs/CrewChangedEvent"
+    }
+  ],
+  "title": "codeaf app crew contract",
+  "x-events": {
+    "crew.changed": "#/$defs/CrewChangedEvent",
+    "crew.created": "#/$defs/CrewChangedEvent"
+  },
+  "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/bring-in-helpers",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "crew.json#/$defs/HelperProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews/{cid}/replace-manager",
+      "request": "crew.json#/$defs/ReplaceManagerRequest",
+      "response": "crew.json#/$defs/Crew"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/crews/{cid}",
+      "response": "crew.json#/$defs/CrewResponse"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/crews/{cid}",
+      "request": "crew.json#/$defs/PatchCrewRequest",
+      "response": "crew.json#/$defs/Crew"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/crews",
+      "response": "crew.json#/$defs/CrewsResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/crews",
+      "request": "crew.json#/$defs/CreateCrewRequest",
+      "response": "crew.json#/$defs/Crew"
+    }
+  ]
+}

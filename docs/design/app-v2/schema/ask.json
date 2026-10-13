@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AnswerAskRequest": {
+      "properties": {
+        "choice": {
+          "type": "string"
+        },
+        "words": {
+          "type": "string"
+        },
+        "verb": {
+          "type": "string",
+          "enum": [
+            "later",
+            "you_decide"
+          ]
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Ask": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "question",
+            "clarification",
+            "permission",
+            "your_call",
+            "proposal",
+            "budget",
+            "order_ask",
+            "reminder"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          },
+          "type": "array"
+        },
+        "suggested": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "touches_prod": {
+          "type": "boolean"
+        },
+        "clock": {
+          "$ref": "#/$defs/AskClock"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "answered",
+            "withdrawn"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "path",
+        "title",
+        "options",
+        "irreversible",
+        "before",
+        "state"
+      ]
+    },
+    "AskClock": {
+      "properties": {
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AskEvent": {
+      "properties": {
+        "ask": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "how": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ask",
+        "kind"
+      ]
+    },
+    "AskOption": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "DisplayEntry": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "link": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "answered": {
+          "type": "boolean"
+        },
+        "card": {
+          "$ref": "#/$defs/Ask"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Ask"
+    },
+    {
+      "$ref": "#/$defs/AskOption"
+    },
+    {
+      "$ref": "#/$defs/AskClock"
+    },
+    {
+      "$ref": "#/$defs/AnswerAskRequest"
+    },
+    {
+      "$ref": "#/$defs/AskEvent"
+    }
+  ],
+  "title": "codeaf app ask contract",
+  "x-events": {
+    "ask.created": "#/$defs/AskEvent",
+    "ask.resolved": "#/$defs/AskEvent",
+    "ask.withdrawn": "#/$defs/AskEvent"
+  },
+  "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/asks/{id}/answer",
+      "request": "ask.json#/$defs/AnswerAskRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/asks/{id}",
+      "response": "ask.json#/$defs/Ask"
+    }
+  ]
+}

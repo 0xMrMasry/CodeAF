@@ -1,0 +1,474 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Ask": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "question",
+            "clarification",
+            "permission",
+            "your_call",
+            "proposal",
+            "budget",
+            "order_ask",
+            "reminder"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          },
+          "type": "array"
+        },
+        "suggested": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "touches_prod": {
+          "type": "boolean"
+        },
+        "clock": {
+          "$ref": "#/$defs/AskClock"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "answered",
+            "withdrawn"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "path",
+        "title",
+        "options",
+        "irreversible",
+        "before",
+        "state"
+      ]
+    },
+    "AskClock": {
+      "properties": {
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AskOption": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "DisplayEntry": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "link": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "answered": {
+          "type": "boolean"
+        },
+        "card": {
+          "$ref": "#/$defs/Ask"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    "Permission": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "class": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "why": {
+          "type": "string"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "batch": {
+          "items": {
+            "$ref": "#/$defs/PermissionCommand"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "command",
+        "irreversible",
+        "why",
+        "before"
+      ]
+    },
+    "PermissionCommand": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "command"
+      ]
+    },
+    "PermissionDecision": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "verb": {
+          "type": "string",
+          "enum": [
+            "allow_once",
+            "deny",
+            "always"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "verb"
+      ]
+    },
+    "PermissionRequest": {
+      "properties": {
+        "verb": {
+          "type": "string",
+          "enum": [
+            "allow_once",
+            "deny",
+            "always"
+          ]
+        },
+        "rule": {
+          "$ref": "#/$defs/PermissionRuleChoice"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PermissionDecision"
+          },
+          "type": "array"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verb"
+      ]
+    },
+    "PermissionRule": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "match": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "class"
+          ]
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "class_label": {
+          "type": "string"
+        },
+        "who": {
+          "type": "string",
+          "enum": [
+            "agent",
+            "all_agents"
+          ]
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "made_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "match",
+        "pattern",
+        "class_label",
+        "who",
+        "made_at"
+      ]
+    },
+    "PermissionRuleChoice": {
+      "properties": {
+        "match": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "class"
+          ]
+        },
+        "who": {
+          "type": "string",
+          "enum": [
+            "agent",
+            "all_agents"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "match",
+        "who"
+      ]
+    },
+    "RuleWhyResponse": {
+      "properties": {
+        "rule": {
+          "$ref": "#/$defs/PermissionRule"
+        },
+        "matched": {
+          "$ref": "#/$defs/PermissionCommand"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rule",
+        "matched"
+      ]
+    },
+    "RulesResponse": {
+      "properties": {
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/PermissionRule"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rules"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Permission"
+    },
+    {
+      "$ref": "#/$defs/PermissionCommand"
+    },
+    {
+      "$ref": "#/$defs/PermissionDecision"
+    },
+    {
+      "$ref": "#/$defs/PermissionRuleChoice"
+    },
+    {
+      "$ref": "#/$defs/PermissionRequest"
+    },
+    {
+      "$ref": "#/$defs/PermissionRule"
+    },
+    {
+      "$ref": "#/$defs/RulesResponse"
+    },
+    {
+      "$ref": "#/$defs/RuleWhyResponse"
+    }
+  ],
+  "title": "codeaf app permission contract",
+  "x-events": {},
+  "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/permissions/{id}",
+      "request": "permission.json#/$defs/PermissionRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/rules/{id}/restore",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/rules/{id}/why",
+      "response": "permission.json#/$defs/RuleWhyResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/rules/{id}",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/rules",
+      "response": "permission.json#/$defs/RulesResponse"
+    }
+  ]
+}

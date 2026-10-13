@@ -1,0 +1,381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Agent": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "state": {
+          "type": "string"
+        },
+        "crew_id": {
+          "type": "string"
+        },
+        "role_id": {
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "last_message_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "glyph": {
+          "type": "string"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/AgentContext"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "receipt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "model",
+        "effort",
+        "budget",
+        "state",
+        "rules",
+        "pinned",
+        "created_at",
+        "created_by",
+        "context",
+        "version"
+      ]
+    },
+    "AgentContext": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "exists"
+      ]
+    },
+    "AgentEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "fields"
+      ]
+    },
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AgentsResponse": {
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/Agent"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agents"
+      ]
+    },
+    "CloseAgentRequest": {
+      "properties": {
+        "stop_running": {
+          "type": "boolean"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CloseIdleRequest": {
+      "properties": {
+        "ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ids"
+      ]
+    },
+    "CloseIdleResponse": {
+      "properties": {
+        "closed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "closed"
+      ]
+    },
+    "CreateAgentRequest": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "approvals": {
+          "type": "string",
+          "enum": [
+            "risky",
+            "everything",
+            "none"
+          ]
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/AgentContext"
+          },
+          "type": "array"
+        },
+        "start": {
+          "type": "string",
+          "enum": [
+            "send",
+            "empty"
+          ]
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "start"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "PatchAgentRequest": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AgentsResponse"
+    },
+    {
+      "$ref": "#/$defs/CreateAgentRequest"
+    },
+    {
+      "$ref": "#/$defs/PatchAgentRequest"
+    },
+    {
+      "$ref": "#/$defs/CloseAgentRequest"
+    },
+    {
+      "$ref": "#/$defs/CloseIdleRequest"
+    },
+    {
+      "$ref": "#/$defs/CloseIdleResponse"
+    },
+    {
+      "$ref": "#/$defs/Agent"
+    },
+    {
+      "$ref": "#/$defs/AgentContext"
+    },
+    {
+      "$ref": "#/$defs/AgentEvent"
+    }
+  ],
+  "title": "codeaf app agent contract",
+  "x-events": {
+    "agent.changed": "#/$defs/AgentEvent",
+    "agent.created": "#/$defs/AgentEvent",
+    "agent.removed": "#/$defs/AgentEvent"
+  },
+  "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/close-idle",
+      "request": "agent.json#/$defs/CloseIdleRequest",
+      "response": "agent.json#/$defs/CloseIdleResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/archive",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "agent.json#/$defs/Agent"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/close",
+      "request": "agent.json#/$defs/CloseAgentRequest",
+      "response": "agent.json#/$defs/Agent"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/reopen",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "agent.json#/$defs/Agent"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}",
+      "response": "turn.json#/$defs/AgentResponse"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app/v1/agents/{id}",
+      "request": "agent.json#/$defs/PatchAgentRequest",
+      "response": "agent.json#/$defs/Agent"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/agents",
+      "response": "agent.json#/$defs/AgentsResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents",
+      "request": "agent.json#/$defs/CreateAgentRequest",
+      "response": "agent.json#/$defs/Agent"
+    }
+  ]
+}

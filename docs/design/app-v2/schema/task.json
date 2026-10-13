@@ -1,0 +1,723 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Ask": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "question",
+            "clarification",
+            "permission",
+            "your_call",
+            "proposal",
+            "budget",
+            "order_ask",
+            "reminder"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          },
+          "type": "array"
+        },
+        "suggested": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "touches_prod": {
+          "type": "boolean"
+        },
+        "clock": {
+          "$ref": "#/$defs/AskClock"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "answered",
+            "withdrawn"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "path",
+        "title",
+        "options",
+        "irreversible",
+        "before",
+        "state"
+      ]
+    },
+    "AskClock": {
+      "properties": {
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AskOption": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "DisplayEntry": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "link": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "answered": {
+          "type": "boolean"
+        },
+        "card": {
+          "$ref": "#/$defs/Ask"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    "FileChange": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "state",
+        "added",
+        "removed"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    },
+    "Task": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "brief": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "held",
+            "waiting",
+            "running",
+            "paused",
+            "your_call",
+            "done",
+            "stopped",
+            "failed",
+            "declined",
+            "handed_off"
+          ]
+        },
+        "waits_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "clock": {
+          "$ref": "#/$defs/TaskClock"
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model": {
+          "type": "string"
+        },
+        "cap": {
+          "$ref": "#/$defs/Money"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/TaskNote"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "handed_to": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "elapsed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "title",
+        "brief",
+        "state",
+        "waits_on",
+        "clock",
+        "model",
+        "cap",
+        "step",
+        "files",
+        "notes",
+        "origin"
+      ]
+    },
+    "TaskChangedEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "clock": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "task",
+        "state"
+      ]
+    },
+    "TaskClock": {
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "held",
+            "off"
+          ]
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "seconds": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state"
+      ]
+    },
+    "TaskDecisionRequest": {
+      "properties": {
+        "verb": {
+          "type": "string",
+          "enum": [
+            "accept",
+            "not_right",
+            "tell",
+            "recheck",
+            "let_it_decide"
+          ]
+        },
+        "words": {
+          "type": "string"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verb"
+      ]
+    },
+    "TaskGroup": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "task_ids"
+      ]
+    },
+    "TaskNote": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "read_at_step": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    },
+    "TaskProgress": {
+      "properties": {
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "done",
+        "total"
+      ]
+    },
+    "TaskResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "brief": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "held",
+            "waiting",
+            "running",
+            "paused",
+            "your_call",
+            "done",
+            "stopped",
+            "failed",
+            "declined",
+            "handed_off"
+          ]
+        },
+        "waits_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "clock": {
+          "$ref": "#/$defs/TaskClock"
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model": {
+          "type": "string"
+        },
+        "cap": {
+          "$ref": "#/$defs/Money"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/TaskNote"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "handed_to": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "elapsed": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "string"
+        },
+        "work_log": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "title",
+        "brief",
+        "state",
+        "waits_on",
+        "clock",
+        "model",
+        "cap",
+        "step",
+        "files",
+        "notes",
+        "origin",
+        "result",
+        "work_log"
+      ]
+    },
+    "TasksResponse": {
+      "properties": {
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/TaskGroup"
+          },
+          "type": "array"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/Task"
+          },
+          "type": "array"
+        },
+        "progress": {
+          "$ref": "#/$defs/TaskProgress"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "steps": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "groups",
+        "tasks",
+        "progress",
+        "steps"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Task"
+    },
+    {
+      "$ref": "#/$defs/TaskClock"
+    },
+    {
+      "$ref": "#/$defs/TaskNote"
+    },
+    {
+      "$ref": "#/$defs/TaskGroup"
+    },
+    {
+      "$ref": "#/$defs/TaskProgress"
+    },
+    {
+      "$ref": "#/$defs/TasksResponse"
+    },
+    {
+      "$ref": "#/$defs/TaskResponse"
+    },
+    {
+      "$ref": "#/$defs/TaskDecisionRequest"
+    },
+    {
+      "$ref": "#/$defs/TaskChangedEvent"
+    }
+  ],
+  "title": "codeaf app task contract",
+  "x-events": {
+    "task.changed": "#/$defs/TaskChangedEvent",
+    "task.created": "#/$defs/TaskChangedEvent"
+  },
+  "x-routes": [
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}/tasks",
+      "response": "task.json#/$defs/TasksResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/brief",
+      "request": "common.json#/$defs/TextRequest",
+      "response": "task.json#/$defs/TaskNote"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/decide",
+      "request": "task.json#/$defs/TaskDecisionRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/decline",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/hold",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/model",
+      "request": "common.json#/$defs/ModelRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/note",
+      "request": "common.json#/$defs/TextRequest",
+      "response": "task.json#/$defs/TaskNote"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/pause",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/resume",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/start",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/stop",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/tasks/{tid}/typing",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/tasks/{tid}",
+      "response": "task.json#/$defs/TaskResponse"
+    }
+  ]
+}

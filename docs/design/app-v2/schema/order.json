@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChangeOrderRequest": {
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "#/$defs/OrderTrigger"
+        },
+        "does": {
+          "type": "string"
+        },
+        "wont": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "this_chat",
+            "this_crew",
+            "everywhere",
+            "not_here"
+          ]
+        },
+        "budget_per_run": {
+          "$ref": "#/$defs/Money"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "OrderChangedEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "order": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "trust": {
+          "type": "string"
+        },
+        "approved_runs": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "order",
+        "state",
+        "trust",
+        "approved_runs"
+      ]
+    },
+    "OrderFiredEvent": {
+      "properties": {
+        "order": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "ask": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "order",
+        "run"
+      ]
+    },
+    "OrderRunRequest": {
+      "properties": {
+        "verb": {
+          "type": "string",
+          "enum": [
+            "go",
+            "skip",
+            "pause",
+            "not_right",
+            "run_now"
+          ]
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verb"
+      ]
+    },
+    "OrderTrigger": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "event",
+            "schedule",
+            "once"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "filter": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "source",
+        "filter"
+      ]
+    },
+    "OrdersResponse": {
+      "properties": {
+        "waiting": {
+          "items": {
+            "$ref": "#/$defs/StandingOrder"
+          },
+          "type": "array"
+        },
+        "active": {
+          "items": {
+            "$ref": "#/$defs/StandingOrder"
+          },
+          "type": "array"
+        },
+        "paused": {
+          "items": {
+            "$ref": "#/$defs/StandingOrder"
+          },
+          "type": "array"
+        },
+        "reminders": {
+          "items": {
+            "$ref": "#/$defs/StandingOrder"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "waiting",
+        "active",
+        "paused",
+        "reminders"
+      ]
+    },
+    "ReminderChangeRequest": {
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "at"
+      ]
+    },
+    "StandingOrder": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "#/$defs/OrderTrigger"
+        },
+        "does": {
+          "type": "string"
+        },
+        "wont": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "this_chat",
+            "this_crew",
+            "everywhere",
+            "not_here"
+          ]
+        },
+        "trust": {
+          "type": "string",
+          "enum": [
+            "asks_first",
+            "earning",
+            "trusted"
+          ]
+        },
+        "approved_runs": {
+          "type": "integer"
+        },
+        "budget_per_run": {
+          "$ref": "#/$defs/Money"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "active",
+            "paused",
+            "stopped",
+            "declined",
+            "fired"
+          ]
+        },
+        "last_run_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "skipped": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "title",
+        "trigger",
+        "does",
+        "wont",
+        "scope",
+        "trust",
+        "approved_runs",
+        "budget_per_run",
+        "state",
+        "skipped"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/StandingOrder"
+    },
+    {
+      "$ref": "#/$defs/OrderTrigger"
+    },
+    {
+      "$ref": "#/$defs/OrdersResponse"
+    },
+    {
+      "$ref": "#/$defs/ChangeOrderRequest"
+    },
+    {
+      "$ref": "#/$defs/OrderRunRequest"
+    },
+    {
+      "$ref": "#/$defs/ReminderChangeRequest"
+    },
+    {
+      "$ref": "#/$defs/OrderChangedEvent"
+    },
+    {
+      "$ref": "#/$defs/OrderFiredEvent"
+    }
+  ],
+  "title": "codeaf app order contract",
+  "x-events": {
+    "order.changed": "#/$defs/OrderChangedEvent",
+    "order.fired": "#/$defs/OrderFiredEvent"
+  },
+  "x-routes": [
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/orders/pause-all",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}/orders",
+      "response": "order.json#/$defs/OrdersResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/change",
+      "request": "order.json#/$defs/ChangeOrderRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/not-now",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/pause",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/ratify",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/resume",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/runs/{rid}",
+      "request": "order.json#/$defs/OrderRunRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/orders/{oid}/stop",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/reminders/{oid}/cancel",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/reminders/{oid}/change",
+      "request": "order.json#/$defs/ReminderChangeRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    }
+  ]
+}

@@ -1,0 +1,494 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Activity": {
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actor": {
+          "type": "string"
+        },
+        "verb": {
+          "type": "string"
+        },
+        "object": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "at",
+        "actor",
+        "verb",
+        "object",
+        "detail"
+      ]
+    },
+    "ActivityResponse": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Activity"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "items"
+      ]
+    },
+    "Agent": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "state": {
+          "type": "string"
+        },
+        "crew_id": {
+          "type": "string"
+        },
+        "role_id": {
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "last_message_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "glyph": {
+          "type": "string"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/AgentContext"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "receipt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "model",
+        "effort",
+        "budget",
+        "state",
+        "rules",
+        "pinned",
+        "created_at",
+        "created_by",
+        "context",
+        "version"
+      ]
+    },
+    "AgentContext": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "exists"
+      ]
+    },
+    "Crew": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tint": {
+          "type": "string",
+          "enum": [
+            "iris",
+            "sage",
+            "sand",
+            "tide",
+            "rose",
+            "graphite"
+          ]
+        },
+        "goal": {
+          "type": "string"
+        },
+        "manager_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "share": {
+          "type": "integer"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "wrapping_up",
+            "report_ready",
+            "closed",
+            "archived"
+          ]
+        },
+        "report": {
+          "$ref": "#/$defs/CrewReport"
+        },
+        "created_from": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state_line": {
+          "type": "string"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "tint",
+        "goal",
+        "manager_id",
+        "depth",
+        "budget",
+        "share",
+        "state",
+        "created_from"
+      ]
+    },
+    "CrewReport": {
+      "properties": {
+        "shipped": {
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "left_open": {
+          "items": {
+            "$ref": "#/$defs/ReportOpenItem"
+          },
+          "type": "array"
+        },
+        "cost": {
+          "$ref": "#/$defs/Money"
+        },
+        "markdown": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "shipped",
+        "decisions",
+        "files",
+        "left_open",
+        "cost",
+        "markdown"
+      ]
+    },
+    "FileChange": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "state",
+        "added",
+        "removed"
+      ]
+    },
+    "HistoryResponse": {
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/Agent"
+          },
+          "type": "array"
+        },
+        "crews": {
+          "items": {
+            "$ref": "#/$defs/Crew"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agents",
+        "crews"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "ReportOpenItem": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "hand_off": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    },
+    "SearchGroup": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "agents_crews",
+            "jobs",
+            "files"
+          ]
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/SearchRow"
+          },
+          "type": "array",
+          "maxItems": 4
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "rows"
+      ]
+    },
+    "SearchResponse": {
+      "properties": {
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/SearchGroup"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "groups"
+      ]
+    },
+    "SearchRow": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "last_used_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "title"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/SearchRow"
+    },
+    {
+      "$ref": "#/$defs/SearchGroup"
+    },
+    {
+      "$ref": "#/$defs/SearchResponse"
+    },
+    {
+      "$ref": "#/$defs/HistoryResponse"
+    },
+    {
+      "$ref": "#/$defs/Activity"
+    },
+    {
+      "$ref": "#/$defs/ActivityResponse"
+    }
+  ],
+  "title": "codeaf app search contract",
+  "x-events": {
+    "activity": "#/$defs/Activity"
+  },
+  "x-routes": [
+    {
+      "method": "GET",
+      "path": "/app/v1/activity",
+      "response": "search.json#/$defs/ActivityResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/history",
+      "response": "search.json#/$defs/HistoryResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/search",
+      "response": "search.json#/$defs/SearchResponse"
+    }
+  ]
+}

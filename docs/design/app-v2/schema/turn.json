@@ -1,0 +1,1019 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AgentContext": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "exists"
+      ]
+    },
+    "AgentExpect": {
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AgentResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/Money"
+        },
+        "state": {
+          "type": "string"
+        },
+        "crew_id": {
+          "type": "string"
+        },
+        "role_id": {
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "last_message_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "glyph": {
+          "type": "string"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/AgentContext"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "receipt": {
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/AgentSnapshot"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "model",
+        "effort",
+        "budget",
+        "state",
+        "rules",
+        "pinned",
+        "created_at",
+        "created_by",
+        "context",
+        "version",
+        "snapshot"
+      ]
+    },
+    "AgentSnapshot": {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array"
+        },
+        "queue": {
+          "items": {
+            "$ref": "#/$defs/QueueItem"
+          },
+          "type": "array"
+        },
+        "open_asks": {
+          "items": {
+            "$ref": "#/$defs/Ask"
+          },
+          "type": "array"
+        },
+        "tasks": {
+          "$ref": "#/$defs/TasksResponse"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "entries",
+        "queue",
+        "open_asks",
+        "tasks",
+        "usage"
+      ]
+    },
+    "Ask": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "question",
+            "clarification",
+            "permission",
+            "your_call",
+            "proposal",
+            "budget",
+            "order_ask",
+            "reminder"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          },
+          "type": "array"
+        },
+        "suggested": {
+          "type": "string"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "touches_prod": {
+          "type": "boolean"
+        },
+        "clock": {
+          "$ref": "#/$defs/AskClock"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array",
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "answered",
+            "withdrawn"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "path",
+        "title",
+        "options",
+        "irreversible",
+        "before",
+        "state"
+      ]
+    },
+    "AskClock": {
+      "properties": {
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AskOption": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "DisplayEntry": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "link": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "answered": {
+          "type": "boolean"
+        },
+        "card": {
+          "$ref": "#/$defs/Ask"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    "EntriesResponse": {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/DisplayEntry"
+          },
+          "type": "array"
+        },
+        "before": {
+          "type": "string"
+        },
+        "has_more": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "entries",
+        "has_more"
+      ]
+    },
+    "FileChange": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "state",
+        "added",
+        "removed"
+      ]
+    },
+    "Money": {
+      "properties": {
+        "usd": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "usd"
+      ]
+    },
+    "MoveReplyResponse": {
+      "properties": {
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id"
+      ]
+    },
+    "QueueChangedEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "queue": {
+          "items": {
+            "$ref": "#/$defs/QueueItem"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "queue"
+      ]
+    },
+    "QueueItem": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/AgentContext"
+          },
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/TurnFile"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "text"
+      ]
+    },
+    "SourceRef": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "factory": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ]
+    },
+    "Task": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "brief": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "held",
+            "waiting",
+            "running",
+            "paused",
+            "your_call",
+            "done",
+            "stopped",
+            "failed",
+            "declined",
+            "handed_off"
+          ]
+        },
+        "waits_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "clock": {
+          "$ref": "#/$defs/TaskClock"
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model": {
+          "type": "string"
+        },
+        "cap": {
+          "$ref": "#/$defs/Money"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/TaskNote"
+          },
+          "type": "array"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "handed_to": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "elapsed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "agent_id",
+        "title",
+        "brief",
+        "state",
+        "waits_on",
+        "clock",
+        "model",
+        "cap",
+        "step",
+        "files",
+        "notes",
+        "origin"
+      ]
+    },
+    "TaskClock": {
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "held",
+            "off"
+          ]
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pauses_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "seconds": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state"
+      ]
+    },
+    "TaskGroup": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "task_ids"
+      ]
+    },
+    "TaskNote": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "read_at_step": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    },
+    "TaskProgress": {
+      "properties": {
+        "done": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "done",
+        "total"
+      ]
+    },
+    "TasksResponse": {
+      "properties": {
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/TaskGroup"
+          },
+          "type": "array"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/Task"
+          },
+          "type": "array"
+        },
+        "progress": {
+          "$ref": "#/$defs/TaskProgress"
+        },
+        "spent": {
+          "$ref": "#/$defs/Money"
+        },
+        "steps": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "groups",
+        "tasks",
+        "progress",
+        "steps"
+      ]
+    },
+    "TitleChangedEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "name"
+      ]
+    },
+    "ToolResponse": {
+      "properties": {
+        "output": {
+          "type": "string"
+        },
+        "full": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "output",
+        "full"
+      ]
+    },
+    "TurnDeltaEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "turn": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "turn",
+        "kind",
+        "text"
+      ]
+    },
+    "TurnEntryEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "entry": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "entry"
+      ]
+    },
+    "TurnFile": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "mime": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path"
+      ]
+    },
+    "TurnLifecycleEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "turn": {
+          "type": "string"
+        },
+        "how": {
+          "type": "string",
+          "enum": [
+            "done",
+            "stopped",
+            "failed"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/DisplayEntry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "turn"
+      ]
+    },
+    "TurnLongEvent": {
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "turn": {
+          "type": "string"
+        },
+        "after_s": {
+          "type": "integer",
+          "enum": [
+            180
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent",
+        "turn",
+        "after_s"
+      ]
+    },
+    "TurnRequest": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "send",
+            "steer",
+            "queue"
+          ]
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/AgentContext"
+          },
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/TurnFile"
+          },
+          "type": "array"
+        },
+        "expect": {
+          "$ref": "#/$defs/AgentExpect"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text",
+        "mode"
+      ]
+    },
+    "TurnResponse": {
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "turn_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "accepted",
+        "turn_id"
+      ]
+    },
+    "Usage": {
+      "properties": {
+        "in": {
+          "type": "integer"
+        },
+        "out": {
+          "type": "integer"
+        },
+        "cost": {
+          "$ref": "#/$defs/Money"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "in",
+        "out",
+        "turns",
+        "calls"
+      ]
+    }
+  },
+  "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/DisplayEntry"
+    },
+    {
+      "$ref": "#/$defs/AgentResponse"
+    },
+    {
+      "$ref": "#/$defs/AgentSnapshot"
+    },
+    {
+      "$ref": "#/$defs/Usage"
+    },
+    {
+      "$ref": "#/$defs/TurnRequest"
+    },
+    {
+      "$ref": "#/$defs/TurnFile"
+    },
+    {
+      "$ref": "#/$defs/TurnResponse"
+    },
+    {
+      "$ref": "#/$defs/QueueItem"
+    },
+    {
+      "$ref": "#/$defs/MoveReplyResponse"
+    },
+    {
+      "$ref": "#/$defs/EntriesResponse"
+    },
+    {
+      "$ref": "#/$defs/ToolResponse"
+    },
+    {
+      "$ref": "#/$defs/TurnLifecycleEvent"
+    },
+    {
+      "$ref": "#/$defs/TurnEntryEvent"
+    },
+    {
+      "$ref": "#/$defs/TurnLongEvent"
+    },
+    {
+      "$ref": "#/$defs/QueueChangedEvent"
+    },
+    {
+      "$ref": "#/$defs/TitleChangedEvent"
+    },
+    {
+      "$ref": "#/$defs/TurnDeltaEvent"
+    }
+  ],
+  "title": "codeaf app turn contract",
+  "x-events": {
+    "queue.changed": "#/$defs/QueueChangedEvent",
+    "title.changed": "#/$defs/TitleChangedEvent",
+    "turn.delta": "#/$defs/TurnDeltaEvent",
+    "turn.ended": "#/$defs/TurnLifecycleEvent",
+    "turn.entry": "#/$defs/TurnEntryEvent",
+    "turn.long": "#/$defs/TurnLongEvent",
+    "turn.started": "#/$defs/TurnLifecycleEvent"
+  },
+  "x-routes": [
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}/entries",
+      "response": "turn.json#/$defs/EntriesResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/move-reply-to-task",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "turn.json#/$defs/MoveReplyResponse"
+    },
+    {
+      "method": "DELETE",
+      "path": "/app/v1/agents/{id}/queue/{qid}",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/queue/{qid}",
+      "request": "common.json#/$defs/TextRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/retry",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/stop",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/switch-model",
+      "request": "common.json#/$defs/ModelRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}/tools/{call_id}",
+      "response": "turn.json#/$defs/ToolResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/app/v1/agents/{id}/turn",
+      "request": "turn.json#/$defs/TurnRequest",
+      "response": "turn.json#/$defs/TurnResponse"
+    }
+  ]
+}
