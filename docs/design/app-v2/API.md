@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A10a crews/members, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A10a crews/members, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -303,10 +303,43 @@ S2 fields: `id, agent_id, name, command, url?, state (running·done·failed·sto
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/processes?agent=&state=` | → list (agent panel, and the Quit prompt across agents) | — | `wb:jobs.go:105,124`; `v2:internal/session/jobs.go:475` (`jobRegistry`) | PORT (renamed jobs → processes) |
-| `GET /app/v1/processes/{pid}/output?tail=&follow=1` | → `{text, truncated}`. `follow=1` is SSE | `process.output` (follow only) | `wb:jobs.go` log route; `terminal_routes.go:58` (stream pattern) | PORT |
-| `POST /app/v1/processes/{pid}/stop` · `POST /app/v1/processes/{pid}/rerun` | | `process.changed`, notice | `wb:jobs.go:137`. Rerun is NEW | PORT+NEW |
-| `POST /app/v1/agents/{id}/processes/stop-all` | | `process.changed`×n | NEW | NEW |
+| `GET /app/v1/processes?agent=&state=` | → list (agent panel, and the Quit prompt across agents) | — | `wb:jobs.go:105,124`; `v2:internal/session/jobs.go:475` (`jobRegistry`) | EXISTS (A6) |
+| `GET /app/v1/processes/{pid}/output?tail=&follow=1` | → `{text, truncated}`. `follow=1` is SSE | `process.output` (follow only) | `wb:jobs.go` log route; `terminal_routes.go:58` (stream pattern) | EXISTS (A6) |
+| `POST /app/v1/processes/{pid}/stop` · `POST /app/v1/processes/{pid}/rerun` | | `process.changed`, notice | `wb:jobs.go:137`. Rerun uses the retained command | EXISTS (A6) |
+| `POST /app/v1/agents/{id}/processes/stop-all` | | `process.changed`×n | `internal/appapi/processes.go` | EXISTS (A6) |
+
+**A6 behaviour:** processes start through the agent's existing background-command
+tool, rather than a second HTTP command runner. Opaque process ids include the
+agent id and its local process number; a bare OS pid is never a stop address.
+`rerun` executes only an ended shell command retained by that agent, with a new
+process id. Running commands, watches, renders, closed agents and missing commands
+cannot be rerun. Stop is harmless after an end. Stop-all compares `expect` with
+the agent; stop/rerun compare its state with the process and its version with the
+agent. POSTs use the launch's idempotency cache.
+
+Lists include live engine shelves and saved Ended rows without opening idle
+agents. Saved running rows become stopped after restart. `q` supports plain
+words and `state:`, `agent:`, `kind:process`, and `since:` (date or RFC3339).
+`state=ended` groups done/failed/stopped. Names, commands, exit codes and the first
+local server URL are retained beside the transcript in `processes.json`.
+
+Output reads are confined to the engine-listed log under that agent's session,
+including symlinks. `tail` is a non-negative byte count, defaults to 64 KiB and
+caps at 10 MiB; text is valid UTF-8. `follow=1` sends `process.output` SSE frames
+for the retained tail and newly appended output, then finishes after the final
+output. It sends 20-second keepalives, uses a 10-second write deadline, and stops
+on disconnect or shutdown. Process state changes use a separate 250 ms shelf
+poll; output follows at 100 ms without taking the task subscription.
+
+App-created process output uses one file capped at 10 MiB. Compaction drops oldest
+complete lines in bounded batches; an overlong line falls back to a byte cut.
+A truncation flag survives the ending. Completed managed output expires after
+seven days; file leases protect active writers. Records and end notices remain.
+The terminal's 8 MiB chunk spool and directory budget remain; the app uses the
+seven-day lifetime rather than the terminal's completed-log count/byte budget.
+Close and shutdown stop running processes and publish their end notice before
+detaching. `AgentRegistry.StopAllProcesses` is the stop door for A14's sleep route;
+this lane does not mark that reserved route as built.
 
 Terminals (`wb:terminal*.go`) are dropped. The v2 design has no terminal surface.
 
@@ -646,7 +679,7 @@ These transport routes are available before any model key or agent exists.
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
 | `GET /app/v1/health` | → `{status:"ready", codeaf_version, contract, epoch}` | — | `internal/appapi/server.go` | EXISTS (A1) |
-| `POST /app/v1/shutdown` | `{reason?}` → `{ok:true}`, flushed before exit | — | `internal/appapi/server.go`, `cmd/codeaf/app_serve.go` | EXISTS (A1 transport; process cleanup A6) |
+| `POST /app/v1/shutdown` | `{reason?}` → `{ok:true}`, flushed before exit | — | `internal/appapi/server.go`, `cmd/codeaf/app_serve.go` | EXISTS (A1 transport; A6 process cleanup) |
 
 Both require the per-launch bearer token and the origin/host guard. Unknown
 routes return 404 `not_found` only after authentication. Wrong methods return
@@ -742,7 +775,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | EXISTS |
 | A4b | Turns: send/steer/queue, queue edit/remove, stop, retry/model recovery, task handoff, snapshot, entries, tools (bridge core); file browsing remains reserved | A4a | 1 d | EXISTS (turn core) |
 | A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
-| A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | NEW |
+| A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | EXISTS (power stop door built; `/power` calls it in A14) |
 | A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | NEW |
 | A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
 | A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | NEW |
@@ -785,8 +818,8 @@ Parallel waves:
 | Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 | POLICY BUILT — `QuickTaskNeedsProposal`; tool enforcement and undo A5 |
 | Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 | BUILT — default 12 s; per-task hold/no-clock rules A5 |
 | Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 | POLICY BUILT — `QuestionClock`; pause enforcement A8 |
-| Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `sweep.go`, A6 | POLICY BUILT — 7 days/10 MiB; spool and sweep A6 |
-| Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | — |
+| Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `app_process_output.go`, `app_processes.go`, A6 | EXISTS — app single-file 10 MiB window and leased seven-day expiry |
+| Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | EXISTS for close/quit; `StopAllProcesses` is the A14 power hook |
 | Per-task cap $2.00 | `CrewTaskCapDefault = 5.0` (`config/crew.go:384`) | **CHANGED** | A15 | BUILT — default $2, saved limits preserved |
 | Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b | — |
 | Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **EXISTS (A11a setup)**: setup writes 20 for a fresh app; existing shared-home choices and the TUI built-in default remain | A11a | BUILT — setup persistence A11a; cap asks A11b |
