@@ -1,6 +1,37 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "AccessFactory": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "operator": {
+          "type": "string"
+        },
+        "repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "host",
+        "operator",
+        "repos"
+      ]
+    },
     "AgentExpect": {
       "properties": {
         "state": {
@@ -79,6 +110,76 @@
         "state"
       ]
     },
+    "FactoryAccess": {
+      "properties": {
+        "access_token": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "waiting",
+            "joined",
+            "expired",
+            "revoked",
+            "used_up",
+            "no_access",
+            "unreachable",
+            "already_joined"
+          ]
+        },
+        "factory": {
+          "$ref": "#/$defs/AccessFactory"
+        },
+        "link": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "sign_in_url": {
+          "type": "string"
+        },
+        "user_code": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state",
+        "factory",
+        "link",
+        "detail"
+      ]
+    },
+    "FactoryAccessRequest": {
+      "properties": {
+        "link": {
+          "type": "string"
+        },
+        "verb": {
+          "type": "string",
+          "enum": [
+            "sign_in",
+            "cancel"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "link",
+        "verb"
+      ]
+    },
     "FactoryChangedEvent": {
       "properties": {
         "factory": {
@@ -93,6 +194,37 @@
       "required": [
         "factory",
         "state"
+      ]
+    },
+    "FactoryDay": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "started": {
+          "type": "integer"
+        },
+        "posted": {
+          "type": "integer"
+        },
+        "merged": {
+          "type": "integer"
+        },
+        "waiting_median_seconds": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "started",
+        "posted",
+        "merged",
+        "waiting_median_seconds"
       ]
     },
     "FactoryEvent": {
@@ -111,6 +243,102 @@
         "factory",
         "type",
         "data"
+      ]
+    },
+    "FactorySetup": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "github",
+            "repos",
+            "reading",
+            "checkouts",
+            "done"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "solo",
+            "team"
+          ]
+        },
+        "server": {
+          "type": "string"
+        },
+        "github": {
+          "$ref": "#/$defs/SetupGitHub"
+        },
+        "repos": {
+          "items": {
+            "$ref": "#/$defs/SetupRepo"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "state",
+        "mode",
+        "github",
+        "repos"
+      ]
+    },
+    "FactorySetupRequest": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "verb": {
+          "type": "string",
+          "enum": [
+            "discover",
+            "scope",
+            "ingest",
+            "retry",
+            "connect",
+            "select_repos",
+            "retry_read",
+            "clone",
+            "checkout",
+            "skip",
+            "back",
+            "done"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "gh",
+            "token"
+          ]
+        },
+        "token": {
+          "type": "string"
+        },
+        "repo_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repo_id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verb"
       ]
     },
     "HandOffCard": {
@@ -184,6 +412,18 @@
         "job"
       ]
     },
+    "JobDisplay": {
+      "properties": {
+        "running_visible": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "running_visible"
+      ]
+    },
     "PowerRequest": {
       "properties": {
         "state": {
@@ -239,10 +479,172 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "SetupGH": {
+      "properties": {
+        "login": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "login",
+        "path"
+      ]
+    },
+    "SetupGitHub": {
+      "properties": {
+        "gh": {
+          "$ref": "#/$defs/SetupGH"
+        },
+        "organization": {
+          "type": "string"
+        },
+        "visible_repos": {
+          "type": "integer"
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "gh",
+        "organization",
+        "visible_repos",
+        "connected",
+        "error"
+      ]
+    },
+    "SetupRepo": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "full_name": {
+          "type": "string"
+        },
+        "open_issues": {
+          "type": "integer"
+        },
+        "pipeline": {
+          "type": "string",
+          "enum": [
+            "file",
+            "defaults"
+          ]
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "checkout": {
+          "type": "string"
+        },
+        "suggested_checkout": {
+          "type": "string"
+        },
+        "clone_mb": {
+          "type": "integer"
+        },
+        "read": {
+          "type": "string",
+          "enum": [
+            "next",
+            "reading",
+            "done",
+            "empty",
+            "waiting",
+            "rate_limited"
+          ]
+        },
+        "read_count": {
+          "type": "integer"
+        },
+        "waiting_s": {
+          "type": "integer"
+        },
+        "resumes_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "clone": {
+          "type": "string",
+          "enum": [
+            "missing",
+            "cloning",
+            "found",
+            "skipped",
+            "failed"
+          ]
+        },
+        "clone_error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "full_name",
+        "open_issues",
+        "pipeline",
+        "archived",
+        "selected",
+        "checkout",
+        "suggested_checkout",
+        "clone_mb",
+        "read",
+        "read_count",
+        "waiting_s",
+        "resumes_at",
+        "clone",
+        "clone_error"
+      ]
     }
   },
   "$comment": "Generated by go generate ./internal/appapi. Edit the Go wire types, not this file.",
   "anyOf": [
+    {
+      "$ref": "#/$defs/FactorySetup"
+    },
+    {
+      "$ref": "#/$defs/FactorySetupRequest"
+    },
+    {
+      "$ref": "#/$defs/SetupGitHub"
+    },
+    {
+      "$ref": "#/$defs/SetupGH"
+    },
+    {
+      "$ref": "#/$defs/SetupRepo"
+    },
+    {
+      "$ref": "#/$defs/FactoryAccess"
+    },
+    {
+      "$ref": "#/$defs/FactoryAccessRequest"
+    },
+    {
+      "$ref": "#/$defs/AccessFactory"
+    },
+    {
+      "$ref": "#/$defs/FactoryDay"
+    },
+    {
+      "$ref": "#/$defs/JobDisplay"
+    },
     {
       "$ref": "#/$defs/Factory"
     },
@@ -334,6 +736,39 @@
       "path": "/app/v1/tasks/{tid}/hand-off",
       "request": "common.json#/$defs/ExpectRequest",
       "response": "factory.json#/$defs/HandOffCard"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/factory-access",
+      "response": "factory.json#/$defs/FactoryAccess"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/factory-access",
+      "request": "factory.json#/$defs/FactoryAccessRequest",
+      "response": "factory.json#/$defs/FactoryAccess"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/factory-days/today",
+      "response": "factory.json#/$defs/FactoryDay"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/factory-setup/{id}",
+      "response": "factory.json#/$defs/FactorySetup"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/factory-setup/{id}",
+      "request": "factory.json#/$defs/FactorySetupRequest",
+      "response": "factory.json#/$defs/FactorySetup"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/factory-setup",
+      "request": "factory.json#/$defs/FactorySetupRequest",
+      "response": "factory.json#/$defs/FactorySetup"
     }
   ]
 }

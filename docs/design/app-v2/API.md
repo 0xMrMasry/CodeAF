@@ -123,7 +123,7 @@ Rules (**EXISTS, A2**, in `internal/config` and `internal/appapi`):
 Conventions:
 - JSON, snake_case. These match `/v1`.
 - Errors are `{error, reason?, request_id}`. `reason` is one of `not_found`, `conflict`, `stale`, `bad_input`, `not_allowed`, `at_cap` or `no_factory`.
-- Every POST accepts `Idempotency-Key` (reuse `v2:internal/factory/serve/idempotency.go`).
+- Mutation POSTs accept `Idempotency-Key` (reuse `v2:internal/factory/serve/idempotency.go`); access-link sign-in uses its caller cookie and current state instead of response replay.
 - Every mutating verb accepts `expect: {state?, version?}`. A mismatch is 409 `stale`, with the sentence. This is the factory rule.
 - Ids are opaque strings. Agent ids are stable across restarts: the transcript's uuid, not the bridge connection id.
 - Money is `{usd: "4.20"}`, a string with two decimals.
@@ -1168,3 +1168,39 @@ Parallel waves:
 4. **Factory Contract 2 — decided and built.** Factory responses use Contract 2, including needs-you `approve_start`, `budget`, `out_of_rounds`, and typed runner events. The app maps nothing; persisted question kinds and numeric runner protocol ids remain compatible.
 5. **Keychain service name.** S0 says `ai.codeaf.app`; the shipped desk uses `ai.agentfield.codeaf-desk`. Should we migrate the stored entries at first v2 launch, or keep the old name?
 
+
+### Factory first-run and access adapters
+
+The factory contract includes native routes mounted on the app's authenticated
+listener and served directly by standalone factories:
+
+| Route | Request | Response |
+| --- | --- | --- |
+| GET /v1/factory-setup/{id} | none | FactorySetup |
+| POST /v1/factory-setup/{id} | FactorySetupRequest | FactorySetup |
+| POST /v1/factory-setup | FactorySetupRequest with id | FactorySetup |
+| GET /v1/factory-access | link query | FactoryAccess |
+| POST /v1/factory-access | FactoryAccessRequest | FactoryAccess |
+| GET /v1/factory-days/today | none | FactoryDay |
+
+Setup progress is durable and contains per-repository discovery, ingestion and
+checkout facts. The `connect`, `select_repos`, `retry_read`, `clone`, `checkout`,
+`skip`, `back` and `done` verbs implement board 44; `discover`, `scope`, `ingest`
+and `retry` are explicit engine aliases. The server owns retry and rate-limit
+deadlines and imports open issues without auto-starting them. `clone` executes
+on the serving machine, never in a renderer. For an app attachment, reads and
+ingestion reach the named team server while checkout actions run on this app's
+engine host, with per-attachment local progress. Team setup uses its operator's
+read grant and refuses solo `connect`.
+
+Access links use GitHub device sign-in and an HttpOnly cookie scoped to the
+initiating flow. Native completion returns an `access_token`; the app host
+consumes it into its credential store and attachment before replying, omitting
+it from app responses. State includes `ready`, `waiting`, `joined`, validity
+failures, `already_joined` and `unreachable`. `sign_in_url` and `user_code` are
+public GitHub device instructions. Cancellation does not revoke a connection.
+
+Queue and job detail include `display.running_visible`; merged jobs retain it
+until the exact 24-hour boundary at `pr.merged_at + 24h`. Day summaries count
+visible started, posted and merged jobs once each in the server calendar day;
+unknown median waiting time is null. These rules require no renderer clock.

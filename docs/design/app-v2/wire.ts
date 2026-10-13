@@ -40,6 +40,14 @@ export interface AIUsage {
   "out": number;
 }
 
+export interface AccessFactory {
+  "id": string;
+  "name": string;
+  "host": string;
+  "operator": string;
+  "repos": Array<string> | null;
+}
+
 export interface ActionResponse {
   "ok": boolean;
   "receipt"?: DisplayEntry;
@@ -428,15 +436,60 @@ export interface Factory {
   "last_seen"?: string;
 }
 
+export interface FactoryAccess {
+  "access_token"?: string;
+  "state": "ready" | "waiting" | "joined" | "expired" | "revoked" | "used_up" | "no_access" | "unreachable" | "already_joined";
+  "factory": AccessFactory;
+  "link": string;
+  "detail": string;
+  "message"?: string;
+  "help"?: string;
+  "sign_in_url"?: string;
+  "user_code"?: string;
+}
+
+export interface FactoryAccessRequest {
+  "link": string;
+  "verb": "sign_in" | "cancel";
+}
+
 export interface FactoryChangedEvent {
   "factory": string;
   "state": string;
+}
+
+export interface FactoryDay {
+  "id": string;
+  "host"?: string;
+  "started": number;
+  "posted": number;
+  "merged": number;
+  "waiting_median_seconds": number | null;
 }
 
 export interface FactoryEvent {
   "factory": string;
   "type": string;
   "data": JsonValue;
+}
+
+export interface FactorySetup {
+  "id": string;
+  "state": "github" | "repos" | "reading" | "checkouts" | "done";
+  "mode": "solo" | "team";
+  "server"?: string;
+  "github": SetupGitHub;
+  "repos": Array<SetupRepo> | null;
+}
+
+export interface FactorySetupRequest {
+  "id"?: string;
+  "verb": "discover" | "scope" | "ingest" | "retry" | "connect" | "select_repos" | "retry_read" | "clone" | "checkout" | "skip" | "back" | "done";
+  "source"?: "gh" | "token";
+  "token"?: string;
+  "repo_ids"?: Array<string>;
+  "repo_id"?: string;
+  "path"?: string;
 }
 
 export interface FileChange {
@@ -592,6 +645,10 @@ export interface InboxResponse {
 export interface InboxUndoWindowEvent {
   "item": string;
   "until": string;
+}
+
+export interface JobDisplay {
+  "running_visible": boolean;
 }
 
 export interface KeyCheckResult {
@@ -1030,6 +1087,37 @@ export interface SettingsExpect {
   "state"?: string;
 }
 
+export interface SetupGH {
+  "login": string;
+  "path": string;
+}
+
+export interface SetupGitHub {
+  "gh": SetupGH | null;
+  "organization": string;
+  "visible_repos": number;
+  "connected": boolean;
+  "error": string | null;
+}
+
+export interface SetupRepo {
+  "id": string;
+  "full_name": string;
+  "open_issues": number;
+  "pipeline": "file" | "defaults" | null;
+  "archived": boolean;
+  "selected": boolean;
+  "checkout": string | null;
+  "suggested_checkout": string;
+  "clone_mb": number;
+  "read": "next" | "reading" | "done" | "empty" | "waiting" | "rate_limited";
+  "read_count": number;
+  "waiting_s": number;
+  "resumes_at": string | null;
+  "clone": "missing" | "cloning" | "found" | "skipped" | "failed";
+  "clone_error": string | null;
+}
+
 export interface SetupRequest {
   "step": number;
   "default_model"?: string;
@@ -1420,6 +1508,12 @@ export interface AppRoutes {
   "POST /app/v1/tasks/{tid}/stop": { request: ExpectRequest; response: ActionResponse };
   "POST /app/v1/tasks/{tid}/typing": { request: ExpectRequest; response: ActionResponse };
   "GET /app/v1/tasks/{tid}": { request: never; response: TaskResponse };
+  "GET /v1/factory-access": { request: never; response: FactoryAccess };
+  "POST /v1/factory-access": { request: FactoryAccessRequest; response: FactoryAccess };
+  "GET /v1/factory-days/today": { request: never; response: FactoryDay };
+  "GET /v1/factory-setup/{id}": { request: never; response: FactorySetup };
+  "POST /v1/factory-setup/{id}": { request: FactorySetupRequest; response: FactorySetup };
+  "POST /v1/factory-setup": { request: FactorySetupRequest; response: FactorySetup };
 }
 
 export type AppRoute = keyof AppRoutes;
@@ -1611,6 +1705,8 @@ export interface FactoryIssues {
 }
 
 export interface FactoryJob {
+  "setup_held"?: boolean;
+  "display": FactoryJobDisplay;
   "state_presentation": FactoryStatePresentation;
   "controls": FactoryJobControls;
   "assignee"?: string;
@@ -1737,6 +1833,10 @@ export interface FactoryJobDesk {
   "run"?: FactoryRun;
 }
 
+export interface FactoryJobDisplay {
+  "running_visible": boolean;
+}
+
 export interface FactoryJobHandOff {
   "factory": FactoryIdentity;
   "id": string;
@@ -1749,6 +1849,8 @@ export interface FactoryJobHandOff {
 
 export interface FactoryJobRead {
   "factory": FactoryIdentity;
+  "setup_held"?: boolean;
+  "display": FactoryJobDisplay;
   "state_presentation": FactoryStatePresentation;
   "controls": FactoryJobControls;
   "assignee"?: string;
