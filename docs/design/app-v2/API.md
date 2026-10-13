@@ -588,17 +588,54 @@ Answer-once:
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | wire `Memory.Snapshot`, `Memory.List` (`v2:internal/remote/memory.go:99,106`) | NEW (HTTP) |
-| `PATCH /app/v1/memory/{id}` · `POST /app/v1/memory/{id}/forget` · `POST /app/v1/memory/{id}/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | `Memory.Update`, `Memory.Forget`, `Memory.Restore` (`memory.go:108-112`) | NEW (HTTP) |
-| setting `memory.agents_may_add` | | | NEW key | NEW |
+| `GET /app/v1/memory?q=&shelf=` | → `{shelves[{id, name: "Yours"\|crew}], items[{id, text, shelf, made_by, at}]}` | — | wire `Memory.Snapshot`, `Memory.List` (`v2:internal/remote/memory.go:99,106`) | PARTIAL (A11b native shelves/read; crew backend seam) |
+| `PATCH /app/v1/memory/{id}` · `POST /app/v1/memory/{id}/forget` · `POST /app/v1/memory/{id}/restore` | Forget has a 5 s undo: forget, then restore | `memory.changed` | `Memory.Update`, `Memory.Forget`, `Memory.Restore` (`memory.go:108-112`) | PARTIAL (A11b edit/undo; shelf moves need owner) |
+| setting `memory.agents_may_add` | | | A11a saved key | EXISTS (key only; engine add enforcement pending) |
+
+A11b native reads use the canonical `graph.db` and its existing owner shelves:
+Yours, This machine and project owners. They do not invent crew owners. Text edit,
+forget and restore are implemented; a changed shelf returns 409 `not_allowed`
+until a crew-owned `MemoryBackend` is supplied through `WithMemoryBackend` in
+`Options.Context`. Forget immediately removes a memory from native retrieval;
+restore succeeds strictly before five seconds, including from another launch
+sharing the home. The deadline is kept privately in `v3/app/memory-undo.json`.
+A keyed retry replays the original result and never extends that deadline.
+Native `expect.state`/`expect.version` compare the store status/journal sequence;
+the app resource lock serializes app writes, but native terminal writers do not
+share it, so conditional edits across those surfaces need a store transaction seam.
 
 ### 2.15 Spending ledger and caps
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/spending?when=&by=` | → `{today:{spent, cap}, rows[{at, who:{kind,id}, what, cost, model}], by_agent[]}` | `spend.changed` (throttled 1/s) | wire `Places.Ledger` (`v2:internal/remote/wire_places.go:42`), `v2:internal/router/ledger.go:44`, `Agent.Usage` (`session/agent.go:633`) | NEW (HTTP) |
-| `GET /app/v1/spending/today` | → `{spent, cap}` (the empty app line "Day cap $20.00 · $0.00 spent today") | | `DailyBudgetUSDAt` (`v2:internal/config/budget.go:24`) | NEW |
-| `POST /app/v1/caps/raise` | `{scope: "day"\|"agent"\|"member"\|"crew"\|"task", id?, to, for: "today"\|"for_good"}` | `inbox.resolved` | `SetSpendRail` (`wire.go:492`), `Teams.Spend`, `WriteDailyBudgetUSD` (`budget.go:45`) | NEW (HTTP) |
+| `GET /app/v1/spending?when=&by=` | → `{today:{spent, cap}, rows[{at, who:{kind,id}, what, cost, model}], by_agent[]}` | `spend.changed` (throttled 1/s) | wire `Places.Ledger` (`v2:internal/remote/wire_places.go:42`), `v2:internal/router/ledger.go:44`, `Agent.Usage` (`session/agent.go:633`) | PARTIAL (A11b measured native ledger) |
+| `GET /app/v1/spending/today` | → `{spent, cap}` (the empty app line "Day cap $20.00 · $0.00 spent today") | | `DailyBudgetUSDAt` (`v2:internal/config/budget.go:24`) | EXISTS (A11b app settings day cap) |
+| `POST /app/v1/caps/raise` | `{scope: "day"\|"agent"\|"member"\|"crew"\|"task", id?, to, for: "today"\|"for_good"}` | `inbox.resolved` | `SetSpendRail` (`wire.go:492`), `Teams.Spend`, `WriteDailyBudgetUSD` (`budget.go:45`) | PARTIAL (A11b permanent day/agent raises; owner seam for others) |
+
+A11b reads measured `v3/usage.jsonl` costs, keeping sub-cent receipts until totals
+are summed. `when` accepts today (default), week (today and the previous six local
+calendar days) or all; future rows are excluded. `by` accepts agent (default),
+crew, job or model and orders rows; native rows retain only known attribution,
+using root agent ids for child task calls. `by_agent` totals the selected range;
+`today.spent` always totals today. Money on the wire has two decimal places.
+
+Permanent day raises update the native profile setting; permanent agent raises
+update both the saved agent and `SetSpendRail`. Non-raises, disabled caps,
+invalid inputs and stale agent expectations refuse. Day expectations use the
+settings route's ETag, because its version is a different contract. Native
+`for:today` raises refuse 409 `not_allowed`: the current execution owner has no
+midnight expiry seam. Member, crew and task raises also need their owning
+resource's `SpendingBackend`, supplied with `WithSpendingBackend` in
+`Options.Context`. No other resource's disk state is edited here.
+
+`CheckSpending` supplies $20 day, $5 agent/day and $2 task admission checks to
+AI/turn owners; their existing SpendGuard still owns reservations. This hook is
+not yet connected to native turn admission, so this lane does not claim daily
+agent enforcement or a new budget ask. `PublishSpending` is the call-completion
+hook and is also refreshed by reads/raises; events publish at most once per
+second per launch/home and do not invent Inbox resolutions. Native ledger writes
+do not call the hook yet. Execution integration remains blocked by the current
+handler-only lane scope.
 
 The settings keys are in §2.18. The app's "Run 3 · up to $9" cost check reads job budgets from `/v1` and today's spend from `/app/v1/spending/today`. No estimate is made anywhere.
 
@@ -942,7 +979,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | EXISTS |
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
-| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
+| A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | PARTIAL — HTTP/native ledger, permanent day/agent raises, memory edit/5 s undo; execution-owner seams pending |
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | EXISTS |
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | BUILT |
