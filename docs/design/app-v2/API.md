@@ -646,8 +646,10 @@ lock; disabled caps and non-raises refuse. Agent expectations use the saved
 agent's state/version. Day/task expectations must use the owning settings/task
 route; they are refused here instead of silently ignored.
 
-Task numbers are local to an agent. A cap id is `<agent-id>:<task-number>`;
-a bare task number is accepted only if it belongs to exactly one known agent.
+Task numbers are local to an agent. Cap raises accept the opaque HTTP task id
+returned by A5. `<agent-id>:<task-number>` and an unambiguous bare task number
+remain accepted by the cap adapter. The private profile key keeps the agent
+with its local task number.
 `TaskCapID` exposes the spelling to task/AI resource adapters. Member and crew
 caps remain their execution owner's `SpendingBackend` seam; A11b does not edit
 those resources' stores. The backend owns conditional writes and expiry.
