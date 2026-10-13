@@ -896,6 +896,7 @@ export interface QueueItem {
 }
 
 export interface QuickTask {
+  "version"?: number;
   "id": string;
   "agent_id": string;
   "title": string;
@@ -1108,6 +1109,7 @@ export interface StreamResetEvent {
 }
 
 export interface Task {
+  "version"?: number;
   "id": string;
   "agent_id": string;
   "parent_id"?: string;
@@ -1166,6 +1168,7 @@ export interface TaskProgress {
 }
 
 export interface TaskResponse {
+  "version"?: number;
   "id": string;
   "agent_id": string;
   "parent_id"?: string;

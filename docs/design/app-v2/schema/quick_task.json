@@ -3,6 +3,9 @@
   "$defs": {
     "QuickTask": {
       "properties": {
+        "version": {
+          "type": "integer"
+        },
         "id": {
           "type": "string"
         },

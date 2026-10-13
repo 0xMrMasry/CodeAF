@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -288,13 +288,13 @@ S2 fields: `id, agent_id, parent_id?, title, brief, state (proposed·held·waiti
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/agents/{id}/tasks` | → tree `{groups[], tasks[], progress:{done,total}, spent, steps}` | — | wire `PlanTasks` (`v2:wire.go:574`), `wb:` snapshot `tasks` | PORT |
-| `GET /app/v1/tasks/{tid}` | → `Task` + result, files, work log, notes, brief | — | wire `PlanTaskPage` (`v2:wire.go:575`), `wb:bridge.go:802` | PORT |
-| `POST /app/v1/tasks/{tid}/note` · `POST /app/v1/tasks/{tid}/brief` | `{text}` → note with `read_at_step` filled later | `task.changed` | wire `PlanNote`, `PlanAmend`; `wb:routes.go:78` | PORT |
-| `POST /app/v1/tasks/{tid}/pause` · `POST /app/v1/tasks/{tid}/resume` · `POST /app/v1/tasks/{tid}/stop` | — | `task.changed` | wire `PlanPause`, `PlanResume`, `PlanCancel` (`v2:wire.go:583-585`) | PORT |
-| `POST /app/v1/tasks/{tid}/start` · `POST /app/v1/tasks/{tid}/hold` · `POST /app/v1/tasks/{tid}/decline` · `POST /app/v1/tasks/{tid}/model` | the proposal card: Start it · Hold · No · Change model | `task.changed`, `inbox.*` | wire `Task.Start`, `Task.Hold`, `Task.Model` (`v2:wire_task.go:17-42`) | PORT (HTTP face) |
-| `POST /app/v1/tasks/{tid}/typing` | holds the clock while the person types in the card | `task.changed {clock:"held"}` | wire `Typing` (`v2:wire.go:485`), but it is per conversation | NEW (per task) |
-| `POST /app/v1/tasks/{tid}/decide` | `{verb: "accept"\|"not_right"\|"tell"\|"recheck"\|"let_it_decide", words?}` (your call) | `task.changed`, `inbox.resolved` | wire `Task.Resolve`, `Task.Settle` (`v2:wire_task.go:38,52`) | PORT (verbs reshaped) |
+| `GET /app/v1/agents/{id}/tasks` | → tree `{groups[], tasks[], progress:{done,total}, spent, steps}` | — | wire `PlanTasks` (`v2:wire.go:574`), `wb:` snapshot `tasks` | EXISTS (A5) |
+| `GET /app/v1/tasks/{tid}` | → `Task` + result, files, work log, notes, brief | — | wire `PlanTaskPage` (`v2:wire.go:575`), `wb:bridge.go:802` | EXISTS (A5) |
+| `POST /app/v1/tasks/{tid}/note` · `POST /app/v1/tasks/{tid}/brief` | `{text}` → note with `read_at_step` filled later | `task.changed` | wire `PlanNote`, `PlanAmend`; `wb:routes.go:78` | EXISTS (A5) |
+| `POST /app/v1/tasks/{tid}/pause` · `POST /app/v1/tasks/{tid}/resume` · `POST /app/v1/tasks/{tid}/stop` | — | `task.changed` | wire `PlanPause`, `PlanResume`, `PlanCancel` (`v2:wire.go:583-585`) | EXISTS (A5) |
+| `POST /app/v1/tasks/{tid}/start` · `POST /app/v1/tasks/{tid}/hold` · `POST /app/v1/tasks/{tid}/decline` · `POST /app/v1/tasks/{tid}/model` | the proposal card: Start it · Hold · No · Change model | `task.changed`, `inbox.*` | wire `Task.Start`, `Task.Hold`, `Task.Model` (`v2:wire_task.go:17-42`) | EXISTS (A5) |
+| `POST /app/v1/tasks/{tid}/typing` | holds the clock while the person types in the card | `task.changed {clock:"held"}` | `App.TaskAction` → per-task `HoldTask` | EXISTS (A5) |
+| `POST /app/v1/tasks/{tid}/decide` | `{verb: "accept"\|"not_right"\|"tell"\|"recheck"\|"let_it_decide", words?}` (your call) | `task.changed`, `inbox.resolved` | wire `Task.Resolve`, `Task.Settle` (`v2:wire_task.go:38,52`) | EXISTS (A5) |
 | `POST /app/v1/tasks/{tid}/hand-off` | see §2.22 Hand to factory | | | NEW |
 
 ### 2.3 Quick task
@@ -303,9 +303,40 @@ S2 fields: `id, agent_id, title, files[{path, before_hash, after_hash}], added, 
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/agents/{id}/quick-tasks` | → list | — | tool `quick_task` (`v2:internal/session/task_quick.go:48-66`) | NEW (HTTP) |
-| `POST /app/v1/quick-tasks/{qid}/undo` | → `{undone[]}` or 409 `{changed_since[]}` ("Can't undo cleanly: 2 files changed since") | `quick_task.changed` | NEW: hashes are not recorded today | NEW |
-| `POST /app/v1/quick-tasks/{qid}/promote` · `POST /app/v1/quick-tasks/{qid}/cancel` | answers "This is bigger than a quick task · 34 files" | `inbox.resolved` | NEW | NEW |
+| `GET /app/v1/agents/{id}/quick-tasks` | → list | — | tool `quick_task` (`v2:internal/session/task_quick.go:48-66`) | EXISTS (A5) |
+| `POST /app/v1/quick-tasks/{qid}/undo` | → `{undone[]}` or 409 `{changed_since[]}` ("Can't undo cleanly: 2 files changed since") | `quick_task.changed` | session quick-file captures and private checkpoint | EXISTS (A5) |
+| `POST /app/v1/quick-tasks/{qid}/promote` · `POST /app/v1/quick-tasks/{qid}/cancel` | answers "This is bigger than a quick task · 31 files" | `quick_task.changed` (Inbox resolution A9) | session promotion and stop | EXISTS (A5) |
+
+A5 implementation: `internal/appapi/task_resource.go` and
+`quick_task_resource.go` reach the canonical session through additive `App.*`
+remote methods. Task ids encode the agent id and the engine's existing local
+id, avoiding cross-conversation aliases. Both resource rows add `version` for
+`expect.version`. All reserved A5 routes now serve behaviour; factory hand-off
+remains A14. A5 publishes task and quick-task changes on the shared event hub;
+A9 derives Inbox entries and owns its ids and resolution events.
+
+- Proposal deadlines use the engine's saved setting (default 12 s). Hold and
+  typing affect one proposal. `irreversible:true` proposals and quick-task
+  promotions have no clock. No records or hashes are supplied by the app.
+- Reads combine the graph and plan roads. Notes on graph tasks expose
+  `read_at_step` only once the canonical steering record enters a model request.
+  Plan notes retain their native behaviour and omit an unknown read step.
+  Pause holds the next request/action; the current one finishes. Change the
+  brief steers the existing task and keeps its original contract on record.
+- Your-call verbs use the existing accept, continuation, recheck and model
+  decision doors. Graph worker requests stop at the saved per-task cap; the
+  default is $2, shared with the existing guarded plan engine.
+- Quick write/edit calls serialize first-byte capture, execution and after-byte
+  capture. Original bytes, existence, mode and latest bytes survive in the
+  engine checkpoint, now written with mode 0600. HTTP exposes only hashes and
+  line-change counts. Undo validates every file before restoring any; mismatches
+  return 409 with `changed_since` and the exact refusal sentence.
+- A quick task asks before its 31st distinct file, all shell calls (including
+  concealed tests), and media creation. The blocked action cannot run in the
+  quick worker. Promotion admits an ordinary task behind it, in the same
+  folder, carrying the edits and blocked action. Cancel keeps the edits.
+  Explicit Promote also works before the limit. POST responses use the shared
+  bounded launch-local idempotency door; replays repeat no engine action.
 
 ### 2.4 Process
 
@@ -868,7 +899,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A3 | Stream: the hub, epoch-qualified `e_<epoch>_<n>` ring 4096, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | EXISTS |
 | A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | EXISTS |
 | A4b | Turns: send/steer/queue, queue edit/remove, stop, retry/model recovery, task handoff, snapshot, entries, tools (bridge core); file browsing remains reserved | A4a | 1 d | EXISTS (turn core) |
-| A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
+| A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | EXISTS (engine hooks and HTTP) |
 | A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | EXISTS (power stop door built; `/power` calls it in A14) |
 | A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | EXISTS |
 
@@ -910,8 +941,8 @@ Parallel waves:
 | Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS (A7)**: five explicit approvals, Not right resets, Skip neutral, Pause preserves | `standing/words.go`, A7 | — |
 | Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 | EXISTS (A7) — persisted scope and current-member delivery |
 | Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 | BUILT — default $0.40, saved rails preserved |
-| Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 | POLICY BUILT — `QuickTaskNeedsProposal`; tool enforcement and undo A5 |
-| Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 | BUILT — default 12 s; per-task hold/no-clock rules A5 |
+| Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 | EXISTS (A5) — before-write captures, Undo and promotion before file 31 or shell execution |
+| Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 | EXISTS (A5) — saved/default 12 s, per-task typing hold and irreversible no-clock |
 | Question clock 15 min: no answer → agent pauses | none (`store/agent_questions.go:69` `ExpiresAt` unused for this) | **NEW** | `session/question.go`, A8 | POLICY BUILT — `QuestionClock`; pause enforcement A8 |
 | Process output kept 7 days, ≤10 MB each, oldest lines dropped | 64 KB ring + 2×4 MB spool (`session/jobs.go:80-81`); `sweepTTL` 7 d covers droppings only (`session/sweep.go:73`) | **CHANGED**: 10 MB cap, 7-day sweep of process logs | `session/jobs.go`, `app_process_output.go`, `app_processes.go`, A6 | EXISTS — app single-file 10 MiB window and leased seven-day expiry |
 | Processes stop when the agent closes, the app quits or the Mac sleeps; one end notice | partial | **CHANGED** | A6 | EXISTS for close/quit; `StopAllProcesses` is the A14 power hook |
