@@ -504,7 +504,7 @@ producers. It adds the missing app authentication, needs-you codec, hand-off
 metadata and `job.state` producer. Numeric SSE job ids and persisted question
 kinds retain their binary protocol bytes. Assign to me refuses an already
 assigned job; only the current assignee can Change assignee or Unassign, and
-GitHub writes succeed before the stored person changes. A14 still owns the
+Solo-host GitHub writes succeed before the stored person changes; team serve persists the decision without writing to GitHub (§2.22.1). A14 still owns the
 app factory mount, factory connection routes, hand-off card and power forwarding.
 
 Hand-off validates source, agent ref, start choice and assignee before creation.
@@ -513,6 +513,44 @@ starts no work. An explicitly empty assignee leaves Backlog unassigned; a team
 job cannot start with an explicitly empty assignee. The legacy `autostart`
 field remains accepted but cannot be combined with `start`. New metadata
 requires a store-backed factory; a missing store refuses before creating a job.
+
+### 2.22.1 Team operator claim and GitHub read grant — EXISTS
+
+`codeaf factory serve` prints the public address first. If the team has no persisted
+operator, the next line is `operator access link: codeaf://factory/join?operator=true&url=<encoded address>#token=<secret>`.
+It uses the same join URL and `/v1/auth/device` → `/v1/auth/device/poll` exchange as
+`POST /v1/access/links`. Link metadata carries `operator:true`. It is single use,
+expires after 24 hours, and every startup revokes older outstanding operator links
+before minting another. A host GitHub token binds the login; with no token the first
+successful GitHub sign-in claims it. The server verifies identity with GitHub and
+persists `{login,claimed_at}` in private `operator.json` beside the host config.
+Changing the host token or the legacy `operator_login` key never changes that identity.
+
+After claim, ordinary startup prints no operator link. `serve --new-operator-link`
+prints a recovery link bound to the persisted operator and revokes previous outstanding
+operator links. A consumed operator link cannot sign in again; its factory session
+retains its own 30-day lifetime, independent of the link's 24-hour expiry. The raw
+host `access_token` remains a script credential and is never printed by serve or
+embedded in an operator join link. Claim Activity has `kind:operator_claimed`,
+`verb:"claimed factory"`, person actor with `operator:true`, and `as operator` detail.
+
+| Route | Body → Response | Access |
+|---|---|---|
+| `PUT /v1/github/grant` | `{token}` → the `/v1/github` metadata below | Live signed-in persisted operator only |
+| `GET /v1/github` | → `{factory,login,via,polling_every?,granted_by?,granted_at?}` | Normal factory read access |
+
+The app obtains a separate GitHub App device-flow token with Issues and Metadata read
+permissions. The grant door checks `/user` and refuses a different login. Known
+write-capable classic OAuth scopes are refused: classic `repo` is not read-only, and
+profile-only OAuth scopes allow public reads. GitHub App permissions are configured
+in GitHub; an absent OAuth-scope header does not prove token permissions.
+The token is atomically saved in mode-0600 `github-grant.json` beside the host config;
+only login and grant time leave the service. `GH_TOKEN` or `GITHUB_TOKEN` overrides the
+stored read token without replacing the operator or the grant metadata. Grant changes
+wake the repository poll; future reads resolve the current credential. The grant
+never reaches runner or publishing token resolvers. Team serve omits GitHub assignment
+and branch-write callbacks; local job decisions persist without a server GitHub write.
+The server never writes to GitHub, even with an environment override.
 
 ### 2.23 Engine health and shutdown
 
