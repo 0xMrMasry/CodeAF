@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A10a crews/members, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -468,18 +468,15 @@ inline roles already saved in crew metadata.
 
 | Kind | Source | Backed by | Status |
 |---|---|---|---|
-| `question`, `clarification` | agent, member, task, crew (climbed) | `Held.Questions`, `Teams.Packets` | PORT (`wb:attention.go`) + NEW path |
-| `permission` | agent, task (batch) | consent | PORT |
-| `your_call` | task | `Task.Pending` (`wire_task.go:57`) | NEW (HTTP) |
-| `approval_plan`, `approval_proof` | job | factory `needs_you` `approve_plan`, `approve_proof` | EXISTS (factory) |
-| `approval_start` | job | not a factory kind yet | NEW (F-3) |
-| `budget` | agent, member, crew, job, day cap | factory `spending_limit` · engine rail | EXISTS (factory) / NEW (engine) |
-| `out_of_rounds` | job | factory `out_of_attempts` | EXISTS (rename) |
-| `failed` | agent (provider ×3), job (`failure`) | `job.failure` is not a needs-you kind | NEW |
-| `changes_requested`, `conflict` | job | `pr.review_decision` exists; conflict does not | NEW (F-3) |
-| `publish_failed` | job | factory `publish_failed` | EXISTS |
-| `runner_offline` | job | `failure.code machine_lost` | NEW (F-3) |
-| `order_ask`, `reminder` | standing order | standing cards | NEW (HTTP) |
+| `question`, `clarification` | agent, member, task, crew (climbed) | canonical `OpenQuestions`, typed `AskInboxSource` | BUILT (A9 projection) |
+| `permission` | agent, task (batch) | canonical questions; permission resolver receives rule/batch fields | BUILT (A9 projection/forwarding) |
+| `your_call` | task | canonical landing questions; typed source resolver | BUILT (A9 projection) |
+| `approval_plan`, `approval_proof`, `approval_start` | job | factory Contract 2 `approve_plan`, `approve_proof`, `approve_start` | BUILT (A9 merge; native factory hold) |
+| `budget` | agent, member, crew, job, day cap | canonical fuel questions, `CrewBudgetAsks`, typed asks, factory `budget` | BUILT (A9 projection) |
+| `out_of_rounds`, `failed` | job; failed agent | factory Contract 2 needs-you; agent recovery routes | BUILT (A9 projection/forwarding) |
+| `changes_requested`, `conflict` | job; task conflict | Contract 2 needs-you; canonical conflict question | BUILT (A9 projection) |
+| `publish_failed`, `runner_offline` | job | Contract 2 needs-you and per-person `can` | BUILT (A9 merge) |
+| `order_ask`, `reminder` | standing order | typed `AskInboxSource` producer/resolver | BUILT (A9 adapter; A7 owns production) |
 
 Answer-once:
 - The Inbox never owns an answer. `POST /app/v1/inbox/{id}/answer {…}` forwards to the source verb (`asks`, `permissions`, `tasks/decide`, `orders/runs`, or the factory `/v1/jobs/{id}/approve|answer`).
@@ -487,9 +484,12 @@ Answer-once:
 - Approve and answer hold for 5 s, as **Approving… Undo**:
   - The binary keeps the pending decision with `undo_until`.
   - `POST /app/v1/inbox/{id}/undo` within 5 s cancels it, and nothing is sent.
-  - This hold is server-side so that the Inbox, chat and job show one hold. For agent asks it is NEW. For factory approvals the factory lane owns it (`undo_until`, F-2).
+  - This hold is server-side so that the Inbox, chat and job show one hold. For agent asks A9 owns the shared hold. For factory approvals the factory lane owns it (`undo_until`, F-2).
 - Later, Done today, mark-done (`e`), notifications and the Dock badge count are **app state**. The app keys them by item `id`. Item ids are stable and derived from the source, e.g. `ask:<id>`, `job:<factory>:<id>:<kind>:<since>`.
-- Status: **PORT** (`wb:attention.go`, `worldstream.go` `attention` type) plus **NEW** merge across factories.
+- Status: **BUILT (A9)**. The routes, source adapters, resolution events and hold coordinator are implemented in `internal/appapi/inbox*.go`. `SetInboxSource` installs typed producers; factory attachment/solo lifecycle remains A14, and A5/A7/A8 keep their own state and resolver policy. Engine questions and saved crew budget asks are sampled automatically.
+- Engine ids include the transcript, question lane and token (`ask:<agent>:<lane>:<token>`), so two agents asking question 1 cannot collide. Factory ids include the factory, opaque job id, kind and waiting-since timestamp. Display words never affect identity.
+- Source ask/permission POSTs enter the same hold as Inbox. `AnswerInbox` / `UndoInbox` are the shared binary doors for other source surfaces. `ResolveInbox` reports in-place answers, another person's answer or withdrawal. Canonical question subscriptions track terminal answers even outside a live app turn.
+- Source snapshots refresh every 500 ms. A failed source read keeps its last rows; detaching withdraws them. Factory-owned approval holds are recovered on reattachment, including Undo. Factory sources also follow `/v1/events` with the person's bearer and replay cursor, relaying only Inbox-related typed facts. Pending engine answers are cancelled on shutdown; they are never sent after a restart.
 
 ### 2.14 Memory
 
@@ -778,7 +778,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | EXISTS (power stop door built; `/power` calls it in A14) |
 | A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | NEW |
 | A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
-| A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | NEW |
+| A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | BUILT — typed producers/resolvers; attachment lifecycle A14 |
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | NEW |
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
@@ -830,7 +830,7 @@ Parallel waves:
 | Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **EXISTS (A4b recovery)**: terminal engine failure enables Retry/Switch model; fixed three-call patience remains a gap | A4b | — |
 | Running long: one line at 3:00 per reply; Move it to a task | none | **EXISTS (A4b)**: one 180 s event; explicit handoff through StartTask | A4b | — |
 | Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 | — |
-| Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2; engine A9 remains NEW | | — |
+| Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2 and engine A9 | | — |
 | Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — | — |
 | Glossary: TUI `/crew` (a task's model seats) → `/seats` | `CrewCommand = "/crew"` (`config/crew.go:103`) | **CHANGED**: `/seats`, with `/crew` an alias for one release; manual pages | A15 | BUILT — canonical `/seats`, `/crew` alias for one release |
 | Glossary: background job → process; teams → crews; managers/traffic → manager/log; machine → runner; audit → Activity; attempts → rounds | Go names | **CHANGED on the wire only**. The codec maps; Go keeps names | A4–A10, factory lanes | — |
