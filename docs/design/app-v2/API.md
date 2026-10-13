@@ -359,12 +359,35 @@ S2 fields: `id, agent_id, title, trigger{kind: event\|schedule\|once, source, fi
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/agents/{id}/orders` | → `{waiting[], active[], paused[], reminders[]}` | — | wire `Standing.Items` (`v2:wire.go:651`), `v2:internal/standing/standing.go:512` | NEW (HTTP) |
-| `POST /app/v1/orders/{oid}/ratify` · `POST /app/v1/orders/{oid}/change` · `POST /app/v1/orders/{oid}/not-now` | the card. `change` takes fields | `order.changed`, receipt | wire `ResolveStanding`, `Standing.Save` (`v2:wire.go:498,652`) | NEW (HTTP) |
-| `POST /app/v1/orders/{oid}/pause` · `POST /app/v1/orders/{oid}/resume` · `POST /app/v1/orders/{oid}/stop` | | `order.changed` | `Status` active/paused/retired (`standing.go:198-202`) | NEW (HTTP) |
-| `POST /app/v1/agents/{id}/orders/pause-all` | | | NEW | NEW |
-| `POST /app/v1/orders/{oid}/runs/{rid}` | `{verb: "go"\|"skip"\|"pause"\|"not_right"\|"run_now"}` | `order.fired`, `inbox.*` | trust rule `TrustAfter = 5` (`v2:internal/standing/words.go:140`) | NEW (HTTP) |
-| `POST /app/v1/reminders/{oid}/change` · `POST /app/v1/reminders/{oid}/cancel` | `{at}`. A past time is refused with 422 "That time has passed. Pick another." | | `WhenAt`, `CardReminder` (`standing.go:209,239`) | NEW (HTTP) |
+| `GET /app/v1/agents/{id}/orders` | → `{waiting[], active[], paused[], reminders[]}` | — | wire `Standing.Items` (`v2:wire.go:651`), `v2:internal/standing/standing.go:512` | EXISTS (A7) |
+| `POST /app/v1/orders/{oid}/ratify` · `POST /app/v1/orders/{oid}/change` · `POST /app/v1/orders/{oid}/not-now` | the card. `change` takes fields | `order.changed`, receipt | wire `ResolveStanding`, `Standing.Save` (`v2:wire.go:498,652`) | EXISTS (A7) |
+| `POST /app/v1/orders/{oid}/pause` · `POST /app/v1/orders/{oid}/resume` · `POST /app/v1/orders/{oid}/stop` | | `order.changed` | `Status` active/paused/retired (`standing.go:198-202`) | EXISTS (A7) |
+| `POST /app/v1/agents/{id}/orders/pause-all` | | | native store | EXISTS (A7) |
+| `POST /app/v1/orders/{oid}/runs/{rid}` | `{verb: "go"\|"skip"\|"pause"\|"not_right"\|"run_now"}` | `order.fired`, `inbox.*` | trust rule `TrustAfter = 5` (`v2:internal/standing/words.go:140`) | EXISTS (A7) |
+| `POST /app/v1/reminders/{oid}/change` · `POST /app/v1/reminders/{oid}/cancel` | `{at}`. A past time is refused with 422 "That time has passed. Pick another." | | `WhenAt`, `CardReminder` (`standing.go:209,239`) | EXISTS (A7) |
+
+A7 persists dormant proposals before the model waits; ratification and edits
+use the native per-item flock and optional order state/version expectations.
+Reminder notices are saved directly without a trust card. One-shot task work
+still needs ratification and run approval; reminder-only routes refuse it.
+App trust counts five explicit
+approvals; Skip is neutral, Pause keeps the count, and Not right resets it.
+Changing the trigger/action/limits consumes a pending run and resets trust.
+The order response adds `version` and `runs[{id,at,state,line}]`; evidence stays
+in the engine. Paused triggers retain skipped lines. Stop/decline remove rows
+from the live list and preserve their records. Pause-all leaves reminders alone.
+
+`app serve` runs the native credential-bearing ticker with every chat closed,
+and samples child-engine/OS writes for `order.changed`, `order.fired` and Inbox
+events. Notifications are durable engine entries without recipient model calls.
+`AgentRegistry.OrderAsks` provides proposals, waiting runs, budget holds and
+fired reminders to Inbox through typed `Ask` values. The standing producer
+uses A9’s five-second hold and forwards decisions to its own source routes.
+Scope selects current chat
+recipients, including closed chats, and always retains an engine Inbox copy.
+A budget stop holds later triggers until `/change` raises `budget_per_run`.
+Schema 5 fences app approval metadata from older tickers; ordinary schema 4
+recurrence and saved budget values stay readable.
 
 ### 2.6 Permission, always-allow rule, question clock
 
@@ -797,7 +820,7 @@ data: {"agent":"a_…","task":"t_…","state":"your_call","at":"…"}
 | `task.created` · `task.changed` | `{agent, task, state, clock?, step?}` | `wb:` `taskProposal`, `taskUpdate`, `taskPhase` |
 | `quick_task.changed` | `{agent, quick_task, state}` | NEW |
 | `process.changed` · `process.output` | `{agent, process, state, exit_code?, url?}` · `{process, text}` (follow streams only) | `wb:` `jobUpdate` |
-| `order.changed` · `order.fired` | `{agent, order, state, trust, approved_runs}` · `{order, run, ask?}` | NEW (`Standing.Watch`) |
+| `order.changed` · `order.fired` | `{agent, order, state, trust, approved_runs}` · `{order, run, ask?}` | EXISTS (A7 native store sampling) |
 | `crew.created` · `crew.changed` · `crew.log` · `report.ready` | `{crew, fields[]}` · `{crew, from, to, text}` · `{crew}` | NEW (`Teams.*`) |
 | `role.changed` · `rule.created` · `rule.changed` · `memory.changed` · `settings.changed` · `keys.changed` | `{id}` / `{keys[]}` | NEW |
 | `inbox.added` · `inbox.resolved` · `inbox.undo_window` | `{item, kind}` · `{item, how, by, at}` · `{item, until}` | `wb:attention.go` + NEW |
@@ -847,7 +870,8 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A4b | Turns: send/steer/queue, queue edit/remove, stop, retry/model recovery, task handoff, snapshot, entries, tools (bridge core); file browsing remains reserved | A4a | 1 d | EXISTS (turn core) |
 | A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
 | A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | EXISTS (power stop door built; `/power` calls it in A14) |
-| A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | NEW |
+| A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | EXISTS |
+
 | A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
 | A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | BUILT — typed producers/resolvers; attachment lifecycle A14 |
 | A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
@@ -883,8 +907,8 @@ Parallel waves:
 | Rule (board) | Before the v2 rules | Change | Where | A15 status |
 |---|---|---|---|---|
 | Agent names are deterministic: first words, ≤40 chars, until renamed (S0, S2; AI titles backlog) | AI title through `roles.RoleTitle` (`v2:internal/session/handlepick.go:210-222`) | **EXISTS (A4a)**: in app mode, names come from the first words of the first message. The AI title stays for the TUI. See Q2 | `session/appnames.go`, `session/title.go`, A4a | — |
-| Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS** (number). Check the reset-on-Not-right and Skip semantics | `standing/words.go`, A7 | — |
-| Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 | POLICY BUILT — `StandingScope`; storage and delivery A7 |
+| Standing-order trust: 5 approved runs; Not right resets to 0; Skip counts neither way; Pause keeps the level | `TrustAfter = 5` (`standing/words.go:140`), counted by `CleanRuns` | **EXISTS (A7)**: five explicit approvals, Not right resets, Skip neutral, Pause preserves | `standing/words.go`, A7 | — |
+| Standing scope: this_chat · this_crew · everywhere · not_here | no such field | **NEW** | `standing/standing.go` `Item`, A7 | EXISTS (A7) — persisted scope and current-member delivery |
 | Budget per run $0.40 default | `DefaultPerRunUSD = 5.0` (`standing/standing.go:406`) | **CHANGED** | A7 | BUILT — default $0.40, saved rails preserved |
 | Quick task: over 30 files or any test run → full task, asks first | no limit (`session/task_quick.go:332,349`) | **NEW**: a fixed rule plus before/after hashes for Undo | `session/task_quick.go`, A5 | POLICY BUILT — `QuickTaskNeedsProposal`; tool enforcement and undo A5 |
 | Task proposal clock 12 s (0–60, 0 = never); irreversible tasks have no clock; typing holds | `DefaultTaskAutoApprove = 15` (`config/settings.go:1454`) | **CHANGED** to 12; per-task typing hold is **NEW** | A5 | BUILT — default 12 s; per-task hold/no-clock rules A5 |

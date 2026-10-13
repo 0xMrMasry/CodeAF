@@ -1072,6 +1072,8 @@ export interface SpendingWho {
 }
 
 export interface StandingOrder {
+  "version": number;
+  "runs": Array<StandingRun> | null;
   "id": string;
   "agent_id": string;
   "title": string;
@@ -1085,6 +1087,13 @@ export interface StandingOrder {
   "state": "proposed" | "active" | "paused" | "stopped" | "declined" | "fired";
   "last_run_at"?: string;
   "skipped": number;
+}
+
+export interface StandingRun {
+  "id": string;
+  "at": string;
+  "state": string;
+  "line": string;
 }
 
 export interface StreamHelloEvent {
