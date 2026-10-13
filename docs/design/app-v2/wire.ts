@@ -624,6 +624,8 @@ export interface Member {
 }
 
 export interface MemoryItem {
+  "state": "active" | "forgotten" | "superseded";
+  "version": number;
   "id": string;
   "text": string;
   "shelf": string;
