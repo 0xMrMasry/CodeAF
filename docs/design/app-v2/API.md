@@ -656,7 +656,10 @@ The home observer refreshes native receipts once per second and publishes
 `spend.changed` at most once per second. `RefreshSpending` is its synchronous
 producer/test door. Reached day, agent and task caps create one restart-safe
 budget question. `SpendingBudgetAsks` supplies that typed waiting set to asks and
-Inbox. A real raise or midnight reset resolves its actual saved item; a raise
+Inbox through a registered `InboxSource`. Inbox Raise accepts `choice:"raise"`
+and a two-decimal USD amount in `words`; its five-second Undo precedes a today
+raise. Permanent raises use the caps route. A real raise or midnight reset
+resolves its actual saved item; a raise
 with no waiting question emits no invented resolution. A refused app turn stays
 `needs_you`, and leaves its text unsent until the person raises the cap and sends
 it again. Already admitted provider calls finish; no further call starts once
