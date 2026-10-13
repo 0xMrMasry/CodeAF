@@ -872,6 +872,27 @@ The engine adds only the following:
 - Hand to factory: `POST /app/v1/agents/{id}/hand-off` → a card `{title, brief, repo, pipeline, issue: bool, start: "now"\|"backlog", assignee}`, then `POST /app/v1/agents/{id}/hand-off/{card}/send` → `{factory, job}`.
   - It stops the originating task with "Handed to the factory" and writes the notice. The job's `ask.source` links back to the chat.
   - It is backed by `POST /v1/jobs` plus a NEW `from_ref`.
+- `GET /app/v1/agents/{id}/hand-off/{card}` reopens an unexpired card.
+- `POST /app/v1/agents/{id}/hand-off/{card}/not-now {}` dismisses an unsent card without stopping its origin. Sent cards return a conflict.
+
+The binary job-screen routes are built. `wire.ts` publishes their Go JSON
+shapes through `FactoryRoutes`, `FactoryRequest<R>` and `FactoryResponse<R>`.
+Job reads carry binary `state_presentation` and caller-specific `controls`.
+
+| Method and route | Behaviour |
+|---|---|
+| `POST /v1/jobs/{id}/steps/{sid}/stop` and `POST /v1/jobs/{id}/steps/{sid}/rerun` | Stop the current step or rerun from a recorded step name; retain spending and earlier results, revoke the old lease. |
+| `POST /v1/jobs/{id}/assignee` and `POST /v1/jobs/{id}/sync` | Change assignee or sync with GitHub through binary-owned permissions and credentials. |
+| `GET /v1/jobs/{id}/step-edits` and `POST /v1/jobs/{id}/step-edits` | Read or apply bounded edits; a held run resumes its edited tail through a new lease. |
+| `GET /v1/jobs/{id}/hand-off/{card}` and `POST /v1/jobs/{id}/hand-off/{card}/not-now` | Read the saved originating-agent reference or record caller-specific Not now; card is `ask.from_ref.id`. |
+| `POST /v1/repos/{owner}/{repo}/pipeline/open-pr` | Validate proposed YAML and create a separate review branch; report the actual PR, pushed-branch or local-only outcome. |
+| `POST /v1/issues` and `GET /v1/issues` | Create an issue job or search up to 50 open issues with `repo=owner/name&q=words`. |
+| `DELETE /v1/auth/device` | Cancel this caller's pending device code. |
+
+Hand-off sends now accept `issue:true` and named repository pipelines. Unknown
+pipelines are refused before any GitHub issue opens. Issue creation uses the
+signed-in person's credential, or the local profile on a solo host, never the
+team read grant. The app owns no state or pipeline rules.
 
 Deltas the factory lanes must add (t-v2-factory-jobs, t-v2-factory-people). Most are already in their briefs:
 

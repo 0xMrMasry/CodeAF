@@ -1298,7 +1298,9 @@ export interface AppRoutes {
   "GET /app/v1/agents/{id}/files/find": { request: never; response: FileFindResponse };
   "GET /app/v1/agents/{id}/files/stat": { request: never; response: FileStatsResponse };
   "GET /app/v1/agents/{id}/files/text": { request: never; response: FileTextResponse };
+  "POST /app/v1/agents/{id}/hand-off/{card}/not-now": { request: ExpectRequest; response: ActionResponse };
   "POST /app/v1/agents/{id}/hand-off/{card}/send": { request: SendHandOffRequest; response: HandOffResponse };
+  "GET /app/v1/agents/{id}/hand-off/{card}": { request: never; response: HandOffCard };
   "POST /app/v1/agents/{id}/hand-off": { request: ExpectRequest; response: HandOffCard };
   "POST /app/v1/agents/{id}/move-reply-to-task": { request: ExpectRequest; response: MoveReplyResponse };
   "POST /app/v1/agents/{id}/orders/pause-all": { request: ExpectRequest; response: ActionResponse };
@@ -1474,3 +1476,885 @@ export type AppEventName = keyof AppEvents;
 export type AppEvent<N extends AppEventName = AppEventName> = {
   [K in N]: { event: K; data: AppEvents[K] }
 }[N];
+
+// Factory service contracts come from internal/factory/api; these routes use the factory listener.
+export interface FactoryActionResult {
+  "factory": FactoryIdentity;
+}
+
+export interface FactoryActivity {
+  "at": string;
+  "what": string;
+}
+
+export interface FactoryAskIssue {
+  "number": number;
+  "url"?: string;
+  "title"?: string;
+}
+
+export interface FactoryAssigneeRequest {
+  "assignee": string;
+  "expect"?: FactoryExpect;
+}
+
+export interface FactoryCan {
+  "run": boolean;
+  "start_now": boolean;
+  "stop": boolean;
+  "dismiss": boolean;
+  "drop": boolean;
+  "change_assignee": boolean;
+  "unassign": boolean;
+  "nudge": boolean;
+  "raise_budget": boolean;
+  "undo": boolean;
+  "approve": boolean;
+  "run_again": boolean;
+  "cancel_job": boolean;
+  "retry_publish": boolean;
+  "answer": boolean;
+  "assign_to_me": boolean;
+  "reply": boolean;
+}
+
+export interface FactoryCapacity {
+  "benches": number;
+  "daily": number;
+  "rail": number;
+  "queued": number;
+  "machines_online": number;
+  "busy": number;
+  "workers"?: Array<FactoryWorker>;
+}
+
+export interface FactoryCell {
+  "step": string;
+  "jobs": number;
+  "waiting"?: boolean;
+}
+
+export interface FactoryCheckRun {
+  "name": string;
+  "state": string;
+  "url"?: string;
+}
+
+export interface FactoryClaim {
+  "text": string;
+  "evidence"?: FactoryEvidence;
+  "proven": boolean;
+}
+
+export interface FactoryComment {
+  "author": string;
+  "body": string;
+  "at": string;
+}
+
+export interface FactoryDevicePoll {
+  "device_code": string;
+}
+
+export interface FactoryEvidence {
+  "kind": string;
+  "ref": string;
+}
+
+export interface FactoryExpect {
+  "state"?: string;
+  "step"?: string;
+  "version"?: number;
+}
+
+export interface FactoryFailure {
+  "rounds"?: number;
+  "runner"?: string;
+  "step"?: string;
+  "code": string;
+  "detail"?: string;
+  "attempts"?: number;
+  "machine"?: string;
+  "next": string;
+  "at": string;
+}
+
+export interface FactoryFile {
+  "path": string;
+  "added"?: number;
+  "removed"?: number;
+}
+
+export interface FactoryHeldBy {
+  "machine": string;
+  "handle": string;
+  "heartbeat_at": string;
+  "since": string;
+}
+
+export interface FactoryIdentity {
+  "name": string;
+  "address": string;
+  "version": string;
+}
+
+export interface FactoryIssue {
+  "number": number;
+  "title": string;
+  "url": string;
+  "body"?: string;
+}
+
+export interface FactoryIssues {
+  "factory": FactoryIdentity;
+  "issues": Array<FactoryIssue> | null;
+}
+
+export interface FactoryJob {
+  "state_presentation": FactoryStatePresentation;
+  "controls": FactoryJobControls;
+  "assignee"?: string;
+  "runner"?: string;
+  "id": string;
+  "ref": string;
+  "priority"?: FactoryStoredJobPriority;
+  "size"?: string;
+  "budget"?: number;
+  "reason"?: string;
+  "done_how"?: string;
+  "done_at": string;
+  "dismissed": boolean;
+  "dismissed_by"?: Array<string>;
+  "waiting_for"?: string;
+  "overlap"?: Array<string>;
+  "approval"?: FactoryStoredApproval;
+  "branch_delete_at": string;
+  "branch_deleted_at": string;
+  "owners"?: Array<string>;
+  "change"?: FactoryStoredChange;
+  "draft"?: boolean;
+  "document_id": number;
+  "repo": string;
+  "number": number;
+  "kind": string;
+  "title": string;
+  "url"?: string;
+  "state": string;
+  "version"?: number;
+  "ready"?: boolean;
+  "gate": string;
+  "waiting_since"?: string;
+  "asked_first_reason"?: string;
+  "assigned_to"?: string;
+  "step"?: FactoryStepAt;
+  "steps": Array<FactoryStep> | null;
+  "claims"?: Array<FactoryClaim>;
+  "planned_files"?: Array<string>;
+  "questions"?: Array<FactoryStoredQuestion>;
+  "needs_you"?: FactoryNeedsYou;
+  "spending_limit"?: FactorySpendingLimit;
+  "failure"?: FactoryFailure;
+  "ask"?: FactoryJobAsk;
+  "publish_error"?: string;
+  "cost": number;
+  "created_at": string;
+  "held_by"?: FactoryHeldBy;
+  "pr": FactoryPR | null;
+  "publish"?: string;
+  "comment"?: string;
+  "head_commit"?: string;
+  "publishing"?: FactoryStoredPublishing;
+  "desk"?: FactoryJobDesk;
+  "can": FactoryCan;
+}
+
+export interface FactoryJobAction {
+  "expect"?: FactoryExpect;
+}
+
+export interface FactoryJobAsk {
+  "text"?: string;
+  "by"?: string;
+  "at"?: string;
+  "source"?: string;
+  "from_ref"?: FactoryStoredSourceRef;
+  "issue"?: FactoryAskIssue;
+}
+
+export interface FactoryJobControls {
+  "stop_step": boolean;
+  "rerun_step": boolean;
+  "edit_steps": boolean;
+  "change_assignee": boolean;
+  "sync": boolean;
+  "timeline": boolean;
+}
+
+export interface FactoryJobCreated {
+  "factory": FactoryIdentity;
+  "id": number;
+}
+
+export interface FactoryJobDesk {
+  "engine_state"?: string;
+  "priority"?: FactoryStoredJobPriority;
+  "done_how"?: string;
+  "approval"?: FactoryStoredApproval;
+  "stop_undo"?: FactoryStoredStopUndo;
+  "change_base"?: string;
+  "thread"?: Array<FactoryStoredMessage>;
+  "worktree_machine"?: string;
+  "publishing"?: boolean;
+  "product"?: string;
+  "places"?: Array<string>;
+  "body"?: string;
+  "author"?: string;
+  "assignee"?: string;
+  "starter"?: string;
+  "taker"?: string;
+  "tier"?: string;
+  "origin"?: string;
+  "synced"?: boolean;
+  "changed_at": string;
+  "triage": FactoryTriage;
+  "cap"?: number;
+  "policy"?: Array<FactoryClaim>;
+  "marked"?: boolean;
+  "labels"?: Array<string>;
+  "checks"?: string;
+  "diff"?: string;
+  "adapted"?: Array<string>;
+  "notes"?: Array<string>;
+  "talk"?: string;
+  "heard": string;
+  "comments": Array<FactoryComment> | null;
+  "files"?: Array<FactoryFile>;
+  "check_runs"?: Array<FactoryCheckRun>;
+  "base"?: string;
+  "head"?: string;
+  "head_sha"?: string;
+  "activity"?: Array<FactoryActivity>;
+  "run"?: FactoryRun;
+}
+
+export interface FactoryJobHandOff {
+  "factory": FactoryIdentity;
+  "id": string;
+  "title": string;
+  "brief": string;
+  "repo": string;
+  "from_ref"?: FactoryStoredSourceRef;
+  "not_now": boolean;
+}
+
+export interface FactoryJobRead {
+  "factory": FactoryIdentity;
+  "state_presentation": FactoryStatePresentation;
+  "controls": FactoryJobControls;
+  "assignee"?: string;
+  "runner"?: string;
+  "id": string;
+  "ref": string;
+  "priority"?: FactoryStoredJobPriority;
+  "size"?: string;
+  "budget"?: number;
+  "reason"?: string;
+  "done_how"?: string;
+  "done_at": string;
+  "dismissed": boolean;
+  "dismissed_by"?: Array<string>;
+  "waiting_for"?: string;
+  "overlap"?: Array<string>;
+  "approval"?: FactoryStoredApproval;
+  "branch_delete_at": string;
+  "branch_deleted_at": string;
+  "owners"?: Array<string>;
+  "change"?: FactoryStoredChange;
+  "draft"?: boolean;
+  "document_id": number;
+  "repo": string;
+  "number": number;
+  "kind": string;
+  "title": string;
+  "url"?: string;
+  "state": string;
+  "version"?: number;
+  "ready"?: boolean;
+  "gate": string;
+  "waiting_since"?: string;
+  "asked_first_reason"?: string;
+  "assigned_to"?: string;
+  "step"?: FactoryStepAt;
+  "steps": Array<FactoryStep> | null;
+  "claims"?: Array<FactoryClaim>;
+  "planned_files"?: Array<string>;
+  "questions"?: Array<FactoryStoredQuestion>;
+  "needs_you"?: FactoryNeedsYou;
+  "spending_limit"?: FactorySpendingLimit;
+  "failure"?: FactoryFailure;
+  "ask"?: FactoryJobAsk;
+  "publish_error"?: string;
+  "cost": number;
+  "created_at": string;
+  "held_by"?: FactoryHeldBy;
+  "pr": FactoryPR | null;
+  "publish"?: string;
+  "comment"?: string;
+  "head_commit"?: string;
+  "publishing"?: FactoryStoredPublishing;
+  "desk"?: FactoryJobDesk;
+  "can": FactoryCan;
+}
+
+export interface FactoryLogLine {
+  "at": string;
+  "glyph"?: string;
+  "tone"?: string;
+  "text": string;
+}
+
+export interface FactoryNeedsQuestion {
+  "id": string;
+  "kind": string;
+  "text"?: string;
+  "options"?: Array<string>;
+  "from_step"?: string;
+  "asks"?: string;
+  "who_can_answer": string;
+  "answered"?: FactoryStoredAnswer;
+}
+
+export interface FactoryNeedsYou {
+  "kind": string;
+  "since": string;
+  "who_can_answer"?: string;
+  "question"?: FactoryNeedsQuestion;
+}
+
+export interface FactoryNeedsYouGroup {
+  "kind": string;
+  "jobs": Array<number> | null;
+}
+
+export interface FactoryNewJob {
+  "repo": string;
+  "title": string;
+  "text": string;
+  "source"?: string;
+  "from_ref"?: FactoryStoredSourceRef;
+  "assignee"?: string;
+  "start"?: string;
+  "pipeline"?: string;
+  "issue"?: boolean;
+  "autostart"?: boolean;
+}
+
+export interface FactoryPR {
+  "conflict"?: boolean;
+  "draft": boolean;
+  "number": number;
+  "url": string;
+  "ci"?: string;
+  "state"?: string;
+  "merged_by"?: string;
+  "merged_at"?: string;
+  "review_decision"?: string;
+  "reviews"?: Array<FactoryPRReview>;
+  "required_reviews"?: number;
+  "checks"?: FactoryPRChecks;
+}
+
+export interface FactoryPRChecks {
+  "passed"?: number;
+  "failed"?: number;
+  "pending"?: number;
+}
+
+export interface FactoryPRReview {
+  "by": string;
+  "state": string;
+  "at": string;
+}
+
+export interface FactoryPipeline {
+  "default_budget": number;
+  "problems"?: Array<string>;
+  "source"?: string;
+  "steps": Array<FactoryStepDef> | null;
+  "by_kind"?: Record<string, Array<FactoryStepDef> | null>;
+  "policy"?: Array<string>;
+  "habits"?: Array<string>;
+  "adapt"?: Record<string, string>;
+  "text"?: string;
+  "personal_text"?: string;
+  "personal"?: boolean;
+  "origin"?: string;
+  "start"?: FactoryStartBlock;
+  "size"?: FactorySizeBlock;
+}
+
+export interface FactoryPipelinePRRequest {
+  "text": string;
+  "title"?: string;
+}
+
+export interface FactoryPipelinePRResponse {
+  "factory": FactoryIdentity;
+  "note": string;
+}
+
+export interface FactoryQueue {
+  "mode"?: string;
+  "people": Record<string, FactoryStoredPersonSummary> | null;
+  "factory": FactoryIdentity;
+  "since": FactorySince;
+  "jobs": Array<FactoryJob> | null;
+  "repos": Array<FactoryRepo> | null;
+  "strip": Array<FactoryCell> | null;
+  "capacity": FactoryCapacity;
+  "me": string;
+  "desk"?: FactoryQueueDesk;
+  "needs_you"?: Array<FactoryNeedsYouGroup>;
+  "reason"?: string;
+}
+
+export interface FactoryQueueDesk {
+  "now": string;
+  "sources": Array<FactorySource> | null;
+  "busy"?: Record<string, string>;
+  "busy_all"?: string;
+  "last_read_cost"?: number;
+  "marked"?: Array<number>;
+  "checkouts": Record<string, string> | null;
+}
+
+export interface FactoryRepo {
+  "on": boolean;
+  "name": string;
+  "watched": boolean;
+  "checkout"?: string;
+  "pipeline"?: FactoryPipeline;
+  "team"?: string;
+  "areas"?: Array<string>;
+  "habits"?: Array<string>;
+  "hue"?: number;
+  "ci_red"?: boolean;
+}
+
+export interface FactoryRoundLine {
+  "round": number;
+  "summary"?: string;
+  "at": string;
+}
+
+export interface FactoryRun {
+  "started": string;
+  "ended": string;
+  "activity"?: Array<number>;
+  "log"?: Array<FactoryLogLine>;
+  "paused"?: boolean;
+  "findings"?: number;
+  "bench"?: number;
+  "room"?: string;
+}
+
+export interface FactorySince {
+  "at": string;
+  "shipped": number;
+  "arrived": number;
+  "asked": number;
+  "handled": number;
+  "spent": number;
+  "spent_today": number;
+  "merged_today": number;
+  "merged_week": number;
+  "hours": Array<number>;
+  "shipping"?: Array<string>;
+}
+
+export interface FactorySizeBlock {
+  "pr_lines": Array<number>;
+  "issue": string;
+}
+
+export interface FactorySource {
+  "name": string;
+  "writes"?: boolean;
+  "repos"?: Array<string>;
+  "polled": string;
+  "trouble"?: string;
+  "polling"?: boolean;
+  "reading"?: string;
+  "read"?: number;
+  "of"?: number;
+  "items"?: number;
+}
+
+export interface FactorySpendingLimit {
+  "limit": number;
+  "spent": number;
+  "next_limit": number;
+  "currency": string;
+}
+
+export interface FactoryStartBlock {
+  "labels": Array<string> | null;
+  "max_size": string;
+  "max_cost": number;
+  "never": Array<string> | null;
+  "ask_first": Array<string> | null;
+}
+
+export interface FactoryStatePresentation {
+  "kind": string;
+  "title": string;
+  "detail"?: string;
+}
+
+export interface FactoryStep {
+  "tests"?: FactoryStoredTestCounts;
+  "name": string;
+  "kind"?: string;
+  "ask"?: string;
+  "until"?: string;
+  "until_sentence"?: string;
+  "max"?: number;
+  "fixed"?: boolean;
+  "custom"?: boolean;
+  "off"?: boolean;
+  "when"?: string;
+  "effort"?: string;
+  "fanout"?: string;
+  "proof"?: Array<string>;
+  "why"?: string;
+  "by"?: string;
+  "state": string;
+  "round"?: number;
+  "result"?: string;
+  "rounds"?: Array<FactoryRoundLine>;
+  "failure"?: FactoryFailure;
+  "cost"?: number;
+  "at"?: string;
+  "note"?: string;
+  "tasks"?: number;
+  "left_ms"?: number;
+  "chat"?: string;
+  "handle"?: string;
+  "run_kind"?: string;
+  "in_pipeline": boolean;
+  "in_run": boolean;
+}
+
+export interface FactoryStepAddition {
+  "step": FactoryStepDef;
+  "after"?: string;
+}
+
+export interface FactoryStepAt {
+  "index": number;
+  "count": number;
+  "name": string;
+}
+
+export interface FactoryStepDef {
+  "name": string;
+  "kind"?: string;
+  "ask"?: string;
+  "until"?: string;
+  "until_sentence"?: string;
+  "max"?: number;
+  "fixed"?: boolean;
+  "custom"?: boolean;
+  "off"?: boolean;
+  "when"?: string;
+  "effort"?: string;
+  "fanout"?: string;
+  "proof"?: Array<string>;
+  "why"?: string;
+  "by"?: string;
+}
+
+export interface FactoryStepEdits {
+  "factory": FactoryIdentity;
+  "steps": Array<FactoryStep> | null;
+  "version"?: number;
+  "lines": Array<string> | null;
+}
+
+export interface FactoryStepEditsRequest {
+  "add"?: Array<FactoryStepAddition>;
+  "ask"?: Record<string, string>;
+  "thinking"?: Record<string, string>;
+  "on"?: Array<string>;
+  "skip"?: Array<string>;
+  "why"?: string;
+  "expect"?: FactoryExpect;
+}
+
+export interface FactoryStoredAnswer {
+  "by": string;
+  "text": string;
+  "at": string;
+  "event"?: string;
+}
+
+export interface FactoryStoredApproval {
+  "kind": string;
+  "state": string;
+  "matched"?: string;
+  "decided_by"?: string;
+  "at": string;
+  "undo_until": string;
+  "commit"?: string;
+  "words"?: string;
+  "edited"?: boolean;
+  "error"?: string;
+}
+
+export interface FactoryStoredChange {
+  "files"?: Array<FactoryStoredChangedFile>;
+  "stat"?: FactoryStoredChangeStat;
+  "branch"?: string;
+  "tests"?: Array<FactoryStoredStepTests>;
+}
+
+export interface FactoryStoredChangeStat {
+  "files": number;
+  "added"?: number;
+  "removed"?: number;
+}
+
+export interface FactoryStoredChangedFile {
+  "path": string;
+  "added"?: number;
+  "removed"?: number;
+  "status": string;
+}
+
+export interface FactoryStoredClaim {
+  "Text": string;
+  "OK": boolean;
+  "Evidence": string;
+  "Medium": string;
+}
+
+export interface FactoryStoredFailure {
+  "Step"?: string;
+  "Code"?: string;
+  "Detail"?: string;
+  "Attempts"?: number;
+  "Machine"?: string;
+  "Next"?: string;
+  "At"?: string;
+}
+
+export interface FactoryStoredJobPriority {
+  "value": string;
+  "set_by"?: string;
+}
+
+export interface FactoryStoredLogLine {
+  "At": string;
+  "Glyph": string;
+  "Tone": string;
+  "Text": string;
+}
+
+export interface FactoryStoredMessage {
+  "at": string;
+  "from": string;
+  "text": string;
+  "id"?: string;
+  "state"?: string;
+}
+
+export interface FactoryStoredPersonSummary {
+  "name": string;
+  "avatar_url": string;
+}
+
+export interface FactoryStoredPhase {
+  "Name": string;
+  "Kind": string;
+  "State": string;
+  "Note": string;
+  "Round": number;
+  "Tasks": number;
+  "Left": number;
+  "Chat": string;
+  "Handle": string;
+  "Carry"?: Array<string>;
+  "Result"?: FactoryStoredStageResult;
+  "At"?: string;
+  "Rounds"?: Array<FactoryStoredRoundLine>;
+  "Failure"?: FactoryStoredFailure;
+}
+
+export interface FactoryStoredPlanEdit {
+  "Add": Array<FactoryStoredStage> | null;
+  "On": Array<string> | null;
+  "Skip": Array<string> | null;
+  "Why": string;
+}
+
+export interface FactoryStoredPublishedPR {
+  "number": number;
+  "url": string;
+}
+
+export interface FactoryStoredPublishing {
+  "state": string;
+  "code"?: string;
+  "detail"?: string;
+  "pr"?: FactoryStoredPublishedPR;
+  "attempt": number;
+  "at": string;
+}
+
+export interface FactoryStoredQuestion {
+  "text": string;
+  "about"?: string;
+  "from_step"?: string;
+  "routed_to"?: string;
+  "state": string;
+  "answer"?: FactoryStoredAnswer;
+  "kind"?: string;
+  "with"?: string;
+  "options"?: Array<string>;
+  "pick"?: string;
+  "why"?: string;
+  "at"?: string;
+  "limit"?: number;
+  "spent"?: number;
+  "next_limit"?: number;
+}
+
+export interface FactoryStoredRoundLine {
+  "Round"?: number;
+  "Summary"?: string;
+  "At"?: string;
+}
+
+export interface FactoryStoredSourceRef {
+  "kind": string;
+  "id": string;
+  "title": string;
+}
+
+export interface FactoryStoredStage {
+  "Name": string;
+  "Kind": string;
+  "Ask": string;
+  "When": string;
+  "Effort": string;
+  "Fanout": string;
+  "Until": string;
+  "Max": number;
+  "Gate"?: string;
+  "GateWhen"?: string;
+  "Proof": Array<string> | null;
+  "On": boolean;
+  "Why": string;
+  "By": string;
+  "Fixed"?: boolean;
+}
+
+export interface FactoryStoredStageResult {
+  "Tests"?: FactoryStoredTestCounts;
+  "Done": boolean;
+  "Findings": number;
+  "Claims": Array<FactoryStoredClaim> | null;
+  "Output": string;
+  "Exit": number;
+  "Notes": Array<string> | null;
+  "Edit": FactoryStoredPlanEdit | null;
+  "Spent": number;
+  "Chat": string;
+}
+
+export interface FactoryStoredStepTests {
+  "step": string;
+  "passed"?: number;
+  "failed"?: number;
+  "skipped"?: number;
+}
+
+export interface FactoryStoredStopUndo {
+  "failure"?: FactoryStoredFailure;
+  "by": string;
+  "until": string;
+  "state": string;
+  "question"?: string;
+  "qkind"?: string;
+  "stream"?: FactoryStoredStream;
+}
+
+export interface FactoryStoredStream {
+  "Phases": Array<FactoryStoredPhase> | null;
+  "Cur": number;
+  "Spent": number;
+  "Started": string;
+  "Ended": string;
+  "Activity": Array<number> | null;
+  "Log": Array<FactoryStoredLogLine> | null;
+  "Paused": boolean;
+  "Findings": number;
+  "Bench": number;
+  "Room": string;
+}
+
+export interface FactoryStoredTestCounts {
+  "passed"?: number;
+  "failed"?: number;
+  "skipped"?: number;
+}
+
+export interface FactoryTriage {
+  "type"?: string;
+  "size"?: string;
+  "area"?: string;
+  "readiness"?: number;
+  "est"?: number;
+  "dup_of"?: number;
+  "risk"?: Array<string>;
+  "read"?: string;
+  "questions"?: Array<string>;
+  "dup"?: string;
+  "priority"?: number;
+  "reason"?: string;
+  "triaged_at": string;
+  "start_judged"?: boolean;
+  "start_matched"?: Array<string>;
+  "start_paths"?: Array<string>;
+  "start_rules"?: Array<string>;
+}
+
+export interface FactoryWorker {
+  "id": string;
+  "name": string;
+  "handle": string;
+  "status": string;
+  "job"?: number;
+}
+
+export interface FactoryRoutes {
+  "GET /v1/jobs/{id}": { request: never; response: FactoryJobRead };
+  "GET /v1/queue": { request: never; response: FactoryQueue };
+  "POST /v1/jobs/{id}/steps/{sid}/stop": { request: FactoryJobAction; response: FactoryActionResult };
+  "POST /v1/jobs/{id}/steps/{sid}/rerun": { request: FactoryJobAction; response: FactoryActionResult };
+  "POST /v1/jobs/{id}/assignee": { request: FactoryAssigneeRequest; response: FactoryActionResult };
+  "POST /v1/jobs/{id}/sync": { request: FactoryJobAction; response: FactoryActionResult };
+  "GET /v1/jobs/{id}/step-edits": { request: never; response: FactoryStepEdits };
+  "POST /v1/jobs/{id}/step-edits": { request: FactoryStepEditsRequest; response: FactoryStepEdits };
+  "GET /v1/jobs/{id}/hand-off/{card}": { request: never; response: FactoryJobHandOff };
+  "POST /v1/jobs/{id}/hand-off/{card}/not-now": { request: FactoryJobAction; response: FactoryActionResult };
+  "POST /v1/repos/{owner}/{repo}/pipeline/open-pr": { request: FactoryPipelinePRRequest; response: FactoryPipelinePRResponse };
+  "POST /v1/issues": { request: FactoryNewJob; response: FactoryJobCreated };
+  "GET /v1/issues": { request: never; response: FactoryIssues };
+  "POST /v1/jobs": { request: FactoryNewJob; response: FactoryJobCreated };
+  "DELETE /v1/auth/device": { request: FactoryDevicePoll; response: FactoryActionResult };
+}
+
+export type FactoryRoute = keyof FactoryRoutes;
+export type FactoryRequest<R extends FactoryRoute> = FactoryRoutes[R]["request"];
+export type FactoryResponse<R extends FactoryRoute> = FactoryRoutes[R]["response"];

@@ -71,3 +71,22 @@ Without that variable the test uses `tsc` on PATH, or skips compiler acceptance
 when it is absent. Freshness and Go/schema contract laws never depend on that
 optional compiler. The fixture enables strict checking and exact optional
 property types, and emits no files.
+
+## Factory job screen contracts
+
+`wire.ts` also publishes `FactoryRoutes`, `FactoryRequest<R>` and
+`FactoryResponse<R>`, generated from `internal/factory/api.ServiceRoutes`.
+They address the factory listener (`/v1`), using its bearer/session credential.
+Factory JSON structs use a `Factory` prefix; the factory identity is
+`FactoryIdentity`, separate from the app's factory connection `Factory`.
+
+Job reads carry `state_presentation` and caller-specific `controls`. Step route
+`sid` is the recorded step name. The job hand-off source card uses its saved
+`ask.from_ref.id`; app hand-off cards use the opaque card id from the prepare
+route and now have GET and Not now routes on the originating agent.
+
+Issue search takes `repo=owner/name` and optional `q` query parameters and
+returns at most 50 open issues from that visible repository. Named pipelines
+come from the repository file; `default` selects the usual issue pipeline.
+The pipeline open-pr response reports the actual review-branch/PR outcome in
+`note`, including local-only and pushed-without-PR outcomes.

@@ -279,9 +279,20 @@
   "x-routes": [
     {
       "method": "POST",
+      "path": "/app/v1/agents/{id}/hand-off/{card}/not-now",
+      "request": "common.json#/$defs/ExpectRequest",
+      "response": "common.json#/$defs/ActionResponse"
+    },
+    {
+      "method": "POST",
       "path": "/app/v1/agents/{id}/hand-off/{card}/send",
       "request": "factory.json#/$defs/SendHandOffRequest",
       "response": "factory.json#/$defs/HandOffResponse"
+    },
+    {
+      "method": "GET",
+      "path": "/app/v1/agents/{id}/hand-off/{card}",
+      "response": "factory.json#/$defs/HandOffCard"
     },
     {
       "method": "POST",
