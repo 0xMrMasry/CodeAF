@@ -612,7 +612,9 @@ never extend its deadline. At expiry the response is 409 `conflict` with
 With `memory.agents_may_add:false`, the session leaves the `remember` tool off
 its belt and stops automatic post-turn extraction. Existing memory reads and
 explicit person saves remain available; an already-issued tool call rechecks
-the setting before writing.
+the setting before writing. Pending automatic candidates recheck before saving
+and after model settlement. Memory lookup and extraction calls pass the same
+app spending admission check as other model calls.
 
 ### 2.15 Spending ledger and caps
 
