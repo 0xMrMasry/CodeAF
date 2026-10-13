@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A8 asks/permissions, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A11b spending/memory, A12 search/history/Activity, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A5 tasks/quick tasks, A6 processes, A8 asks/permissions, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A11b spending/memory, A12 search/history/Activity, A13 AI door, A14 factories/power/hand-off, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -801,8 +801,41 @@ POST /app/v1/ai/call
 - Every call goes through the one token funnel. It writes a ledger row as `who:{kind:"app", purpose}` and counts against the day cap. At the cap it answers 402 `{reason:"at_cap"}`.
 - With `stream: true` the call returns SSE `ai.delta` / `ai.done` on its own response, not on the main stream.
 - The registry of app roles lives in the binary (`internal/roles`), so a structural test can list every token path.
-- Status: **NEW**.
-- S0 forbids the app's own logic from asking a model to "decide, rank, summarise or suggest". The door exists for features the owner adds later, and the design itself names none. See Q2.
+- Status: **EXISTS (A13)**. `internal/appapi/ai_handlers.go`, `internal/roles/app.go`, and the provider funnel own routing, admission and measured receipts.
+- The owner permits app AI only through this binary door (DECISIONS.md, 2026-10-12). No app role is enabled in this build; `app.title`, `app.summary`, unknown purposes and terminal roles return 422 `not_allowed` before network work. Future owner-approved features register with `roles.RegisterApp`; the app retains their prompts. Names remain deterministic. See Q2.
+
+A13 accepts one JSON object of at most 32 KiB, 1–128 nonempty text messages,
+and `max_tokens` from 1 to 32768. Budget is positive two-decimal USD. A tier
+override changes the role ladder's tier rung; a saved role pin still wins.
+App-supplied model ids and `expect` are refused. JSON schemas must compile using
+local references only; returned JSON must match before success.
+
+The call reserves conservative published-price estimates for every actual
+provider send, including retries and rescue arms, using encoded byte count and
+the actual output/thinking ceiling. Unknown prices or an unbounded relaxed
+request return 503 `not_allowed`; insufficient call/day budget returns 402
+`at_cap`. Already admitted calls finish and their actual receipts remain the
+accounting truth. App calls sharing a home serialize through `v3/app/ai.lock`;
+a concurrent call returns 409. Existing cross-process agent in-flight limits
+remain as described in §2.15. Estimates are admission checks, never ledger costs.
+
+Every measured response, including one discarded by a retry or followed by an
+error, is synchronously appended and flushed to `v3/usage.jsonl` with its role
+and additive `id`. `ledger_id` joins those rows for this logical call. Spending
+projects `app.<purpose>` as `who:{kind:"app",purpose}`. Cost in AI replies keeps
+eight decimal places; the spending page sums precise receipts before rounding.
+Unpriced answers request a receipt through the existing funnel; unresolved
+receipts are recorded as unbilled and cannot produce a successful priced reply.
+Token counts without a dollar cost are also unpriced. Direct services have no
+router receipt to recover; their missing cost remains unbilled, never free.
+Ledger failures refuse before calling or report a failed receipt after calling.
+
+Streaming flushes `ai.delta` while the provider runs and finishes with `ai.done`.
+After SSE headers, a failure emits `error {error,ledger_id}` and no `ai.done`.
+These events stay on the call response. Caller cancellation and launch-context
+cancellation stop provider work. Idempotency-Key replays the complete JSON or
+SSE response within the launch's 128-entry cache; changed input returns 409.
+Keyed mutations serialize until their original response completes.
 
 ### 2.21 Activity (app side) and History
 
@@ -1043,7 +1076,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
 | A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | EXISTS — engine day/agent/task caps and temporary raises; shelves, atomic memory edit/5 s undo and add switch |
 | A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | EXISTS |
-| A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
+| A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | EXISTS — no app role enabled |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | BUILT |
 | A15 | Shared rules in `internal/appapi/rules.go`, `/crew` → `/seats` with alias, idle selection predicate, 12 s/$2/$0.40 defaults. Resource enforcement remains with A5–A8/A11a | — | ½ d | BUILT |
 | A16 | Contract reservations, schemas, `docs/design/app-v2/API.md` ↔ route table law and generated `docs/design/app-v2/wire.ts` for the app, from registered Go wire types | A4a | ½ d | EXISTS |
