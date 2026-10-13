@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -136,8 +136,8 @@ not landed returns HTTP 501 `{"error":"not built yet","route":"METHOD /app/v1/�
 `route` names the method and canonical path template, including `{id}` placeholders.
 Authentication and the Origin/Host guard run before that response; a wrong method
 returns 405 with `Allow`. Existing transport, key and agent lifecycle handlers keep
-serving their current responses. The A4a GET snapshot is still partial; A4b owns the
-reserved full `AgentSnapshot` shape, and this contract adds no engine behaviour.
+serving their current responses. A4b serves the full `AgentSnapshot` shape with app-coded entries, pending
+messages, live asks, task summaries and usage; reserved files remain separate.
 
 `internal/appapi/*_wire.go` owns the JSON types, one file per resource.
 `*_handlers.go` owns that resource's route table and one handler entry point.
@@ -167,17 +167,17 @@ S2 fields: `id, name, model, effort, budget, state, crew_id?, role_id?, rules[],
 |---|---|---|---|---|
 | `GET /app/v1/agents?q=&state=` | → `{agents[]}` (rail, All crews and agents) | — | `wb:worldrows.go`, `world.go` (rows), `wb:history.go:243` (closed/archived) | EXISTS (A4a; search expansion A12) |
 | `POST /app/v1/agents` | `{text?, model?, effort?, budget?, approvals?, context[]?, start: "send"\|"empty"}` → `Agent` (name from text, ≤40 chars) | `agent.created`, then `turn.*` | `wb:bridge.go:644-765` (POST /sessions), remote `Session.New` (`v2:internal/remote/wire.go:642`) | EXISTS (A4a) |
-| `GET /app/v1/agents/{id}` | → `Agent` + `snapshot` (entries tail, queue, open asks, tasks summary, usage) | — | `wb:bridge.go:72-96,779`, `snapshotview.go` | EXISTS (A4a saved/live entries, tasks, usage; full snapshot A4b) |
+| `GET /app/v1/agents/{id}` | → `Agent` + `snapshot` (entries tail, queue, open asks, tasks summary, usage) | — | `wb:bridge.go:72-96,779`, `snapshotview.go` | EXISTS (A4b full snapshot) |
 | `PATCH /app/v1/agents/{id}` | `{name?, model?, effort?, budget?, pinned?}` | `agent.changed` | wire `SetModel`, `SetEffort`, `SetSpendRail` (`v2:wire.go:491,492,600`). Rename and pin are NEW | EXISTS (A4a) |
 | `POST /app/v1/agents/{id}/close` · `POST /app/v1/agents/{id}/archive` · `POST /app/v1/agents/{id}/reopen` | `{expect?}`. Close refuses 409 `{running:{processes:n,tasks:n}}` unless `{stop_running:true}` | `agent.changed` | remote `Places.Archive` (`v2:wire_places.go:56`), `wb:history.go:251-259` | EXISTS (A4a) |
 | `POST /app/v1/agents/close-idle` | `{ids[]}` (the app picked them with `?q=idle:true`) → `{closed[]}` | `agent.changed`×n | NEW (idle = no message 7 days and nothing running; S2) | NEW |
-| `POST /app/v1/agents/{id}/turn` | `{text, mode: "send"\|"steer"\|"queue", context[]?, files[]?}` → `{accepted, turn_id}`. 409 if running and mode is `send` | `turn.*` | `wb:bridge.go:877-952`, wire `Submit`, `Steer`, `FollowUp` (`v2:wire.go:449-464`) | PORT |
-| `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE /app/v1/agents/{id}/queue/{qid}` | `{text}` edit · remove | `queue.changed` | `wb:queue.go`, `queue_send.go`, wire `UnqueueFollowUp` (`v2:wire.go:462`) | PORT |
-| `POST /app/v1/agents/{id}/stop` | → receipt "Stopped by you" | `turn.ended` | `wb:bridge.go:959`, wire `StopWork` (`v2:wire.go:486`) | PORT |
-| `POST /app/v1/agents/{id}/retry` · `POST /app/v1/agents/{id}/switch-model` | after a provider failure ×3 | `agent.changed` | NEW (the failed state is not modelled on the wire) | NEW |
-| `POST /app/v1/agents/{id}/move-reply-to-task` | → `{task_id}` (running long, 3:00) | `task.created`, receipt | NEW | NEW |
-| `GET /app/v1/agents/{id}/entries?before=&limit=` | earlier transcript | — | wire `Transcript`, `EarlierHistory` (`v2:wire.go:556-557`); `wb:` `?since=` tail | PORT |
-| `GET /app/v1/agents/{id}/tools/{call_id}` | → `{output, full}` (1 MiB) | — | `wb:bridge.go:793,1096` | PORT |
+| `POST /app/v1/agents/{id}/turn` | `{text, mode: "send"\|"steer"\|"queue", context[]?, files[]?}` → `{accepted, turn_id}`. 409 if running and mode is `send` | `turn.*` | `wb:bridge.go:877-952`, wire `Submit`, `Steer`; durable pending rows (`v2:wire.go:449-464`) | EXISTS (A4b) |
+| `POST /app/v1/agents/{id}/queue/{qid}` · `DELETE /app/v1/agents/{id}/queue/{qid}` | `{text}` edit · remove | `queue.changed` | `wb:queue.go` port adapted to binary-owned pending rows | EXISTS (A4b) |
+| `POST /app/v1/agents/{id}/stop` | → receipt "Stopped by you" | `turn.ended` | `wb:bridge.go:959`, wire `StopWork` (`v2:wire.go:486`) | EXISTS (A4b) |
+| `POST /app/v1/agents/{id}/retry` · `POST /app/v1/agents/{id}/switch-model` | after terminal provider failure (fixed ×3 ceiling remains a gap) | `agent.changed` | canonical terminal stream error and model setter | EXISTS (A4b) |
+| `POST /app/v1/agents/{id}/move-reply-to-task` | → `{task_id}` (running long, 3:00) | `task.created`, receipt | canonical `Interrupt` and `StartTask` | EXISTS (A4b) |
+| `GET /app/v1/agents/{id}/entries?before=&limit=` | earlier transcript | — | wire `Transcript`, `EarlierHistory` (`v2:wire.go:556-557`); `wb:` `?since=` tail | EXISTS (A4b) |
+| `GET /app/v1/agents/{id}/tools/{call_id}` | → `{output, full}` (1 MiB) | — | `wb:bridge.go:793,1096` | EXISTS (A4b) |
 | `GET /app/v1/agents/{id}/files/text` · `GET /app/v1/agents/{id}/files/stat` · `GET /app/v1/agents/{id}/files/find` · `GET /app/v1/agents/{id}/files/changes` · `GET /app/v1/agents/{id}/files/diff` | `text`, `stat`, `find`, `changes`, `diff` (chips, "Not found on this Mac", @mention, file chips) | — | `wb:routes.go:10-52`, `files.go`, `fileslist.go`, `workview.go` | PORT |
 
 A4a implementation: `internal/appapi/agents.go` and `agents_routes.go` port the
@@ -223,9 +223,54 @@ stable id ties. `state=` and `q` support plain name words, `state:` (including
 `open`), `kind:agent`, `model:`, `crew:`, `pinned:true|false` and `since:YYYY-MM-DD`.
 Unsupported tokens return 422; transcript `said:` and `cost:` search are A12.
 The seven-day idle selection and `close-idle` remain with their owning rule lane.
-The full turn snapshot, queue, tool and file routes remain A4b. Budget writes
+A4b supplies the full turn snapshot, queue and tool routes; file browsing remains reserved. Budget writes
 bind the existing adjustable session rail; aggregate agent spend and cap asks
 remain A11b.
+
+### A4b turn core implementation
+
+`turn_handlers.go` serves all nine turn routes through the same registry and
+transport guard. `GET /agents/{id}` returns `AgentResponse`: the last 100 app
+entries, pending queue, open engine asks, task summaries and usage. Saved agents
+retain their transcript and app receipts; live asks/tasks/usage come from the
+engine interfaces, not another resource's store. Earlier compacted history is
+included by the engine's `EarlierHistory` door. `/entries` pages backwards with
+an opaque `before` cursor, default 100 and limit 1–500. Unknown cursors return 422.
+
+Pending messages are saved with the agent and admitted by the binary, one at a
+time after normal completion. The canonical wire has no queue-edit method:
+keeping unsubmitted rows in the registry lets edits/removals and admission share
+one lock. Removing or editing a row already admitted returns 409
+`that message has already been sent`. Queueing while idle starts immediately.
+Failure or interruption holds pending rows; Stop clears them. Restart preserves
+pending rows without starting work on its own. Another surface's active reply
+is refused rather than submitted into implicitly.
+
+`send` refuses a running reply with 409; `steer` requires a running reply and
+uses the engine's `Steer` subscription without publishing duplicate deltas.
+Context remains explicit references. Attachments require absolute regular-file
+paths and plain names, with an 8 MiB combined ceiling; the canonical
+`SubmitFiles` door receives bytes. Queued attachments are read when admitted.
+Files cannot accompany a steer. Strict JSON, null/unknown fields and expectations
+are checked before admission. POST idempotency uses the launch-local bounded
+response cache (32 KiB keyed bodies); replay makes no second call or event.
+
+Stop uses `StopWork`, records `Stopped by you`, cancels the long timer and
+invalidates the stream generation so late text/errors cannot alter a fresh turn.
+Provider retries remain inside the canonical engine; a terminal error sets
+Failed. Retry resends the last accepted request, including steer/context/files;
+Switch model changes the failed agent's model for Retry. These handlers do not
+change the engine's existing provider patience into a fixed three-call ceiling.
+
+A reply emits `turn.long` once after 180 seconds, using an injectable timer for
+proof. Move-to-task explicitly interrupts the reply, passes its request and up
+to 64 KiB of transcript context to canonical `StartTask`, then records
+`Moved to a task · the chat is free again`, a linked notice and `task.created`.
+Existing tasks are kept. Failed admission records the interrupted reply as
+Failed and returns 409; it never claims a task id. Nothing moves automatically.
+Tool output is selected only by recorded call id, capped at 1 MiB with a UTF-8
+boundary. Full stubs must resolve inside that transcript's `logs/stubs` directory
+with the canonical filename; arbitrary paths and symlink escapes are refused.
 
 ### 2.2 Task
 
@@ -664,7 +709,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A2 | Keys: in-memory credential source, `--keys-fd` to children, `PUT/DELETE/GET /keys` with check call, refuse disk writes in app mode, redact | A1 | ½ d | EXISTS |
 | A3 | Stream: the hub, epoch-qualified `e_<epoch>_<n>` ring 4096, `Last-Event-ID`, `reset`, `?agent=` filter, keepalive (port worldstream + bridge ring) | A1 | ½ d | EXISTS |
 | A4a | Agents: registry, list/create/get/patch/close/archive/reopen, stable ids, deterministic names (§5) | A3 | 1 d | EXISTS |
-| A4b | Turns: turn send/steer/queue, queue edit, stop, snapshot, entries, tools, files (port bridge core) | A4a | 1 d | NEW |
+| A4b | Turns: send/steer/queue, queue edit/remove, stop, retry/model recovery, task handoff, snapshot, entries, tools (bridge core); file browsing remains reserved | A4a | 1 d | EXISTS (turn core) |
 | A5 | Tasks + quick tasks: tree, page, verbs, proposal clock (12 s, typing hold), your-call verbs, quick-task hashes, undo, promote | A4b | 1 d | NEW |
 | A6 | Processes: rename, list/output/follow/stop/rerun/stop-all, retention (§5), quit and power stops | A4b | ½ d | NEW |
 | A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | NEW |
@@ -718,8 +763,8 @@ Parallel waves:
 | Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a | — |
 | Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a | — |
 | Idle agent: no message 7 days and nothing running; nothing closes on its own | none | **NEW** derived flag | A15 | BUILT — `AgentIsIdle`; list/close routes A4a |
-| Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **NEW** | A4b | — |
-| Running long: one line at 3:00 per reply; Move it to a task | none | **NEW** | A4b/A5 | — |
+| Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **EXISTS (A4b recovery)**: terminal engine failure enables Retry/Switch model; fixed three-call patience remains a gap | A4b | — |
+| Running long: one line at 3:00 per reply; Move it to a task | none | **EXISTS (A4b)**: one 180 s event; explicit handoff through StartTask | A4b | — |
 | Receipts for every decision, including automatic ones and answers given elsewhere | partial | **CHANGED** | A8 | — |
 | Approve/answer 5 s hold, server-side | none (engine); factory 5 s hold with Undo | **EXISTS** for factory F-2; engine A9 remains NEW | | — |
 | Effort: Low · Medium · High (default Medium) | five rungs (`effort/effort.go:27`) | **EXISTS**; the app shows three | — | — |
