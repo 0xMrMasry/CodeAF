@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A10b roles/sub-crews/reports/items/log, A11a settings/setup, A12 search/history/Activity, A15 shared rules/TUI seat rename and A16 published TypeScript contracts built, 2026-10-13; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -158,6 +158,16 @@ follow-response event contracts, not main-stream publishers. No app role is enab
 The route law reads all explicit app method/path pairs in this document and
 compares them with the actual registered handlers; the schema gate also checks
 fresh generation and populated JSON round-trips for every registered wire type.
+
+**EXISTS (A16):** the same command publishes `docs/design/app-v2/wire.ts` for
+the app, with every registered wire type, `APP_CONTRACT`, `AppRoutes` request/
+response mappings, and `AppEvents` payloads (including separate follow streams).
+`AppEvent` is a discriminated union. Money stays a string, timestamps and ids
+remain opaque strings, and optional fields and required nullable Go collections
+retain their JSON meaning. Route types include reservations; they do not claim
+those routes are built. Schema and TypeScript freshness run in `make test-quick`
+through the contract laws. [Contract publication](CONTRACT.md) explains pinning
+the app's copy and the optional strict TypeScript compiler acceptance fixture.
 
 ### 2.1 Agent
 
@@ -848,7 +858,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | NEW |
 | A15 | Shared rules in `internal/appapi/rules.go`, `/crew` → `/seats` with alias, idle selection predicate, 12 s/$2/$0.40 defaults. Resource enforcement remains with A5–A8/A11a | — | ½ d | BUILT |
-| A16 | Contract reservations, schemas and `docs/design/app-v2/API.md` ↔ route table law built; a generated TypeScript types file for the desk (`appapi/wire.go` → `wire.ts`) | A4a | ½ d | NEW |
+| A16 | Contract reservations, schemas, `docs/design/app-v2/API.md` ↔ route table law and generated `docs/design/app-v2/wire.ts` for the app, from registered Go wire types | A4a | ½ d | EXISTS |
 
 Parallel waves:
 1. A1.
