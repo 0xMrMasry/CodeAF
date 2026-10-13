@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A10a crews/members, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -359,11 +359,11 @@ S2 fields: `id, name, tint (iris·sage·sand·tide·rose·graphite), goal, manag
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `GET /app/v1/crews?q=` · `GET /app/v1/crews/{cid}` | → crew, team tree, plan (read-only), items | — | wire `Teams.Read` (`v2:internal/remote/wire_teams.go:35`), `v2:internal/teams/teams.go:55` | NEW (HTTP) |
-| `POST /app/v1/agents/{id}/bring-in-helpers` | → proposal card `{name, tint, helpers[{role, model, budget}], budget, ends_at}` (the agent proposes it) | `ask.created` | wire `Teams.Propose` (`wire_teams.go:116`) | NEW (HTTP) |
-| `POST /app/v1/crews` | `{from: "proposal", proposal_id, edits?}` or `{from: "agents", agent_ids[], name, goal, manager: "new"\|agent_id, members[]}` | `crew.created`, `agent.changed` | wire `Teams.Update` (`wire_teams.go:40`). The summary-per-chat handover for a crew made from agents is NEW | NEW |
-| `PATCH /app/v1/crews/{cid}` | `{name?, tint?, goal?, budget?, ends_at?}` | `crew.changed` | `Teams.Name`, `Teams.Update`. Tint is NEW: the code has a float `Hue` (`teams.go:70`) | NEW |
-| `POST /app/v1/crews/{cid}/replace-manager` | `{member_id \| role}` | `crew.changed` | `FormerManager` (`teams.go:66`) | NEW (HTTP) |
+| `GET /app/v1/crews?q=` · `GET /app/v1/crews/{cid}` | → crew, team tree, plan (read-only), items | — | wire `Teams.Read` (`v2:internal/remote/wire_teams.go:35`), `v2:internal/teams/teams.go:55` | EXISTS (A10a) |
+| `POST /app/v1/agents/{id}/bring-in-helpers` | → proposal card `{name, tint, helpers[{role, model, budget}], budget, ends_at}` (the agent proposes it) | `ask.created` | source agent `Submit`, routed and billed by its engine | EXISTS (A10a) |
+| `POST /app/v1/crews` | `{from: "proposal", proposal_id, edits?}` or `{from: "agents", agent_ids[], name, goal, manager: "new"\|agent_id, members[]}` | `crew.created`, `agent.changed` | `teams.Update`; short handover notes become a native manager directive, and the manager writes the summary without merging chats | EXISTS (A10a) |
+| `PATCH /app/v1/crews/{cid}` | `{name?, tint?, goal?, budget?, ends_at?}` | `crew.changed` | `teams.Update`; six tints map to native hue slots | EXISTS (A10a) |
+| `POST /app/v1/crews/{cid}/replace-manager` | `{member_id \| role}` | `crew.changed` | `teams.SetManager`, retaining the former manager as a member | EXISTS (A10a) |
 | `POST /app/v1/crews/{cid}/wrap-up` · `POST /app/v1/crews/{cid}/keep-going` · `POST /app/v1/crews/{cid}/finish` · `POST /app/v1/crews/{cid}/reopen` · `POST /app/v1/crews/{cid}/archive` | `finish` refuses 409 `{open_items:n}` ("2 items aren't done") | `crew.changed`, `report.ready` | wire `Teams.WrapUp`, `Teams.AcceptClosing` (`v2:internal/remote/wire_teams*.go:64-65`) | NEW (HTTP) |
 | `GET /app/v1/crews/{cid}/log?before=` | members talking, newest first | `crew.log` | wire `Teams.Traffic` (`wire_teams.go:44`) | NEW (HTTP) |
 | `POST /app/v1/crews/{cid}/items` · `DELETE /app/v1/crews/{cid}/items/{ref}` | `{ref \| url}`: link a job, issue or PR | `crew.changed` | NEW | NEW |
@@ -375,10 +375,41 @@ S2 fields: `crew_id, agent_id, role_id, is_manager, reports_to, cap?, state (run
 
 | Route | Body → Response | Events | Backed by | Status |
 |---|---|---|---|---|
-| `POST /app/v1/crews/{cid}/members` | `{role_id \| new_role{name, instructions, model, effort}, agent_id?, cap?, reports_to}` → member. An agent already in this crew gets 409 "already in Flaky tests" | `crew.changed` | `teams.Member` (`teams.go:~20-50`) | NEW (HTTP) |
-| `PATCH /app/v1/crews/{cid}/members/{mid}` | `{cap?, reports_to?, instructions?}` | `crew.changed`, receipt | `Teams.Spend`, `teamsettings.go` | NEW (HTTP) |
-| `POST /app/v1/crews/{cid}/members/{mid}/pause` · `POST /app/v1/crews/{cid}/members/{mid}/resume` · `POST /app/v1/crews/{cid}/members/{mid}/move` · `POST /app/v1/crews/{cid}/members/{mid}/remove` | the manager has no `remove`: 409 → replace-manager | `crew.changed`, `agent.changed` | NEW | NEW |
-| Messaging a member | `POST /app/v1/agents/{member.agent_id}/turn` (§2.1) | | each member is a conversation | PORT |
+| `POST /app/v1/crews/{cid}/members` | `{role_id \| new_role{name, instructions, model, effort}, agent_id?, cap?, reports_to}` → member. An agent already in this crew gets 409 "already in Flaky tests" | `crew.changed` | `teams.Member` (`teams.go:~20-50`) | EXISTS (A10a) |
+| `PATCH /app/v1/crews/{cid}/members/{mid}` | `{cap?, reports_to?, instructions?}` | `crew.changed`, receipt | `Teams.Spend`, `teamsettings.go` | EXISTS (A10a) |
+| `POST /app/v1/crews/{cid}/members/{mid}/pause` · `POST /app/v1/crews/{cid}/members/{mid}/resume` · `POST /app/v1/crews/{cid}/members/{mid}/move` · `POST /app/v1/crews/{cid}/members/{mid}/remove` | the manager has no `remove`: 409 → replace-manager | `crew.changed`, `agent.changed` | native team store + agent registry | EXISTS (A10a) |
+| Messaging a member | `POST /app/v1/agents/{member.agent_id}/turn` (§2.1) | | each member is a conversation | EXISTS — A4b turn route with A10a admission/log adapter |
+
+A10a stores app-only crew/member fields in the native `teams.json` document's
+preserved `app_v2` extension. Native name, manager, parent and membership remain
+canonical; the existing cross-process team lock protects mutations. Agent ids
+remain transcript ids, and member paths use `agent_id` for `{mid}`. A member
+already live in another crew is copied into a new conversation with the same
+role id. Duplicate membership in the same crew returns 409. One crew has at
+most 64 members. Crew names have 1–40 characters; goal has at most 8000 bytes;
+role instructions have at most 16000 bytes. Budget/caps are positive cents;
+caps cannot exceed the crew budget. The default crew budget is $20.
+
+Unmanaged terminal groups and the optional global-manager group are not app crews.
+Single-crew GET returns numeric `ETag` from the complete native document; mutations accept `expect.state` and
+`expect.version`. Helper proposals are private, durable, expire after 24 h,
+and accept once across launches. Proposal creation has a 2-minute ceiling;
+it refuses a busy, closed, archived or already-member source. Accepting stale
+source state returns 409. POST retries with the same launch's Idempotency-Key
+reuse the reply; changed input with that key returns 409.
+
+The budget monitor samples once per second and on app events. Spend starts at
+membership, using each agent's engine/transcript usage; at a member cap it stops
+that member, and at the crew budget it stops all members. It saves one budget
+Ask before emitting `ask.created`. Raising the relevant cap through PATCH clears
+that Ask. `CrewBudgetAsks` exposes the waiting set to A8/A9. `CrewAllowsMessage`
+and `RecordCrewMessage` are the guarded A4b turn route's admission/log hooks; `CrewQuestionPath` is
+A8/A10b's read-only visible path. Native question packets already climb managers;
+permission decisions remain the person's. A10a does not implement the reserved
+ask-answer, Inbox, role, sub-crew, report or item routes. Crew GET's plan
+and items stay empty until their resource producers supply them. Existing role
+ids resolve through `Options.CrewRoles` (a `CrewRoleSource` interface), or through
+inline roles already saved in crew metadata.
 
 ### 2.11 Role
 
@@ -715,7 +746,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A7 | Standing orders and reminders over `Standing.*`: scope field, run verbs, pause-all | A4b | 1 d | NEW |
 | A8 | Asks + permissions + rules + question clock: one Ask object, receipts on every path, rule ids, Why? | A4b | 1 d | NEW |
 | A9 | Inbox: derived set, stable ids, answer-forwarding, 5 s server hold for engine asks, factory needs-you merge (solo + attached) | A5, A7, A8, F-2/F-3 | 1 d | NEW |
-| A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | NEW |
+| A10a | Crews + members over `Teams.*`: tint, goal, budget, ends_at, members, caps, pause/move/remove, replace manager | A4a | 1 d | EXISTS — resource routes, budget monitor, producer hooks |
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | NEW |
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
 | A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
@@ -760,8 +791,8 @@ Parallel waves:
 | Agent budget $5.00 default, asks at it | no per-agent default; per-conversation rail exists (`session/rail.go:38`) | **NEW** default + budget ask | A4a/A11b | — |
 | Day cap: $20 written at first run; at cap everything pauses and asks | `DefaultDailyBudgetUSD = 500` (`config/config.go:128`) | **EXISTS (A11a setup)**: setup writes 20 for a fresh app; existing shared-home choices and the TUI built-in default remain | A11a | BUILT — setup persistence A11a; cap asks A11b |
 | Sub-crew depth 3, share 50% | `teamdefaults.go:44-45` | **EXISTS** | — | — |
-| Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a | — |
-| Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a | — |
+| Crew budget, caps can't exceed it; member at cap stops and its manager asks | team `CapUSDDay` per day (`teamdefaults.go:43`) | **CHANGED**: a crew budget (not per day) plus member caps | A10a | EXISTS — positive cents, lifetime pool, one saved budget Ask |
+| Crew tints: six named | float `Hue` (`teams/teams.go:70`) | **NEW** enum (map to hues) | A10a | EXISTS — six tints mapped to native hues |
 | Idle agent: no message 7 days and nothing running; nothing closes on its own | none | **NEW** derived flag | A15 | BUILT — `AgentIsIdle`; list/close routes A4a |
 | Provider error ×3 → failed state with Retry · Switch model | retries exist; no failed agent state | **EXISTS (A4b recovery)**: terminal engine failure enables Retry/Switch model; fixed three-call patience remains a gap | A4b | — |
 | Running long: one line at 3:00 per reply; Move it to a task | none | **EXISTS (A4b)**: one 180 s event; explicit handoff through StartTask | A4b | — |
