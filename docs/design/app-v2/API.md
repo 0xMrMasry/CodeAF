@@ -1,6 +1,6 @@
 # codeaf v2 app API — the local API the binary exposes
 
-Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A11a settings/setup and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
+Status: A1 transport, A2 key handoff, A3 event stream, A4a agent lifecycle, A4b turn core, A6 processes, A9 Inbox, A10a crews/members, A11a settings/setup, A12 search/history/Activity and A15 shared rules/TUI seat rename built, 2026-10-12; factory deltas F-1–F-7 built on Contract 2; remaining app lanes have reserved Go contracts and authenticated 501 stubs, not behaviour. Branch `app/v2`.
 
 Design source: codeaf-desk `main`, `src/design/source/text/` (S0, S1, S2, X1–X5, U1–U7). When this file and a board disagree, the board wins, and this file changes in the same PR.
 
@@ -221,7 +221,7 @@ Initial send publishes `turn.started`; stream completion publishes `turn.ended`.
 Lists include open, closed and archived records, newest last-message first, with
 stable id ties. `state=` and `q` support plain name words, `state:` (including
 `open`), `kind:agent`, `model:`, `crew:`, `pinned:true|false` and `since:YYYY-MM-DD`.
-Unsupported tokens return 422; transcript `said:` and `cost:` search are A12.
+Unsupported tokens return 422; A12 adds quoted phrases, transcript `said:` and actual-spend `cost:` search through the shared history grammar.
 The seven-day idle selection and `close-idle` remain with their owning rule lane.
 A4b supplies the full turn snapshot, queue and tool routes; file browsing remains reserved. Budget writes
 bind the existing adjustable session rail; aggregate agent spend and cap asks
@@ -531,10 +531,30 @@ Browser sign-in is backed only for OpenRouter; other providers return 422 `bad_i
 
 | Route | Body → Response | Backed by | Status |
 |---|---|---|---|
-| `GET /app/v1/search?q=&kinds=&include_closed=` | → `{groups:[{kind: "agents_crews"\|"jobs"\|"files", rows[≤4]}]}`. Order: exact prefix › word prefix › substring, ties broken by last used. Open tabs and Commands are app-side | wire `Places.Search` (`wire_places.go:53`) for said:, `wb:history.go:247`, solo `/v1/queue` jobs, `wb:files` find | NEW (merge) |
-| `GET /app/v1/history?q=` | All crews and agents: tokens `state: said: since: kind: crew: model: cost:`. Meter: Open · Pinned · Closed · Archived | `wb:history.go:243-271` | PORT |
+| `GET /app/v1/search?q=&kinds=&include_closed=` | → `{groups:[{kind: "agents_crews"\|"jobs"\|"files", rows[≤4]}]}`. Order: exact prefix › word prefix › substring, ties broken by last used. Open tabs and Commands are app-side | wire `Places.Search` (`wire_places.go:53`) for said:, `wb:history.go:247`, solo `/v1/queue` jobs, `wb:files` find | EXISTS (A12) |
+| `GET /app/v1/history?q=` | All crews and agents: tokens `state: said: since: kind: crew: model: cost:`. Meter: Open · Pinned · Closed · Archived | `wb:history.go:243-271` | EXISTS (A12) |
 
 Team factory jobs in ⌘K come from the app's own `/v1` cache. The binary searches only what it owns.
+
+A12 reads agents and crews through their typed resource handlers, solo jobs
+through the mounted `/v1/queue` with the caller's access headers, and files
+through context chips plus the agent file-finding interface when built. Missing
+factory or reserved file interfaces contribute no extra rows; other resource
+read failures return 503 rather than pretending there are no matches.
+`kinds` accepts comma-separated `agents_crews`, `jobs`, `files`, or individual
+`agent`/`agents` and `crew`/`crews` (singular job/file also work). Group order is
+fixed and each group has at most four rows. Closed and archived agents/crews
+require `include_closed=true`; Done jobs remain searchable. Stable kind/id ties
+follow latest known usage. There are no AI calls or model attachments.
+
+History and agent-list queries share an AND grammar: plain name words, quoted
+phrases, `state:` (including `open` and `pinned`), `kind:`, `crew:` (id or name),
+`model:`, `pinned:true|false`, `said:`, `since:` and `cost:`. `said:` includes
+user/assistant text, earlier compacted history and crew member/report text,
+never tool output or receipts. Crew model filtering uses the manager's model.
+`since:` takes a UTC date or positive day count such as `7d`; `cost:` compares
+actual spend in exact cents with `=`, `>`, `>=`, `<`, `<=`. Unknown spend cannot
+match. Unsupported filters, unfinished quotes and invalid values return 422.
 
 ### 2.18 Settings that belong to the binary
 
@@ -595,7 +615,19 @@ POST /app/v1/ai/call
 
 - The engine's own Activity (agent closed, crew finished, rule removed) appears as `activity` events, and is listed by `GET /app/v1/activity?since=`.
 - Tidy-undo bookkeeping is app state. The engine supplies the inverse verbs (`reopen`, `restore`).
-- Status: **NEW**.
+- Status: **EXISTS (A12)**. Successful agent lifecycle/pin changes and supported
+  crew finish/archive/reopen, rule removal/restoration and memory
+  forget/restoration produce one durable line and an `activity` event. Failed
+  actions, unchanged requests and idempotency replays produce none. Other
+  resource lanes still own their verbs; a reserved action remains 501.
+- `<home>/v3/app/activity.jsonl` is private (0600), appended and flushed under a
+  shared file lock across windows and launches. The lock covers before/after
+  typed resource reads and the action, so two windows cannot record the same
+  transition twice. The transport installs this A12 observer after authentication.
+  `since` accepts RFC3339 timestamps or UTC dates, exclusively; lists are newest
+  first. An unavailable journal refuses before mutation. A write failure after
+  mutation returns 503 explicitly stating that the action completed; journal
+  and resource storage are separate, so a crash between them can omit a line.
 
 ### 2.22 Factory
 
@@ -732,7 +764,7 @@ data: {"agent":"a_…","task":"t_…","state":"your_call","at":"…"}
 | `inbox.added` · `inbox.resolved` · `inbox.undo_window` | `{item, kind}` · `{item, how, by, at}` · `{item, until}` | `wb:attention.go` + NEW |
 | `spend.changed` | `{today, cap, agent?}` (≤1/s) | NEW |
 | `factory.changed` | `{factory, state}`, plus each attached factory's typed events re-emitted as `factory.event` `{factory, type, data}` only for Inbox kinds | NEW |
-| `activity` | `{at, actor, verb, object, detail}` | NEW |
+| `activity` | `{at, actor, verb, object, detail}` | EXISTS (A12) |
 | `title.changed` | `{agent, name}` | `wb:` `titleChanged`, wire `Title.Watch` |
 
 ---
@@ -783,7 +815,7 @@ The remaining gaps are `session` and `remote` symbols: `PlaceGraph*`, `QuestionO
 | A10b | Roles store + copies; sub-crews; climbing path; wrap-up/report (five parts); items; log | A10a | 1 d | NEW |
 | A11a | Models/effort/providers/settings keys (port modelroles/pinned/settings) + first-run setup | A2 | ½ d | EXISTS |
 | A11b | Spending ledger and caps + memory over `Places.Ledger` / `Memory.*` | A4a | ½ d | NEW |
-| A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | NEW |
+| A12 | Search (⌘K merge) + history (port) + engine Activity | A4a | ½ d | EXISTS |
 | A13 | AI door: app role registry, routing, ledger rows, cap, stream; funnel structural test | A11b | ½ d | NEW |
 | A14 | Factories in-process: solo mount on the same listener, create solo, attach/detach team, power → runner asleep, hand-off | A1, F-1, F-4, F-5 | 1 d | NEW |
 | A15 | Shared rules in `internal/appapi/rules.go`, `/crew` → `/seats` with alias, idle selection predicate, 12 s/$2/$0.40 defaults. Resource enforcement remains with A5–A8/A11a | — | ½ d | BUILT |
