@@ -352,7 +352,8 @@
           "type": "string",
           "enum": [
             "exact",
-            "class"
+            "class",
+            "task"
           ]
         },
         "who": {

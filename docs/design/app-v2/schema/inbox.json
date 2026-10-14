@@ -556,7 +556,8 @@
           "type": "string",
           "enum": [
             "exact",
-            "class"
+            "class",
+            "task"
           ]
         },
         "who": {
@@ -579,6 +580,7 @@
         "id": {
           "type": "string",
           "enum": [
+            "task",
             "exact",
             "class"
           ]

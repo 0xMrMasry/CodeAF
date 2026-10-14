@@ -1011,12 +1011,12 @@ export interface PermissionRule {
 }
 
 export interface PermissionRuleChoice {
-  "match": "exact" | "class";
+  "match": "exact" | "class" | "task";
   "who": "agent" | "all_agents";
 }
 
 export interface PermissionScope {
-  "id": "exact" | "class";
+  "id": "task" | "exact" | "class";
   "command": string;
   "label": string;
 }
