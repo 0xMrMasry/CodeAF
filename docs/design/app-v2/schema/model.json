@@ -64,6 +64,12 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "price_in": {
+          "type": "number"
+        },
+        "price_out": {
+          "type": "number"
         }
       },
       "additionalProperties": false,
@@ -157,6 +163,9 @@
         "default": {
           "type": "string"
         },
+        "resolved": {
+          "type": "string"
+        },
         "pinned": {
           "items": {
             "type": "string"
@@ -171,6 +180,7 @@
       "required": [
         "models",
         "default",
+        "resolved",
         "pinned"
       ]
     },
