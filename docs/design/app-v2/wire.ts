@@ -728,6 +728,18 @@ export interface InboxItem {
   "context": InboxContext;
   "verbs": Array<string> | null;
   "who_can_answer": Array<string> | null;
+  "permission"?: InboxPermission;
+}
+
+export interface InboxPermission {
+  "reason": string;
+  "commands": Array<string> | null;
+  "command_ids"?: Array<string>;
+  "irreversible": boolean;
+  "task"?: string;
+  "scopes": Array<PermissionScope> | null;
+  "touches"?: Array<string>;
+  "read_only"?: boolean;
 }
 
 export interface InboxResolvedEvent {
@@ -967,6 +979,8 @@ export interface Permission {
   "why": string;
   "before": Array<DisplayEntry> | null;
   "batch"?: Array<PermissionCommand>;
+  "touches"?: Array<string>;
+  "read_only"?: boolean;
 }
 
 export interface PermissionCommand {
@@ -999,6 +1013,12 @@ export interface PermissionRule {
 export interface PermissionRuleChoice {
   "match": "exact" | "class";
   "who": "agent" | "all_agents";
+}
+
+export interface PermissionScope {
+  "id": "exact" | "class";
+  "command": string;
+  "label": string;
 }
 
 export interface PinnedModelsRequest {

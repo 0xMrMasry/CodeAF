@@ -325,6 +325,9 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "permission": {
+          "$ref": "#/$defs/InboxPermission"
         }
       },
       "additionalProperties": false,
@@ -339,6 +342,54 @@
         "context",
         "verbs",
         "who_can_answer"
+      ]
+    },
+    "InboxPermission": {
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "irreversible": {
+          "type": "boolean"
+        },
+        "task": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/PermissionScope"
+          },
+          "type": "array"
+        },
+        "touches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "read_only": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "reason",
+        "commands",
+        "irreversible",
+        "scopes"
       ]
     },
     "InboxResolvedEvent": {
@@ -440,6 +491,15 @@
             "$ref": "#/$defs/PermissionCommand"
           },
           "type": "array"
+        },
+        "touches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "read_only": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -514,6 +574,30 @@
         "who"
       ]
     },
+    "PermissionScope": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "class"
+          ]
+        },
+        "command": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "command",
+        "label"
+      ]
+    },
     "SourceRef": {
       "properties": {
         "kind": {
@@ -538,6 +622,12 @@
   "anyOf": [
     {
       "$ref": "#/$defs/InboxItem"
+    },
+    {
+      "$ref": "#/$defs/InboxPermission"
+    },
+    {
+      "$ref": "#/$defs/PermissionScope"
     },
     {
       "$ref": "#/$defs/InboxContext"
