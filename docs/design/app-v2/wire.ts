@@ -729,6 +729,7 @@ export interface InboxItem {
   "verbs": Array<string> | null;
   "who_can_answer": Array<string> | null;
   "permission"?: InboxPermission;
+  "undo_until"?: string;
 }
 
 export interface InboxPermission {

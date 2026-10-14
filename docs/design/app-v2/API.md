@@ -623,6 +623,7 @@ or expired ids return 404. Held and undone answers are not completed receipts.
 Answer-once:
 - The Inbox never owns an answer. `POST /app/v1/inbox/{id}/answer {…}` forwards to the source verb (`asks`, `permissions`, `tasks/decide`, `orders/runs`, or the factory `/v1/jobs/{id}/approve|answer`).
 - Every surface that showed the item receives `inbox.resolved {id, how: "here"\|"in_place"\|"someone_else"\|"no_longer_needed", by, at}` within one second (U3-07).
+- While an answer waits out its Undo window, `GET /inbox` and `GET /inbox/{id}` return the item with `undo_until` and `answer` (the decision; a permission answer always names `verb: "allow_once"\|"always"\|"deny"`). After the window the item is resolved and is not listed again, also while its source has not yet consumed the answer.
 - Approve and answer hold for 5 s, as **Approving… Undo**:
   - The binary keeps the pending decision with `undo_until`.
   - `POST /app/v1/inbox/{id}/undo` within 5 s cancels it, and nothing is sent.

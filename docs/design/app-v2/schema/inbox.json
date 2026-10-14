@@ -328,6 +328,10 @@
         },
         "permission": {
           "$ref": "#/$defs/InboxPermission"
+        },
+        "undo_until": {
+          "type": "string",
+          "format": "date-time"
         }
       },
       "additionalProperties": false,
