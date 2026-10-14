@@ -821,6 +821,8 @@ export interface Model {
   "provider": string;
   "available": boolean;
   "efforts": Array<string> | null;
+  "price_in"?: number;
+  "price_out"?: number;
 }
 
 export interface ModelRequest {
@@ -847,6 +849,7 @@ export interface ModelRolesResponse {
 export interface ModelsResponse {
   "models": Array<Model> | null;
   "default": string;
+  "resolved": string;
   "pinned": Array<string> | null;
 }
 
