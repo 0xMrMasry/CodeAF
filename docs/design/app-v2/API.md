@@ -622,7 +622,7 @@ or expired ids return 404. Held and undone answers are not completed receipts.
 
 Answer-once:
 - The Inbox never owns an answer. `POST /app/v1/inbox/{id}/answer {…}` forwards to the source verb (`asks`, `permissions`, `tasks/decide`, `orders/runs`, or the factory `/v1/jobs/{id}/approve|answer`).
-- Every surface that showed the item receives `inbox.resolved {id, how: "here"\|"in_place"\|"someone_else"\|"no_longer_needed", by, at}` within one second (U3-07).
+- Every surface that showed the item receives `inbox.resolved {id, how: "here"\|"in_place"\|"someone_else"\|"no_longer_needed", by, at, verb?}` within one second (U3-07). A permission item carries `verb: "allow_once"\|"always"\|"deny"\|"expired"`, so a card can keep "Allowed once" or "Denied" after it leaves the list.
 - While an answer waits out its Undo window, `GET /inbox` and `GET /inbox/{id}` return the item with `undo_until` and `answer` (the decision; a permission answer always names `verb: "allow_once"\|"always"\|"deny"`). After the window the item is resolved and is not listed again, also while its source has not yet consumed the answer.
 - Approve and answer hold for 5 s, as **Approving… Undo**:
   - The binary keeps the pending decision with `undo_until`.
@@ -1125,7 +1125,7 @@ data: {"agent":"a_…","task":"t_…","state":"your_call","at":"…"}
 | `order.changed` · `order.fired` | `{agent, order, state, trust, approved_runs}` · `{order, run, ask?}` | EXISTS (A7 native store sampling) |
 | `crew.created` · `crew.changed` · `crew.log` · `report.ready` | `{crew, fields[]}` · `{crew, from, to, text}` · `{crew}` | NEW (`Teams.*`) |
 | `role.changed` · `rule.created` · `rule.changed` · `memory.changed` · `settings.changed` · `keys.changed` | `{id}` / `{keys[]}` | NEW |
-| `inbox.added` · `inbox.resolved` · `inbox.undo_window` | `{item, kind}` · `{item, how, by, at}` · `{item, until}` | `wb:attention.go` + NEW |
+| `inbox.added` · `inbox.resolved` · `inbox.undo_window` | `{item, kind}` · `{item, how, by, at, verb?}` · `{item, until}` | `wb:attention.go` + NEW |
 | `spend.changed` | `{today, cap, agent?}` (≤1/s) | NEW |
 | `factory.changed` | `{factory, state}`, plus each attached factory's typed events re-emitted as `factory.event` `{factory, type, data}` only for Inbox kinds | NEW |
 | `activity` | `{at, actor, verb, object, detail}` | EXISTS (A12) |

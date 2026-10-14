@@ -748,6 +748,7 @@ export interface InboxResolvedEvent {
   "how": "here" | "in_place" | "someone_else" | "no_longer_needed";
   "by": string;
   "at": string;
+  "verb"?: "allow_once" | "always" | "deny" | "expired";
 }
 
 export interface InboxResponse {

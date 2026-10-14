@@ -416,6 +416,15 @@
         "at": {
           "type": "string",
           "format": "date-time"
+        },
+        "verb": {
+          "type": "string",
+          "enum": [
+            "allow_once",
+            "always",
+            "deny",
+            "expired"
+          ]
         }
       },
       "additionalProperties": false,
