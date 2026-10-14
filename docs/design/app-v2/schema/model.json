@@ -45,6 +45,26 @@
         "effort"
       ]
     },
+    "HelperTier": {
+      "properties": {
+        "tier": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tier",
+        "model",
+        "source"
+      ]
+    },
     "Model": {
       "properties": {
         "id": {
@@ -173,6 +193,12 @@
           "type": "array",
           "maxItems": 3,
           "minItems": 3
+        },
+        "helper_tiers": {
+          "items": {
+            "$ref": "#/$defs/HelperTier"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -181,7 +207,8 @@
         "models",
         "default",
         "resolved",
-        "pinned"
+        "pinned",
+        "helper_tiers"
       ]
     },
     "PinnedModelsRequest": {
@@ -296,6 +323,9 @@
     },
     {
       "$ref": "#/$defs/ModelsResponse"
+    },
+    {
+      "$ref": "#/$defs/HelperTier"
     },
     {
       "$ref": "#/$defs/PinnedModelsRequest"

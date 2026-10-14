@@ -682,6 +682,12 @@ export interface HelperProposal {
   "ends_at"?: string;
 }
 
+export interface HelperTier {
+  "tier": string;
+  "model": string;
+  "source": string;
+}
+
 export interface HistoryResponse {
   "agents": Array<Agent> | null;
   "crews": Array<Crew> | null;
@@ -851,6 +857,7 @@ export interface ModelsResponse {
   "default": string;
   "resolved": string;
   "pinned": Array<string> | null;
+  "helper_tiers": Array<HelperTier> | null;
 }
 
 export interface Money {
