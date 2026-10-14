@@ -253,6 +253,15 @@
             "$ref": "#/$defs/PermissionCommand"
           },
           "type": "array"
+        },
+        "touches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "read_only": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
