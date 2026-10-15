@@ -847,10 +847,15 @@ Collection is `{id, name, created_at?, count, last_added_at?, holds?}`: `count` 
 whether it directly holds that ref.
 
 Target is what `collections.open` found a member to be now, never stored:
-`{state: "live" | "deleted" | "missing" | "unknown", title?, in?: string[], status?, repo?, branch?,
-path?, count?}`. `deleted`: the conversation, task, crew, process or collection is gone; `missing`:
-the file is moved or missing; `unknown`: the owner could not be asked (it says nothing about the
-thing). `title` is the thing's own name (a conversation's title, a task's title, a crew's name, a
+`{state: "live" | "deleted" | "missing" | "unknown", reason?, title?, in?: string[], status?, repo?,
+branch?, path?, count?}`. `deleted`: the conversation, task, crew, process or collection is gone (a
+nested collection the store could not find is `deleted`); `missing`: the file is moved or missing;
+`unknown`: the owner could not be asked (it says nothing about the thing). `reason` is present only
+when `state` is `unknown`: one short sentence of the form `<owner> could not be asked: <why>`, where
+owner is `the conversation list`, `the task list of its conversation`, `the process list of its
+conversation`, `the crew list` or `the file system`, and why is the owner's own words with secrets
+redacted and every path said as `a path` (at most 200 characters), e.g. `the file system could not be
+asked: file name too long`. `title` is the thing's own name (a conversation's title, a task's title, a crew's name, a
 process's title or command, a collection's name, a file's base name). `in` is where it lives, outer
 first: a conversation's crew path (empty: not in a crew), a task's or a process's crew path then its
 agent's title, a crew's parent crew path. `status`: a task's state, a process's state, a crew's
@@ -860,22 +865,43 @@ origin's `owner/name`, else the work tree's folder name) and `path` the file rel
 
 | method | params | result |
 |---|---|---|
-| `collections.list` | `{holds?: Ref}` | `{collections: Collection[]}` oldest first, at most 1000 |
+| `collections.list` | `{holds?: Ref, after?: string, limit?: 1–1000 (default 1000)}` | `{collections: Collection[], next?: string, total: int}` one page, oldest first (by creation); `next` is present iff more remain and is passed back as `after`; `total` counts every collection |
 | `collections.create` | `{name}` | `{collection}`; a name already taken (case-insensitive) answers `conflict` |
 | `collections.rename` | `{id, name}` | `{collection}`; `conflict` as create; renaming to its own name in another case is allowed |
 | `collections.duplicate` | `{id, name}` | `{collection}` a new collection holding the same refs with the same `added_at`; `conflict` as create |
 | `collections.delete` | `{id}` | `{}` the collection, its memberships, and every membership naming it in another collection; the things stay |
 | `collections.add` | `{id, refs: (Ref & {added_at?})[]}` 1–200 | `{added: Member[], already: Ref[]}` all or nothing; `added_at` given restores a removed one in place (Undo); a collection ref that would make a cycle (itself, or one that already holds `id` at any depth) answers `cycle` and changes nothing |
 | `collections.remove` | `{id, refs: Ref[]}` 1–200 | `{removed: Member[]}` what was there, with its `added_at`, for Undo |
-| `collections.open` | `{id, depth?: 0–2 (default 1), limit?: 1–500 (default 500)}` | `{collection, members: Node[], more: bool}` newest added first (rows with no `added_at` last, newest inserted first); Node is Member + `{target, children?: {members: Node[], more}}`; a `collection` node within `depth` carries its children, deeper ones carry `target.count` only; at most 1500 nodes in all, a collection already on the path is never opened again |
-| `collections.expand` | `{id, depth?: 1–3 (default 3), limit?: 1–500 (default 200)}` | `{collection, refs: (Member & {target})[], missing, collections, more}` every live non-collection ref the collection holds to `depth` levels, each once, outer first; `missing` counts targets that are deleted or missing (skipped); a target whose owner could not be asked (`unknown`) is skipped and not counted; `collections` the nested collections read |
+| `collections.open` | `{id, depth?: 0–2 (default 1), limit?: 1–500 (default 500), after?: string}` | `{collection, members: Node[], more: bool, next?: string}` one page of the top level, newest added first (rows with no `added_at` last, newest inserted first); Node is Member + `{target, children?: {members: Node[], more}}`; a `collection` node within `depth` carries its children, deeper ones carry `target.count` only; at most 1500 nodes in all, a collection already on the path is never opened again; `next` (present iff the top level has more) continues the top level when passed back as `after`; `more` is true whenever anything was cut, the top level or the node budget |
+| `collections.expand` | `{id, depth?: 1–3 (default 3), limit?: 1–500 (default 200)}` | `{collection, refs: (Member & {target})[], missing, unavailable, unavailable_refs: (Member & {target})[], unread, collections, more}` every live non-collection ref the collection holds to `depth` levels, each once, outer first, at most `limit`; every ref the store answered is counted, past the limit too: `missing` counts refs whose target is `deleted` or `missing` plus nested collections that are gone; `unavailable` counts refs whose owner could not be asked (`unknown`; never in `missing`), the first 50 of them listed in `unavailable_refs` with `target.reason`; `unread` counts nested collections deeper than `depth` that were not read; `collections` the nested collections read; `more` says `limit` or the store's own bound (2000 refs) cut the live refs |
+| `collections.relink` | `{id, from: Ref, to: Ref}` | `{member: Member, already: bool}` in one write: `to` takes `from`'s `added_at` and place; when `to` is already a member, `from` is only removed and `already` is true (`member` is `to` as it was); `from` not a member answers `not_found` (`that reference is not in this collection`); `to` is checked before anything is written: an artifact must be a regular file at that path now (else `not_found` `nothing is at that path now`), a conversation, task, process or crew must resolve `live` (gone: `not_found`; owner not asked: `engine` with the reason as message), a collection gets add's checks (`not_found`, `cycle`); `standing` is refused as `to` (`bad_params`); relinking a ref to itself changes nothing and answers `already: true` |
 
 | event | data |
 |---|---|
-| `collection.changed` | `{id, deleted?: bool}` after any change made through this door (create, rename, duplicate, delete, add, remove), once per collection changed |
+| `collection.changed` | `{id, deleted?: bool}` after any change made through this door (create, rename, duplicate, delete, add, remove, relink), once per collection changed |
 
-Codes: `conflict` (name taken), `cycle` (add refused), `not_found` (no such collection), `bad_params`
-(a malformed ref, name or bound), `busy` (the store waited 10 s for another writer).
+Codes: `conflict` (name taken), `cycle` (add or relink refused), `not_found` (no such collection, a
+`from` that is not a member, a relink `to` that is not there now), `bad_params` (a malformed ref,
+name, bound or cursor), `busy` (the store waited 10 s for another writer), `engine` (a relink `to`
+whose owner could not be asked).
+
+Paging. A cursor is an opaque string (URL-safe, no spaces); pass `next` back unchanged as `after`.
+It names the last row a page answered, never an offset: `collections.list` keys on creation order,
+`collections.open` on the top level's order (`added_at`, then insertion) and only for the collection
+it was given for. A walk of pages never repeats or skips a row that existed when it began, whatever
+is created, added, deleted or removed meanwhile: a collection created during a listing walk lands
+after every page already read; a member added during an open walk is newer than the cursor and does
+not reappear on a later page (re-open from the start to see it); a deleted or removed row is simply
+not answered. A malformed cursor, a listing's cursor given to `collections.open`, or one collection's
+cursor given to another answers `bad_params`. A collection within `depth` that the node budget left
+unopened carries `children: {members: [], more: true}`, and a child list the budget cut says
+`more: true`; the top level is always continuable from `next`. `codeaf collections list` and `show`
+print everything.
+
+Names are unique under simple Unicode case folding (Go's `strings.EqualFold`): one rune for one rune,
+no locale, no normalization. `Ärger`/`ärger`, `ΣΊΣΥΦΟΣ`/`σίσυφος` (Σ, σ and final ς fold together)
+and `K`/`K` (the Kelvin sign) are one name; `İstanbul`/`istanbul`, `Straße`/`STRASSE` and a precomposed
+`é` against `e` + combining accent are two.
 
 Schema 2: `collections.created_at`, `memberships.added_at` (unix ms, 0 unknown), kinds `crew` and
 `process`, and deletes that cascade. A schema-1 file is migrated in place by the first write (one
