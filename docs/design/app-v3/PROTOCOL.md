@@ -151,7 +151,7 @@ result or an event, `?` marks a field that may be absent.
 |---|---|---|
 | `agents.archive` | `{ids}` | `{}` |
 | `agents.close` | `{id}` | `{}` |
-| `agents.create` | `{budget_usd, client_id, model, text, workspace}` | `{agent}` |
+| `agents.create` | `{attachments, budget_usd, client_id, model, text, workspace}` | `{agent}` |
 | `agents.entries` | `{before, id, limit}` | `{entries, more}` |
 | `agents.idle` | `{days}` | `{ids}` |
 | `agents.list` | `{query, state, workspace}` | `{agents}` |
@@ -185,7 +185,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.list` | `{closed}` | `{crews}` |
 | `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
 | `crews.manager` | `{agent, id}` | `{crew}` |
-| `crews.message` | `{client_id, crew, text, to}` | `{entry}` |
+| `crews.message` | `{attachments, client_id, crew, text, to}` | `{entry}` |
 | `crews.move` | `{ids, parent}` | `{}` |
 | `crews.propose` | `{agent}` | `{}` |
 | `crews.reopen` | `{id}` | `{crew}` |
@@ -504,6 +504,25 @@ Files and links in the composer (V69 @ reference, chips):
 | `files.diff` | `{agent, path, base?}` | `{diff: {path, resolved?, outside?, state, folder?, repo?, base?, commit?, requested?, requested_unavailable?, in_history?, change?, old_path?, add?, del?, binary?, text, lines, truncated?, reason?, detail?}}` read-only. The working tree (staged and unstaged) against `base`, a commit or ref name (no option, range, path or revision expression; else `bad_params`), or HEAD when absent. `base` in the answer is head · requested · none; `commit` is the full hash compared with. A `base` that names no commit falls back to HEAD with `requested_unavailable: unknown_commit`; one that does is compared and `in_history` says whether it is an ancestor of HEAD. `state` changed · unchanged · untracked (whole file as added, base none) · ignored · not_git (`folder`, no counts) · no_commits · missing · unavailable (`reason` timeout · no_git · filter · unsafe · too_large · git_failed · changed_during_read). `change` modified · added · deleted · renamed (`old_path`, staged renames). `text` is hunks from the first `@@`, no file headers, at most 256 KiB and 2,000 lines, `truncated` when cut; `add`/`del` count the whole diff and are absent for binary. Read-only git with optional locks off, no external diff, textconv or fsmonitor; a file with a `filter` attribute is unavailable, never filtered. One 3 s deadline for every git of one diff; output counted as it arrives, the process killed past the bound. If the source changes during comparison, `changed_during_read` carries no hunks or counts. At most 2 diffs at once; one more is `busy` |
 | `attachments.add` | `{agent, kind, path?/text?/url?}` | `{attachment}` paste over 12 lines or 2,000 chars → paste card |
 | `attachments.remove` | `{agent, id}` | `{}` drops one staged attachment; a missing or already sent id is fine, an unknown agent is `not_found` |
+
+Attachments on a message (2026-10-15). One message carries at most 10 attachments; one paste at
+most 200,000 characters and all of a message's pastes at most 400,000 (`attachments.add` refuses
+a paste over the first bound). The same bounds hold at every door:
+
+- `agents.create` takes `attachments: [{kind: "file"|"paste"|"link", path?, text?, url?}]`. They
+  are checked whole BEFORE anything is made — kind, its own field, the bounds, a file or folder
+  that is there now (relative to the workspace, or absolute) — and any refusal is `bad_params`
+  with no agent, folder or `agent.changed` behind it. With attachments `text` may be empty; the
+  agent answers `working`, the first user `Entry` carries `text` as typed and `attachments` with
+  ids, and the model is sent the words `agents.send` writes for staged ones (`Attached file:
+  <path>`, `Link: <url>`, the paste fenced). A file is sent as its path, never its contents.
+- `agents.send` and `crews.message` take staged ids, and with them `text` may be empty. An id
+  named twice is `bad_params`. Staged attachments are consumed only by a turn that started: a
+  busy, missing or failed send leaves every id staged.
+- `crews.message` sends to the resolved target (the manager by default, or `to` exactly); the ids
+  must be staged on that agent (`not_found` otherwise). A message with attachments to a target
+  mid-turn is refused `busy` and NOT queued — the queue keeps words only; words alone still
+  queue as before.
 
 Tasks as conversations (V65, V66) add:
 ```
