@@ -921,7 +921,9 @@ The engine states compaction as facts; the app words them.
   It moves at step boundaries and pass boundaries, never per token.
 - **Summary entries** (`kind: "summary"`, id `cs<seq>`) carry `compaction`: `{seq, state:
   summarizing|settled|failed, tokens_before?, tokens_after?, stubbed?, folded?, summarized?,
-  kept?, kept_clipped?, model?, turns?, covers_from?, covers_until?, failed?, full?}`. `seq`
+  kept?, kept_clipped?, model?, turns?, covers_from?, covers_until?, failed?, full?, started_at?,
+  ended_at?}`. The entry's `at` is `started_at` when known: a pass stands where it began, before
+  any message that arrived while its summary was written, live and read back alike. `seq`
   numbers the conversation's passes from 1, failures included, and is the same live and read
   back, so a live `summarizing` entry is replaced in place by its `settled` or `failed` one.
   `summarized` zero means no model wrote a summary (a mechanical pass); `kept` is the summary
