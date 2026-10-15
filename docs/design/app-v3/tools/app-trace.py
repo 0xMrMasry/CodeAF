@@ -687,11 +687,16 @@ def scenario_inbox(app):
         rid, _ = app.send("asks.answer", {"agent": agent, "id": item["ask"]["id"], "option": "allow_once"})
         app.wait(response(rid), 30)
         out["second"] = first(app, lambda l: l.get("event") == "inbox.resolved" and l["data"]["id"] == item["id"], 30)
-    added = first(app, lambda l: l.get("event") == "inbox.added", 300)
-    if added:
-        rid, _ = app.send("asks.answer", {"agent": agent, "id": added["item"]["ask"]["id"], "option": "allow_once"})
-        app.wait(response(rid), 30)
-    app.wait(event("turn.done", agent=agent), 300)
+    # Whatever is still waiting (one batch makes several items) is answered in
+    # the conversation until the reply ends.
+    deadline = time.time() + 300
+    while time.time() < deadline and not any(l.get("event") == "turn.done" for l in app.seen):
+        rid, _ = app.send("inbox.list", {"list": "waiting"})
+        _, line = app.wait(response(rid), 30)
+        for item in (line.get("result") or {}).get("items") or []:
+            rid, _ = app.send("asks.answer", {"agent": agent, "id": item["ask"]["id"], "option": "allow_once"})
+            app.wait(response(rid), 30)
+        time.sleep(2)
     rid, _ = app.send("inbox.list", {"list": "done"})
     _, line = app.wait(response(rid), 30)
     out["counts"] = line["result"]["counts"]
