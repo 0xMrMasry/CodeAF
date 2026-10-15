@@ -171,6 +171,7 @@ result or an event, `?` marks a field that may be absent.
 | `asks.hold` | `{agent, id}` | `{}` |
 | `asks.list` | `{agent}` | `{asks}` |
 | `attachments.add` | `{agent, kind, path, text, url}` | `{attachment}` |
+| `attachments.remove` | `{agent, id}` | `{}` |
 | `caps.raise` | `{for, id, scope, to_usd}` | `{}` |
 | `crews.close` | `{id}` | `{}` |
 | `crews.create` | `{agents, cap_usd_day, edits, ends_at, from, goal, hue, manager, name, parent, proposal, settings, tint}` | `{crew}` |
@@ -498,6 +499,7 @@ Files and links in the composer (V69 @ reference, chips):
 | `files.find` | `{agent, query, limit?}` | `{groups: [{label: "Changed in this chat"\|<repo>, files: [{path, add?, del?, dir?}]}]}` |
 | `files.stat` | `{agent, paths}` | `{files: [{path, state, add?, del?, size?, binary?}]}` |
 | `attachments.add` | `{agent, kind, path?/text?/url?}` | `{attachment}` paste over 12 lines or 2,000 chars → paste card |
+| `attachments.remove` | `{agent, id}` | `{}` drops one staged attachment; a missing or already sent id is fine, an unknown agent is `not_found` |
 
 Tasks as conversations (V65, V66) add:
 ```
