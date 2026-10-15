@@ -254,6 +254,9 @@ result or an event, `?` marks a field that may be absent.
 | `rules.remove` | `{id}` | `{}` |
 | `search.all` | `{limit_per_group, query}` | `{groups}` |
 | `settings.get` | `{}` | `{settings}` |
+| `settings.models.get` | `{}` | `{task_models}` |
+| `settings.models.list` | `{allowed_only, cursor, limit, provider, q, role}` | `{models, next_cursor, read_at, revision, total}` |
+| `settings.models.set` | `{allowed, mode, one_model, pins, revision}` | `{task_models}` |
 | `settings.set` | `{appearance, asks_before, budget_usd, checks_model, day_cap_usd, default_model, dock_badge, effort, fallback_model, idle_close_days, open_at_login, planner_model, proposed_task_clock_s, task_cap_usd, text_size, work_folder}` | `{settings}` |
 | `setup.get` | `{}` | `{setup}` |
 | `setup.set` | `{day_cap_usd, default_model, provider, start, step}` | `{setup}` |
@@ -307,7 +310,7 @@ result or an event, `?` marks a field that may be absent.
 | `provider.changed` | `{key?, provider}` |
 | `queue.changed` | `{agent, queued}` |
 | `quick.changed` | `{quick}` |
-| `settings.changed` | `{settings}` |
+| `settings.changed` | `{settings, task_models?}` |
 | `spend.changed` | `{spend}` |
 | `task.changed` | `{task}` |
 | `tool.output` | `{agent, call, lines}` |
@@ -990,3 +993,51 @@ competence unavailable". Neither returns groups, counts or partial classificatio
 whose displayed scopes were classified from complete readable evidence. There is no event:
 the app reads on open, filter and Retry.
 `codeaf competence --json [--model id] [--scope id]` prints the same `competence.map` answer.
+
+## V79: Task models (Settings → Models → Task models)
+
+How one task gets its worker, planner and checker. **Auto** (the default) picks each role per
+task from the models the person allows, best quality for the price inside the caps; a role may
+be **pinned** to one model, which Auto never changes. **One model for every task** runs every
+role on one explicit model and picks nothing. Read at task ADMISSION and frozen into the task's
+decision: running tasks keep their picks. Engine asserts `TaskModelsLister`; an older engine
+answers `unknown_method`. Wire types: `internal/appwire/taskmodels.go`.
+
+| method | params | result |
+|---|---|---|
+| `settings.models.get` | `{}` | `{task_models: {read_at, revision, mode: "auto"\|"one", one_model: ModelRef\|null, one_model_warning: null\|"provider_unavailable"\|"pin_unknown", roles: {worker, planner, checker: {pin: ModelRef\|null, warning: null\|"pin_not_allowed"\|"provider_unavailable"\|"pin_unknown"\|"no_eligible", eligible_count}}, providers: [Provider]}}` |
+| `settings.models.list` | `{provider?, q? (≤100), allowed_only?, role?, cursor?, limit?: default 40, ≤100}` | `{read_at, revision, models: [Row], total, next_cursor?}` |
+| `settings.models.set` | `{revision?, mode?, one_model?: ModelRef, pins?: {worker?, planner?, checker?: ModelRef\|null}, allowed?: [{model: ModelRef, allowed}] (≤200)}` | `{task_models}` |
+
+```
+ModelRef { id, provider? }        // a catalog id and the provider route; a row's provider is required in allowed[]
+Provider { id, name, state: "connected"|"expired"|"no_key"|"unavailable", fix: "none"|"sign_in"|"add_key",
+           reason?: "key_refused"|"signed_out"|"out_of_credit"|"turned_off", key_hint?, model_count, allowed_count }
+Row      { id, provider, name, billing: "metered"|"plan"|"local"|"free", allowed, available, auto_eligible,
+           price: {in_per_m, out_per_m}|null,
+           reason?: "not_allowed"|"no_price"|"provider_unavailable"|"route_unavailable"|"cannot_do_role" }
+```
+A tick is one model on ONE provider: unticking GLM 5.3 on OpenRouter leaves it ticked on Z.ai.
+It is kept in the allowed rule `/crew models` reads, as `-model@provider` / `+model@provider`.
+`price` is that provider's OWN published price (OpenRouter's rows from OpenRouter's catalog, a
+direct provider only from its own cached listing), and null when it published none — such a row is
+still listed, tickable and pinnable, and Auto skips it (`reason: "no_price"`). A provider with no key
+is a header with no models; a provider whose key was refused, whose sign-in ran out, or whose
+credit is gone keeps its models listed with their ticks, `available: false`, until it answers again.
+`fix` is only a fix this engine can start: `sign_in` where `providers.sign_in` serves it.
+
+A pin may only be SET to an allowed model; unticking a pinned model succeeds, the pin stays saved,
+the role reads `pin_not_allowed` and runs on Auto. Allow it again with `allowed`, or remove the pin
+with `pins: {role: null}`. `settings.checks_model` and `settings.planner_model` are the checker and
+planner pins (the same rows). One mode needs `one_model` (in the patch or saved) on a connected
+provider that lists it; it ignores pins and ticks, which stay as they are for when Auto is back.
+A role with no eligible model fails the task's admission with the typed no-eligible refusal (the
+task waits and asks); it is never moved onto the conversation's own model.
+
+The caps are `settings.task_cap_usd` (the router's per-task limit) and `settings.day_cap_usd` (the
+app's all-usage day cap); neither is part of this family. Each patch is validated whole and written
+in one profile write, refused with `conflict` when its `revision` is stale or the rows moved under
+it. `settings.changed` carries `task_models` (the get answer) after any settings change. get and
+list answer within 10 s or err `engine` "task models read timed out"; a cursor is only good for the
+filters and revision it came from (else `bad_params`).
+
