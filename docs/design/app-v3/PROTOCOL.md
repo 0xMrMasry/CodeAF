@@ -133,6 +133,187 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
 | `crew.removed` | `{id}` |
 | `log` | `{level: "info" \| "warn" \| "error", message}` (non-fatal notices) |
 
+## The schema, and the index of every method and event
+
+`codeaf app --schema` prints the whole wire as one JSON Schema (draft 2020-12), generated from
+the Go types the server decodes requests into and answers with, and from the type each event's
+data is: `methods.<name>.params`, `methods.<name>.result`, `events.<name>` and the named types
+under `$defs` (a type reached from params is defined apart, under `in.<Name>`, with no field
+required: a request may leave any field out and the method says which it needs). It is the
+authority on every field's JSON type: a field is a `boolean` there or it is not, and a string
+field that holds one of a fixed set of words carries that set as `enum`. Where this document and
+the schema disagree, the schema is what the server does. The index below is that schema's
+method and event lists, and `internal/appwire`'s tests fail when a method or event is served
+and not listed here, or listed and not served. Params are the fields a request may carry; in a
+result or an event, `?` marks a field that may be absent.
+
+| method | params | result |
+|---|---|---|
+| `agents.archive` | `{ids}` | `{}` |
+| `agents.close` | `{id}` | `{}` |
+| `agents.create` | `{budget_usd, client_id, model, text, workspace}` | `{agent}` |
+| `agents.entries` | `{before, id, limit}` | `{entries, more}` |
+| `agents.idle` | `{days}` | `{ids}` |
+| `agents.list` | `{query, state, workspace}` | `{agents}` |
+| `agents.move_to_closed` | `{ids}` | `{}` |
+| `agents.move_to_task` | `{id, turn}` | `{moving?, task?}` |
+| `agents.open` | `{id}` | `{agent}` |
+| `agents.queue` | `{client_id, id, text}` | `{queued}` |
+| `agents.rename` | `{id, title}` | `{agent}` |
+| `agents.reopen` | `{id}` | `{agent}` |
+| `agents.retry` | `{id}` | `{turn}` |
+| `agents.send` | `{attachments, client_id, id, text}` | `{turn}` |
+| `agents.set_effort` | `{effort, id}` | `{agent}` |
+| `agents.set_model` | `{id, model}` | `{agent}` |
+| `agents.steer` | `{client_id, id, text}` | `{}` |
+| `agents.stop` | `{id}` | `{}` |
+| `asks.answer` | `{agent, batch_item, id, later, option, text, why, you_decide}` | `{}` |
+| `asks.hold` | `{agent, id}` | `{}` |
+| `asks.list` | `{agent}` | `{asks}` |
+| `attachments.add` | `{agent, kind, path, text, url}` | `{attachment}` |
+| `caps.raise` | `{for, id, scope, to_usd}` | `{}` |
+| `crews.close` | `{id}` | `{}` |
+| `crews.create` | `{agents, cap_usd_day, edits, ends_at, from, goal, hue, manager, name, parent, proposal, settings, tint}` | `{crew}` |
+| `crews.decide` | `{option, packet, reason, text}` | `{decision}` |
+| `crews.decisions` | `{all, id}` | `{decisions}` |
+| `crews.defaults` | `{}` | `{defaults}` |
+| `crews.delete` | `{id}` | `{ids}` |
+| `crews.get` | `{id}` | `{crew}` |
+| `crews.items` | `{id}` | `{items}` |
+| `crews.link` | `{id, kind, ref, title}` | `{item}` |
+| `crews.list` | `{closed}` | `{crews}` |
+| `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
+| `crews.manager` | `{agent, id}` | `{crew}` |
+| `crews.message` | `{client_id, crew, text, to}` | `{entry}` |
+| `crews.move` | `{ids, parent}` | `{}` |
+| `crews.propose` | `{agent}` | `{}` |
+| `crews.reopen` | `{id}` | `{crew}` |
+| `crews.set_default` | `{key, value}` | `{defaults}` |
+| `crews.unlink` | `{id, item}` | `{}` |
+| `crews.update` | `{clear, ends_at, goal, hue, id, name, settings, tint}` | `{crew}` |
+| `crews.wrap_up` | `{id, text}` | `{}` |
+| `files.find` | `{agent, limit, query}` | `{groups}` |
+| `files.stat` | `{agent, paths}` | `{files}` |
+| `inbox.answer` | `{id, option, text, why}` | `{undo_until}` |
+| `inbox.back` | `{id}` | `{}` |
+| `inbox.later` | `{id}` | `{}` |
+| `inbox.list` | `{list, query}` | `{counts, items}` |
+| `inbox.open` | `{id}` | `{agent, task?}` |
+| `inbox.undo` | `{id}` | `{}` |
+| `keys.check` | `{key, provider}` | `{message?, models?, ok, status?}` |
+| `keys.remove` | `{provider}` | `{}` |
+| `keys.set` | `{key, provider}` | `{}` |
+| `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.handle` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.home` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.move` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.pause` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.remove` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.resume` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.role` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.start` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `members.stop` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
+| `memory.forget` | `{id}` | `{}` |
+| `memory.list` | `{limit}` | `{memories}` |
+| `models.list` | `{}` | `{models}` |
+| `models.pin` | `{ids}` | `{settings}` |
+| `orders.change` | `{edits, id}` | `{order}` |
+| `orders.list` | `{agent}` | `{orders}` |
+| `orders.not_now` | `{edits, id}` | `{}` |
+| `orders.pause` | `{edits, id}` | `{order}` |
+| `orders.ratify` | `{edits, id}` | `{order}` |
+| `orders.resume` | `{edits, id}` | `{order}` |
+| `orders.run` | `{id, run, verdict}` | `{order}` |
+| `orders.runs` | `{id, limit}` | `{runs}` |
+| `orders.stop` | `{edits, id}` | `{order}` |
+| `ping` | `{}` | `{}` |
+| `power.sleep` | `{}` | `{}` |
+| `power.wake` | `{}` | `{}` |
+| `processes.follow` | `{id}` | `{}` |
+| `processes.list` | `{agent}` | `{processes}` |
+| `processes.output` | `{from_line, id}` | `{lines, next_line}` |
+| `processes.rerun` | `{id}` | `{process}` |
+| `processes.stop` | `{id}` | `{}` |
+| `processes.unfollow` | `{id}` | `{}` |
+| `providers.list` | `{}` | `{providers}` |
+| `providers.sign_in` | `{provider}` | `{url}` |
+| `queue.edit` | `{agent, id, text, to}` | `{queued}` |
+| `queue.move` | `{agent, id, text, to}` | `{queued}` |
+| `queue.remove` | `{agent, id, text, to}` | `{queued}` |
+| `quick.promote` | `{id}` | `{task}` |
+| `quick.undo` | `{id}` | `{}` |
+| `roles.list` | `{}` | `{roles}` |
+| `roles.update` | `{id, instructions, model, name}` | `{role}` |
+| `rules.list` | `{}` | `{rules}` |
+| `rules.remove` | `{id}` | `{}` |
+| `search.all` | `{limit_per_group, query}` | `{groups}` |
+| `settings.get` | `{}` | `{settings}` |
+| `settings.set` | `{appearance, asks_before, budget_usd, checks_model, day_cap_usd, default_model, dock_badge, effort, fallback_model, idle_close_days, open_at_login, planner_model, proposed_task_clock_s, task_cap_usd, text_size, work_folder}` | `{settings}` |
+| `setup.get` | `{}` | `{setup}` |
+| `setup.set` | `{day_cap_usd, default_model, provider, start, step}` | `{setup}` |
+| `shutdown` | `{}` | `{}` |
+| `spend.export` | `{from, to}` | `{path}` |
+| `spend.today` | `{}` | `{spend}` |
+| `tasks.brief` | `{id, text}` | `{}` |
+| `tasks.decide` | `{id, text, verdict}` | `{}` |
+| `tasks.decline` | `{id}` | `{}` |
+| `tasks.entries` | `{before, id, limit}` | `{entries, more}` |
+| `tasks.get` | `{id}` | `{page}` |
+| `tasks.hold` | `{id}` | `{}` |
+| `tasks.list` | `{agent}` | `{tasks}` |
+| `tasks.note` | `{client_id, id, text}` | `{entry?}` |
+| `tasks.pause` | `{id}` | `{}` |
+| `tasks.resume` | `{id}` | `{}` |
+| `tasks.retry` | `{id}` | `{}` |
+| `tasks.start` | `{id}` | `{}` |
+| `tasks.stop` | `{id}` | `{}` |
+| `tasks.typing` | `{id}` | `{}` |
+| `tools.follow` | `{agent, call, from_line, limit}` | `{}` |
+| `tools.output` | `{agent, call, from_line, limit}` | `{lines, next_line, total}` |
+| `tools.unfollow` | `{agent, call, from_line, limit}` | `{}` |
+
+| event | data |
+|---|---|
+| `agent.changed` | `{agent}` |
+| `ask.closed` | `{agent, at, by, id, option?}` |
+| `ask.opened` | `{ask}` |
+| `crew.changed` | `{crew}` |
+| `crew.log` | `{line}` |
+| `crew.removed` | `{id}` |
+| `decision.changed` | `{decision}` |
+| `decision.opened` | `{decision}` |
+| `entry.added` | `{entry}` |
+| `hello` | `{contract, home, pid, version}` |
+| `inbox.added` | `{item}` |
+| `inbox.counts` | `{done_today, later, waiting}` |
+| `inbox.resolved` | `{by, id, receipt}` |
+| `log` | `{level, message}` |
+| `member.changed` | `{member}` |
+| `note.changed` | `{id, read_at_step?, state, task}` |
+| `order.asking` | `{order, run}` |
+| `order.changed` | `{order}` |
+| `order.fired` | `{order, run}` |
+| `order.missed` | `{order}` |
+| `order.removed` | `{id}` |
+| `process.changed` | `{process}` |
+| `process.output` | `{id, lines}` |
+| `provider.changed` | `{key?, provider}` |
+| `queue.changed` | `{agent, queued}` |
+| `quick.changed` | `{quick}` |
+| `settings.changed` | `{settings}` |
+| `spend.changed` | `{spend}` |
+| `task.changed` | `{task}` |
+| `tool.output` | `{agent, call, lines}` |
+| `turn.delta` | `{agent, kind, msg, text, turn}` |
+| `turn.done` | `{agent, error?, error_kind?, ok, status?, turn}` |
+| `turn.long` | `{agent, elapsed_s, steps, turn}` |
+| `turn.retrying` | `{agent, attempt, in_s?, reason?, turn}` |
+| `turn.started` | `{agent, turn}` |
+| `turn.thinking` | `{agent, text, turn}` |
+| `turn.thinking_done` | `{agent, seconds, turn}` |
+| `turn.tool` | `{agent, ask?, batch?, call, connector?, detail?, ended_at?, exit_code?, files?, input?, lines?, name, ok?, phase, retried_of?, started_at?, summary?, tail?, task?, title?, tool_kind?, turn}` |
+
 ## Identity and de-duplication (rev 2)
 
 - `agents.create` and `agents.send` accept `client_id` (string chosen by the app).
@@ -222,7 +403,7 @@ Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped
 | `processes.output` | `{id, from_line?}` | `{lines: string[], next_line}`; live tail via `process.output` events only while subscribed |
 | `processes.follow` / `processes.unfollow` | `{id}` | `{}` |
 | `processes.stop` · `processes.rerun` | `{id}` | `{}` / `{process}` |
-| `agents.move_to_task` | `{id, turn}` | `{task}` the running reply continues as a task |
+| `agents.move_to_task` | `{id, turn}` | `{moving?: true, task?: Task}`, answered AT ONCE. The reply moves at its next step boundary; one already between steps moves inside the call and the answer carries `task`. Otherwise the answer is `{moving: true}`: the move is taken, a reading handed to a quick task is let go rather than waited for, and when the step in flight ends the task arrives as `task.changed` with exactly one notice entry, "Moved to a task · the chat is free again". A reply that ends first leaves the notice "The reply finished before it could move to a task". `not_found` when no reply is running |
 | `power.sleep` · `power.wake` | – | `{}` sent by the app on macOS sleep/wake |
 
 Events: `quick.changed {quick}`, `process.changed {process}`, `process.output {id, lines}`
@@ -485,7 +666,7 @@ field below is marked **app** on the wire's Crew/Member; everything else is **te
 | Member `was? {role?, crew?, at}` | app | written when a member's role changes or it moves crews |
 | `crews.message` to a member, "@manager sees it" | app + Traffic | the words go into the member's conversation; the app also appends one Traffic `you` line (`kind: "you", from: "you", to: <handle>`) so the manager reads "you told @web: …" in its team digest at its next step; it does not wake the manager |
 | `members.start {crew, handle, brief, role?, model?}` | app | a new conversation in the crew's folder whose first message is the brief, as the person's own words; added to the crew under the handle |
-| `crews.propose {agent}` and the Bring in helpers card (`Proposal`) | app | the app asks the agent, in its own chat, for a crew proposal as one JSON block `{name, helpers: [{handle, role, brief, model?}]}`; the answer becomes an Ask (`subkind: "crew_proposal"`) with options `create`, `edit`, `keep` ("Keep it one agent") |
+| `crews.propose {agent}` and the Bring in helpers card (`Proposal`) | app | the app asks the agent, in its own chat, for a crew proposal as one JSON block `{name, helpers: [{handle, role, brief, model?}]}`; the answer becomes an Ask (`subkind: "crew_proposal"`) with options `create`, `edit`, `keep` ("Keep it one agent"), carrying the whole proposal as `ask.proposal: Proposal {id, agent, name, hue?, helpers: [{handle, role, brief, model?}], existing?, cap_usd_day?, goal?, ends_at?, at}`. The proposal is kept in `<home>/app/crews.json` until it is answered, so after a restart its ask is opened again (`ask.opened`) and listed by `asks.list` |
 | `Proposal {id, agent, name, hue, helpers: [{handle, role, brief, model?}], existing?: [agent], cap_usd_day?, goal?, ends_at?}` → `crews.create {from: "proposal", proposal, edits?}` | app → teams | create = a team with the agent as manager; each helper is a manager's start (`start` line from `manager`, its brief the manager's own words from the proposal) which the app performs; `existing` agents are added |
 | Crew `plan?` | not kept | needs engine work: the manager keeps no plan text the app can read |
 
@@ -524,7 +705,7 @@ Order { id, agent?, crew?, kind: "order"|"reminder"|"watch", title, workspace?, 
         trust: "asks_first"|"earning"|"trusted", approved_runs, trust_after: 5,
         budget_per_run_usd, time_per_run_s, state: "proposed"|"active"|"paused"|"stopped"|"done",
         fires_at?, last_run?: OrderRun, asking?: OrderRun, created_at }
-OrderRun { id, ask_id?: "order:<id>", due_at, at?, result?: "ok"|"quiet"|"incomplete"|"skipped"|"not_right",
+OrderRun { id, ask_id?: "order:<run id>", due_at, at?, result?: "ok"|"quiet"|"incomplete"|"skipped"|"not_right",
            late?, line?, usd?, transcript? }
 ```
 
@@ -565,8 +746,18 @@ Work proposed this way starts at `asks_first`; reminders and watches never ask.
 
 Per-run ask: when work that is not trusted comes due, its run waits as `asking` instead of starting,
 and later slots are passed over while it waits. `order.asking {order, run}` says it; answer with
-`orders.run {id, verdict}` or `asks.answer {id: run.ask_id, option: go|skip|not_right}`. The ask
+`orders.run {id, verdict}` or `asks.answer {agent, id: run.ask_id, option: go|skip|not_right}`. The ask
 shows the run's budget (`budget_per_run_usd`).
+The run's ask is an ordinary Ask everywhere an ask is: `ask.opened` when the run starts waiting
+(and, for runs already waiting, as soon as the app opens), listed by `asks.list {agent}` for the
+order's agent, and in the Inbox. Its id is `order:<run id>`: the RUN's number, which the store never
+uses twice, so the id is stable for the life of the run and names one run of one order (an order
+asks once per run). It is `{kind: "question", subkind: "order_run", title: "Run <title> now?",
+detail: does, subject: {kind: "automation", ref: <order id>}, options: go · skip · not_right}`, and
+`ask.closed` follows when the run stops waiting (`by: "app"` with the option when it was answered
+here). When a run ends with something to say and the order answers in `chat` or `everywhere`, its
+line lands in the order's agent's chat as a notice entry `"<title> · <result>: <line>"` whose
+`ref` is the run's ask id.
 Trust: `asks_first` (no go yet) → `earning` (n of 5 go's) → `trusted` after 5, runs alone. Any
 `not_right` resets to `asks_first`.
 
@@ -584,6 +775,13 @@ Settings (adds) { appearance: "system"|"light"|"dark", text_size: "small"|"mediu
                   pinned_models: [model id] (⌥⌘1–3, at most 3), checks_model, planner_model,
                   fallback_model }
 ```
+Types, exactly as sent: `open_at_login` and `dock_badge` are JSON booleans (`true`/`false`, never a
+word); `appearance` and `text_size` are words from the sets above (`enum` in the schema);
+`budget_usd`, `day_cap_usd` and `task_cap_usd` are numbers or `null` (none); `proposed_task_clock_s`
+and `idle_close_days` are whole numbers; `pinned_models` is an array of model ids (may be `null`
+when none were ever pinned). `settings.set` refuses a field of the wrong type with `bad_params`
+naming it, and refuses a field it does not know.
+
 | row | kept as | notes |
 |---|---|---|
 | General: appearance, text size, open at login, dock badge | app (`state.json`) | defaults system, medium, false, true; the window applies them (login item, badge) |
