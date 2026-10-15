@@ -771,7 +771,7 @@ def scenario_crew(app):
     cid = crew["id"]
     joined = first(app, lambda l: l.get("event") == "member.changed" and l["data"]["member"]["crew"] == cid and l["data"]["member"]["agent"] != agent, 300)
     out["first_helper"] = joined and joined["member"]
-    talk = first(app, lambda l: l.get("event") == "crew.log" and l["data"]["line"]["crew"] == cid and l["data"]["line"]["kind"] in ("note", "event") and l["data"]["line"]["from"] not in ("manager", "you", "system"), 900)
+    talk = first(app, lambda l: l.get("event") == "crew.log" and l["data"]["line"]["crew"] == cid and l["data"]["line"]["kind"] in ("note", "event") and l["data"]["line"].get("agent") not in (None, "", agent) and l["data"]["line"]["from"] not in ("you", "codeaf"), 900)
     out["member_talk"] = talk and talk["line"]
     out["questions_up"] = call(app, "crews.update", {"id": cid, "settings": {"questions_up": True}})
     out["to_manager"] = call(app, "crews.message", {"crew": cid, "to": "manager", "text": (

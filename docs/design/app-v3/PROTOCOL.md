@@ -403,6 +403,7 @@ Closing a crew does NOT stop its conversations (the engine's Disband); the app o
 | `home`, `independent` | `Member.Home`, `Member.Independent` | which membership reports to a manager |
 | `reports_to?` | `File.Home(key)` | `{crew, manager, distance}`: the manager this member answers to |
 | `also_in` | other teams that hold the key | derived |
+| `leads?` | the open child crew whose manager is this member | derived; a member that runs a crew under this one is drawn as that crew (a sub-crew), not as a plain member. `team_start` kind `team` makes it: the new conversation joins this crew under its handle, then takes the child crew's manager seat on its first turn |
 | `state` | live state of the member's conversation | `running` / `asking` / `idle` / `finished` / `failed` (the engine's `MemberState` words); the latest Traffic `event` line says the same |
 | `line?` | the member's live one-liner | the agent's running line, same as `agents.list` |
 | `spent_usd` | `Spend.ByMember[key]` today | |
@@ -417,8 +418,11 @@ a new crew takes `teams.NextHue` (the farthest free hue) unless the UI picks one
 **LogLine** is a Traffic `Entry` as stored: `{id, crew, at, kind, from, to, text, handles?,
 answers?, files?, member?, state?, packet?, reply?, team?}` with kinds `event`, `note`,
 `directive`, `stop`, `start`, `question`, `answer`, `packet`, `close`, `reopen` (and `you`).
-`from`/`to` are handles or `manager`/`you`/`system`/`everyone`/`room`/`several`. The app adds
-`agent` (the member's agent id) when `member` names one.
+`from`/`to` are member handles, `you` (the person), `everyone`, or `several`: the manager is
+named by its handle (the word `manager` only for a crew with no manager), a line to the room is
+to `everyone`, and a line codeaf wrote is from the member it is about, else from `codeaf`. In a
+line codeaf wrote, the manager's mark is the manager's `@handle`. The app adds `agent` (the
+member's agent id) when `member` names one.
 
 **Decision** is a decision packet (`teams.Packet`) as stored: `{id, crew (Origin), waits_on
 (Team: a crew id or "you"), kind: question|conflict|cap|judgement|closing, raised_by, parties,
