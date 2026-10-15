@@ -250,7 +250,49 @@ def scenario_latency(app):
     return out
 
 
+def scenario_keys(app):
+    """Setup and a key check against the real provider with a key that cannot work."""
+    app.wait(event("hello"), 30)
+    out = {}
+    for method, params in (("setup.get", None), ("providers.list", None)):
+        rid, _ = app.send(method, params)
+        app.wait(response(rid), 30)
+    bad = "sk-or-v1-" + "0" * 64
+    rid, sent = app.send("keys.check", {"provider": "openrouter", "key": bad})
+    answered, line = app.wait(response(rid), 30)
+    out["keys_check_ms"] = round((answered - sent) * 1000, 1)
+    out["keys_check"] = line.get("result")
+    for method, params in (
+        ("setup.set", {"step": 2, "provider": "openrouter"}),
+        ("setup.get", None),
+        ("settings.set", {"day_cap_usd": 25, "idle_close_days": 5}),
+        ("settings.get", None),
+    ):
+        rid, _ = app.send(method, params)
+        app.wait(response(rid), 30)
+    return out
+
+
+def scenario_budget(app):
+    """A real turn on a tiny budget: the agent asks, and the trace raises it."""
+    hello_at, _ = app.wait(event("hello"), 30)
+    rid, sent = app.send("agents.create", {"workspace": folder("budget"), "text": "Write two short paragraphs about tides. Do not use any tools.", "client_id": "trace-budget-1", "budget_usd": 0.001})
+    _, line = app.wait(response(rid), 30)
+    agent = line["result"]["agent"]["id"]
+    app.wait(event("turn.done", agent=agent), 300)
+    _, opened = app.wait(lambda l: l.get("event") == "ask.opened" and (l["data"]["ask"].get("subkind") == "budget"), 60)
+    ask = opened["data"]["ask"]
+    rid, _ = app.send("asks.answer", {"agent": agent, "id": ask["id"], "option": "raise", "text": "0.05"})
+    app.wait(response(rid), 30)
+    app.wait(event("ask.closed", agent=agent, id=ask["id"]), 30)
+    rid, _ = app.send("spend.today")
+    app.wait(response(rid), 30)
+    return {"ask": ask}
+
+
 SCENARIOS = {
+    "keys": (scenario_keys, "keys-check-bad", "allow"),
+    "budget": (scenario_budget, "turn-budget-ask", "allow"),
     "basic": (scenario_basic, "turn-basic", "allow"),
     "tool": (scenario_tool, "turn-tool", "allow"),
     "permission": (scenario_permission, "turn-permission", "prompt"),

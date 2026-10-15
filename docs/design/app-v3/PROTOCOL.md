@@ -137,3 +137,34 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
   `{id, name, provider, default?: bool}`; never empty when a turn can run.
 - `agents.set_effort {id, effort: "low"|"medium"|"high"}` and Agent gains
   `effort?`.
+
+## Wave 2: setup, keys, settings, money
+
+Types:
+```
+Provider { id, name, signed_in: bool, key_hint?: "…a91f", sign_in?: bool }
+Settings { default_model, budget_usd, asks_before, day_cap_usd, work_folder,
+           task_cap_usd, proposed_task_clock_s, idle_close_days, effort? }
+Setup    { step: 1|2|3|4|"done", provider?, default_model?, day_cap_usd?, start?: "agents" }
+```
+Keys never touch disk in codeaf: the app keeps them in the macOS Keychain and
+hands them to codeaf at every launch with `keys.set`; codeaf holds them in memory.
+
+| method | params | result |
+|---|---|---|
+| `providers.list` | – | `{providers: Provider[]}` |
+| `keys.check` | `{provider, key}` | `{ok, models?: Model[], status?, message?}` exactly one provider request; 10 s timeout → `{ok:false, status:"timeout", message:"No answer · couldn't reach <host> in 10s"}`; a rejection carries the provider's status code and own words |
+| `keys.set` | `{provider, key}` | `{}` (memory only; models.list / turns use it) |
+| `keys.remove` | `{provider}` | `{}` |
+| `providers.sign_in` | `{provider}` | `{url}` browser sign-in where the engine supports it; completion arrives as `provider.changed` |
+| `setup.get` / `setup.set` | – / `Setup` | `{setup: Setup}` (persisted by codeaf so quitting mid-setup resumes at the same step) |
+| `settings.set` | partial `Settings` | `{settings}`; emits `settings.changed` |
+| `caps.raise` | `{scope: "agent"\|"day", id?, to_usd, for: "today"\|"good"}` | `{}` |
+
+Budget asks: when an agent nears/hits its budget or the day cap, an `Ask` with
+`kind:"approval", subkind:"budget"`, `detail` = what it has done so far, and options
+`raise` (`{to_usd}` via `asks.answer {option:"raise", text:"8.00"}`), `stop`, `tell`
+(free text). Day cap options: `raise_today`, `wait`. Copy per U1/U2 edge cases
+("It's close to its $5.00 budget", "Day cap reached · $40.00 of $40.00").
+
+Events: `settings.changed {settings}`, `provider.changed {provider}`, `spend.changed`.
