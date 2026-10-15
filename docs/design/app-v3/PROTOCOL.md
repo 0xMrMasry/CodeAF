@@ -362,3 +362,48 @@ Proposal { id, agent, name, tint, manager, helpers: [{handle, role, model, budge
 Events: `crew.changed {crew}`, `crew.removed {id}`, `crew.log {line}`, `crew.item {item}`,
 `report.ready {report}`, `member.changed {member}`. Asks carry `path` ("Backend → Release → you")
 when they climb through managers.
+
+## Wave 7: closing, archiving, finding (V21, V22, J03, J04, X4)
+
+Agent adds `closed_at?`, `archived_at?`, `last_active_at`, `spent_usd`.
+| method | params | result |
+|---|---|---|
+| `agents.list` (adds) | `{state?: "open"\|"closed"\|"archived"\|"all", query?}` | closed/archived only when asked |
+| `agents.move_to_closed` | `{ids}` | `{}` "Move to Closed": stops its engine, keeps everything, leaves the rail at once |
+| `agents.archive` | `{ids}` | `{}` |
+| `agents.reopen` | `{id}` | `{agent}` exactly as it was |
+| `agents.rename` | `{id, title}` | `{agent}` |
+| `agents.idle` | `{days}` | `{ids}` agents idle longer than `idle_close_days` (Select idle) |
+| `search.all` | `{query, limit_per_group?}` | `{groups: [{kind: "agent"\|"crew"\|"task"\|"message", hits: [...]}]}` ⌘K / All crews and agents |
+Tidy commands are undoable until quit: the app keeps the inverse call.
+
+### Wave 5 additions (fields the crew UI reads)
+- Member adds `line` (live one-liner), `updated_at`, `started_at`, `also_in: [crew]`, `was?` (previous role/state shown in the member card).
+- Crew adds `steps`, `plan?` (manager's current plan text), `updated_at`, `brief?` (the parent's brief for sub-crews), `history: [task]` (tasks the agent had before it became a crew).
+- Role adds `made_at`; Proposal adds `span?` (end date text); LogLine adds `factory?` (linked job/issue/PR ref); Ask adds `path: string[]`.
+- Members' agents appear in `agents.list` with `crew` set; `crews.create` emits a receipt `entry.added` in the manager's chat; the "Keep it one agent" answer is option id `keep`.
+
+## Wave 6: Standing orders and reminders (V40, U2 7–8, X1)
+
+```
+Order { id, agent, crew?, kind: "order"|"reminder", when, does, wont?, answers_in: "chat"|"crew"|"everywhere"|"not_here",
+        trust: "asks_first"|"earning"|"trusted", approved_runs, budget_per_run_usd?, state: "proposed"|"active"|"paused"|"stopped"|"done",
+        last_run?: {at, result: "ok"|"not_right"|"skipped"|"missed"}, fires_at? }
+```
+| method | params | result |
+|---|---|---|
+| `orders.list` | `{agent?}` | `{orders}` |
+| `orders.ratify` · `orders.change` · `orders.not_now` | `{id, edits?}` | `{order}` nothing runs before Ratify |
+| `orders.pause` · `orders.resume` · `orders.stop` | `{id}` | `{order}` Pause keeps the trust level |
+| `orders.run` | `{id, verdict: "go"\|"skip"\|"not_right"}` | `{}` per-run ask answers; Not right drops trust to asks_first |
+Events: `order.changed {order}`, `order.fired {order, run}`, `order.missed {order}` (Mac asleep).
+Trust: asks_first → earning (n of 5) → trusted after 5 approved runs.
+
+## Wave 8: Settings window (V42–V44, V60, V24)
+
+`settings.get/set` cover every row on V42–V44 and V60 (General: appearance, text size, open at
+login, dock badge; Models: default, pinned (⌥⌘1–3), Checks and Planner roles; Spending: day cap,
+per-agent budget, task cap, export; Memory: list/forget; Permissions: always-allow rules list/remove;
+Accounts: providers (keys via the Keychain), GitHub; Advanced: proposed-task clock, tidying numbers,
+work folder, fallback model). Extra methods: `rules.list`/`rules.remove`, `memory.list`/`memory.forget`,
+`spend.export {from, to}` → CSV path, `models.pin {ids}`.
