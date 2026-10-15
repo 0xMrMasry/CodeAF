@@ -247,6 +247,7 @@ result or an event, `?` marks a field that may be absent.
 | `quick.promote` | `{id}` | `{task}` |
 | `quick.undo` | `{id}` | `{}` |
 | `roles.list` | `{}` | `{roles}` |
+| `members.brief` | `{crew, agent}` | `{brief: {text?, from?, at?}}` — the start line a manager wrote for a started member, read on demand; empty when none is recorded |
 | `roles.update` | `{id, instructions, model, name}` | `{role}` |
 | `rules.list` | `{}` | `{rules}` |
 | `rules.remove` | `{id}` | `{}` |
