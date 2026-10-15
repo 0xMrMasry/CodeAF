@@ -151,6 +151,7 @@ result or an event, `?` marks a field that may be absent.
 |---|---|---|
 | `agents.archive` | `{ids}` | `{}` |
 | `agents.close` | `{id}` | `{}` |
+| `agents.compact` | `{id}` | `{}` |
 | `agents.create` | `{attachments, budget_usd, client_id, model, text, workspace}` | `{agent}` |
 | `agents.entries` | `{before, id, limit}` | `{entries, more}` |
 | `agents.idle` | `{days}` | `{ids}` |
@@ -282,6 +283,7 @@ result or an event, `?` marks a field that may be absent.
 | `agent.changed` | `{agent}` |
 | `ask.closed` | `{agent, at, by, id, option?}` |
 | `ask.opened` | `{ask}` |
+| `compaction.ended` | `{agent, message?, outcome}` |
 | `crew.changed` | `{crew}` |
 | `crew.log` | `{line}` |
 | `crew.removed` | `{id}` |
@@ -908,3 +910,29 @@ Schema 2: `collections.created_at`, `memberships.added_at` (unix ms, 0 unknown),
 `process`, and deletes that cascade. A schema-1 file is migrated in place by the first write (one
 immediate transaction); reads of a schema-1 file still work. A build that only knows schema 1 refuses
 a migrated file ("unsupported collections database"), never misreads it.
+## Compaction (V78)
+
+The engine states compaction as facts; the app words them.
+
+- **`agent.context?`** on every agent the process holds: `{tokens, window?, threshold?,
+  summarizing?}`. `tokens` is the figure the compaction threshold is checked against; `window`
+  and `threshold` are absent when no catalog, configuration or endpoint said what the window is
+  (unknown, never zero room). `summarizing` is true only while a summary request is in flight.
+  It moves at step boundaries and pass boundaries, never per token.
+- **Summary entries** (`kind: "summary"`, id `cs<seq>`) carry `compaction`: `{seq, state:
+  summarizing|settled|failed, tokens_before?, tokens_after?, stubbed?, folded?, summarized?,
+  kept?, kept_clipped?, model?, turns?, covers_from?, covers_until?, failed?, full?}`. `seq`
+  numbers the conversation's passes from 1, failures included, and is the same live and read
+  back, so a live `summarizing` entry is replaced in place by its `settled` or `failed` one.
+  `summarized` zero means no model wrote a summary (a mechanical pass); `kept` is the summary
+  the model now reads, at most 64 KiB (`kept_clipped` when cut), `model` the model that answered.
+  `failed` is `interrupted|declined|empty|changed|not_shorter|error`; `full` only when the
+  conversation is still at or over its window.
+- **`agents.entries`** tells the whole conversation once, from the journal: every original line
+  above every pass, each pass's entry at its own place. Nothing above a pass is dropped.
+- **`agents.compact {id}`** starts one pass (the same pass `/compact` runs) and answers at once;
+  it answers `busy` while a pass the app asked for on that agent is still running, or while the
+  process already runs its bound of them. The pass says itself on `entry.added` (also for a pass
+  another window asked for), and every call ends exactly once on `compaction.ended {agent,
+  outcome: compacted|busy|nothing|error, message?}`. `compacted` from an engine too old to state
+  pass facts arrives with no entry. Stop cancels a running pass's summary request.
