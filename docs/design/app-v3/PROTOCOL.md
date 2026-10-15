@@ -946,10 +946,12 @@ a physical exit status; every check's last run exiting 0 is a pass, any non-zero
 It comes from the default run road: the run's check seats run the declared checks, the plan
 store records each declared command's exit off the check's own trajectory, and the settled
 run becomes one result on the ONE model that answered its work (after any fallback, read
-from the run's spend rows, which are written per answering model). A run answered by more
+only from the run's spend rows marked answered; a row naming the model a seat was built on,
+as every row before this build does, leaves the run unrecorded). A run answered by more
 than one model or by an unnamed one, and a run another approved task joined, is not
 recorded. Never counted: the checker's verdict, unchecked done, a model's account of itself,
-a check that never started (126/127), timed out or was cut. The ledger is
+a check the shell could not start (126/127). A check a signal killed (128+signal) or that
+the run cut off is a failure, never a pass. The ledger is
 `<home>/v3/checked-results.jsonl`, append-only, and survives deleting the task or the
 conversation. Work finished before it existed is no evidence. `undone` is in the shape and
 reads 0 today: the only undo door, `quick.undo`, takes back quick tasks, which run no
