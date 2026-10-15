@@ -401,6 +401,7 @@ Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped
 | `tasks.start` · `tasks.hold` · `tasks.decline` | `{id}` | `{}` proposed-task card actions |
 | `tasks.typing` | `{id}` | `{}` holds the clock while the person types in the card |
 | `tasks.decide` | `{id, verdict: "accept"\|"not_right"\|"recheck"\|"let_it_decide", text?}` | `{}` Your call (Tell it… = `not_right` or a note with text) |
+| `tasks.model` | `{id, model, state?, version?}` | `{}` proposal card Change model: moves ONE proposed or held task to a known model before it starts; refused for a started task, an unknown or empty model, or a stale `state`/`version`; never changes the agent |
 | `tasks.note` | `{id, text}` | `{}` |
 | `tasks.stop` | `{id}` | `{}` |
 | `quick.undo` | `{id}` | `{}` or error `conflict` with the changed files |
