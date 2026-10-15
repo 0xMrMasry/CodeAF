@@ -980,7 +980,12 @@ that window, passed/results ≥ `strong_at_least` with ≥ `min_results` is stro
 ran, and `check` is the first that failed (else the last run) and is always among `checks`.
 `totals` count every matching scope; `omitted` is what this answer left out for size.
 `place.removed` is a folder no codeaf conversation works in now. `source.title` is the owning
-conversation's current title. Each call reads at most the newest 32 MiB of the ledger
-(`truncated` says it was cut) and answers within 10 s or errs `engine` "competence read timed
-out". There is no event: the app reads on open, filter and Retry.
+conversation's current title. Each call reads one complete ledger snapshot up to 32 MiB and
+answers within 10 s or errs `engine` "competence read timed out". A larger ledger returns
+`engine` "checked-result history exceeds this bounded read; competence unavailable"; an
+unreadable or unsupported row returns "checked-result history has an unreadable row;
+competence unavailable". Neither returns groups, counts or partial classifications.
+`truncated` remains false for wire compatibility; `omitted` only describes output lists,
+whose displayed scopes were classified from complete readable evidence. There is no event:
+the app reads on open, filter and Retry.
 `codeaf competence --json [--model id] [--scope id]` prints the same `competence.map` answer.
