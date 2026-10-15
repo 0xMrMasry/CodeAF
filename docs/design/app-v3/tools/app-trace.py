@@ -29,11 +29,12 @@ TRACE_ROOT = "/tmp/ui2trace"
 class App:
     """One running `codeaf app`, its output recorded as it arrives."""
 
-    def __init__(self, binary, home, out_path, req_path):
+    def __init__(self, binary, home, out_path, req_path, extra=(), extra_env=None):
         env = dict(os.environ)
         env["CODEAF_TELEMETRY"] = "off"
+        env.update(extra_env or {})
         self.proc = subprocess.Popen(
-            [binary, "app", "--home", home],
+            [binary, "app", "--home", home] + list(extra),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
         )
         self.out = open(out_path, "wb")
@@ -290,7 +291,113 @@ def scenario_budget(app):
     return {"ask": ask}
 
 
+def first(app, match, timeout):
+    """Answers the data of the first event matching, or None on a timeout."""
+    try:
+        _, line = app.wait(match, timeout)
+        return line.get("data")
+    except TimeoutError:
+        return None
+
+
+def task_event(pred):
+    return lambda l: l.get("event") == "task.changed" and pred(l["data"]["task"])
+
+
+def scenario_proposal(app):
+    """A proposed task with its clock, left alone until the clock starts it."""
+    agent, lat = start(app, folder("proposal"), "Use your propose_task tool to propose exactly one task: create a file named notes.txt here containing the word hello. Do not do the work yourself and do not start anything else.", "trace-prop-1")
+    card = first(app, task_event(lambda t: t.get("proposed")), 300)
+    out = {"card": card and card["task"]}
+    started = first(app, task_event(lambda t: t["state"] == "running"), 120)
+    out["started_by_clock"] = bool(started)
+    first(app, task_event(lambda t: t["state"] in ("done", "failed", "unverified")), 600)
+    return out
+
+
+def scenario_yourcall(app):
+    """A task whose acceptance only the person can judge, decided by the trace."""
+    agent, lat = start(app, folder("yourcall"), "Use your propose_task tool to propose one task: write a short poem about tides into poem.txt here. Its acceptance must be exactly: the person reads the poem and says it moves them. Do not do the work yourself.", "trace-call-1")
+    card = first(app, task_event(lambda t: t.get("proposed")), 300)
+    if card:
+        rid, _ = app.send("tasks.start", {"id": card["task"]["id"]})
+        app.wait(response(rid), 30)
+    call = first(app, task_event(lambda t: t.get("your_call") or t["state"] in ("done", "failed")), 900)
+    out = {"ended": call and call["task"]}
+    if call and call["task"].get("your_call"):
+        rid, _ = app.send("tasks.get", {"id": call["task"]["id"]})
+        app.wait(response(rid), 30)
+        rid, _ = app.send("tasks.decide", {"id": call["task"]["id"], "verdict": "accept"})
+        app.wait(response(rid), 30)
+        out["decided"] = bool(first(app, task_event(lambda t: t["id"] == call["task"]["id"] and t["state"] == "done"), 120))
+    return out
+
+
+def scenario_quick(app):
+    """A quick task that edits a file, then its undo."""
+    work = folder("quick", ["a.txt"])
+    agent, lat = start(app, work, "Use your quick_task tool (not a full task) to append a line saying hello to a.txt here. Do not edit it yourself.", "trace-quick-1")
+    done = first(app, lambda l: l.get("event") == "quick.changed" and l["data"]["quick"]["state"] == "done", 600)
+    out = {"quick": done and done["quick"]}
+    if done:
+        # The quick task lands as the turn ends, in either order, so the
+        # undo is sent once both have.
+        ended = lambda l: l.get("event") == "turn.done" and l["data"]["agent"] == agent
+        if not any(ended(l) for l in app.seen):
+            first(app, ended, 300)
+        rid, _ = app.send("quick.undo", {"id": done["quick"]["id"]})
+        _, line = app.wait(response(rid), 30)
+        out["undo"] = line.get("error") or "ok"
+        first(app, lambda l: l.get("event") == "quick.changed" and l["data"]["quick"]["state"] == "undone", 30)
+    return out
+
+
+def scenario_process(app):
+    """A background process: its row, its followed output, its stop."""
+    agent, lat = start(app, folder("process"), "Start this command in the background with your bash tool (run it as a background job, do not wait for it): python3 -c \"import time\nfor i in range(300):\n print('tick', i, flush=True); time.sleep(1)\" — then reply with one short sentence.", "trace-proc-1")
+    row = first(app, lambda l: l.get("event") == "process.changed" and l["data"]["process"]["state"] == "running", 300)
+    out = {"process": row and row["process"]}
+    if row:
+        pid = row["process"]["id"]
+        rid, _ = app.send("processes.follow", {"id": pid})
+        app.wait(response(rid), 30)
+        first(app, lambda l: l.get("event") == "process.output", 30)
+        rid, _ = app.send("processes.output", {"id": pid, "from_line": 0})
+        app.wait(response(rid), 30)
+        rid, _ = app.send("processes.unfollow", {"id": pid})
+        app.wait(response(rid), 30)
+        rid, _ = app.send("power.sleep")
+        app.wait(response(rid), 30)
+        first(app, lambda l: l.get("event") == "process.changed" and l["data"]["process"]["state"] == "stopped", 30)
+        rid, _ = app.send("power.wake")
+        app.wait(response(rid), 30)
+        first(app, lambda l: l.get("event") == "entry.added" and "slept" in l["data"]["entry"].get("text", ""), 30)
+        rid, _ = app.send("processes.list", {"agent": agent})
+        app.wait(response(rid), 30)
+    return out
+
+
+def scenario_long(app):
+    """A reply that runs long, said at the override, then moved to a task."""
+    agent, lat = start(app, folder("long"), "Write ten files here, essay1.md to essay10.md, each a 400-word essay on a different sea creature, one write call per file. Do not use a task; do it yourself in this reply.", "trace-long-1")
+    long = first(app, lambda l: l.get("event") == "turn.long", 300)
+    out = {"turn_long": long}
+    if long:
+        rid, _ = app.send("agents.move_to_task", {"id": agent, "turn": long["turn"]})
+        _, line = app.wait(response(rid), 200)
+        out["moved"] = line.get("result") or line.get("error")
+    app.wait(event("turn.done", agent=agent), 600)
+    return out
+
+
 SCENARIOS = {
+    "proposal": (scenario_proposal, "task-proposal-clock", "allow"),
+    "yourcall": (scenario_yourcall, "task-your-call", "allow"),
+    # The terminal's task belt keeps quick_task off the model's tools; with it
+    # off the session tree runs both verbs, which is the road quick tasks are on.
+    "quick": (scenario_quick, "quick-undo", "allow", [], {"CODEAF_TASK_BELT": "off"}),
+    "process": (scenario_process, "process-start-stop", "allow"),
+    "long": (scenario_long, "turn-long-move", "allow", ["--turn-long", "20s"]),
     "keys": (scenario_keys, "keys-check-bad", "allow"),
     "budget": (scenario_budget, "turn-budget-ask", "allow"),
     "basic": (scenario_basic, "turn-basic", "allow"),
@@ -312,10 +419,12 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     results = {}
     for name in args.scenario or ["basic", "tool", "permission", "tasks", "stop"]:
-        run, file, approval = SCENARIOS[name]
+        run, file, approval = SCENARIOS[name][:3]
+        extra = SCENARIOS[name][3] if len(SCENARIOS[name]) > 3 else ()
+        extra_env = SCENARIOS[name][4] if len(SCENARIOS[name]) > 4 else None
         home = os.path.join(args.out, "home-" + name)
         make_home(home, args.source, approval)
-        app = App(args.bin, home, os.path.join(args.out, file + ".jsonl"), os.path.join(args.out, file + ".requests.jsonl"))
+        app = App(args.bin, home, os.path.join(args.out, file + ".jsonl"), os.path.join(args.out, file + ".requests.jsonl"), extra, extra_env)
         try:
             results[name] = run(app)
         except Exception as err:

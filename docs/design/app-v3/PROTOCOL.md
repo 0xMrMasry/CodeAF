@@ -167,4 +167,71 @@ Budget asks: when an agent nears/hits its budget or the day cap, an `Ask` with
 (free text). Day cap options: `raise_today`, `wait`. Copy per U1/U2 edge cases
 ("It's close to its $5.00 budget", "Day cap reached · $40.00 of $40.00").
 
-Events: `settings.changed {settings}`, `provider.changed {provider}`, `spend.changed`.
+Events: `settings.changed {settings}`, `provider.changed {provider, key?}` (key: sent once after a browser sign-in so the app can store it in the Keychain), `spend.changed`.
+
+## Wave 3: tasks, quick tasks, processes, running long, sleep
+
+Types:
+```
+Task (adds) { proposed?: bool, clock_until?: time, irreversible?: bool,
+              your_call?: bool, result?, files?: [{path, add, del}], budget_usd?, spent_usd? }
+TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, read_at_step?}], brief }
+Quick    { id, agent, title, files: [{path, add, del}], state: "running"|"done"|"undone"|"grew"|"conflict",
+           grew?: {files, reason}, conflict?: {changed: string[]} }
+Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped",
+           started_at, ended_at?, exit_code?, last_line? }
+```
+
+| method | params | result |
+|---|---|---|
+| `tasks.get` | `{id}` | `{page: TaskPage}` |
+| `tasks.start` · `tasks.hold` · `tasks.decline` | `{id}` | `{}` proposed-task card actions |
+| `tasks.typing` | `{id}` | `{}` holds the clock while the person types in the card |
+| `tasks.decide` | `{id, verdict: "accept"\|"not_right"\|"recheck"\|"let_it_decide", text?}` | `{}` Your call (Tell it… = `not_right` or a note with text) |
+| `tasks.note` | `{id, text}` | `{}` |
+| `tasks.stop` | `{id}` | `{}` |
+| `quick.undo` | `{id}` | `{}` or error `conflict` with the changed files |
+| `quick.promote` | `{id}` | `{task}` Make it a task |
+| `processes.list` | `{agent}` | `{processes: Process[]}` running and ended (7 days) |
+| `processes.output` | `{id, from_line?}` | `{lines: string[], next_line}`; live tail via `process.output` events only while subscribed |
+| `processes.follow` / `processes.unfollow` | `{id}` | `{}` |
+| `processes.stop` · `processes.rerun` | `{id}` | `{}` / `{process}` |
+| `agents.move_to_task` | `{id, turn}` | `{task}` the running reply continues as a task |
+| `power.sleep` · `power.wake` | – | `{}` sent by the app on macOS sleep/wake |
+
+Events: `quick.changed {quick}`, `process.changed {process}`, `process.output {id, lines}`
+(followed only), `turn.long {agent, turn, elapsed_s, steps}` once per reply at 180 s,
+`agent.changed` gains state `asleep`.
+
+Rules: in app mode the engine never moves a running reply to a task by itself (dev's
+checkpoint auto hand-over is off); it emits `turn.long` and waits for `agents.move_to_task`.
+Proposed tasks start on their own after `proposed_task_clock_s` unless held, typed in or
+answered; irreversible tasks have no clock. Quick tasks: > 30 files or any test run → `grew`.
+
+## Work log detail (V63 · An agent at work, 20+ tool calls)
+
+The app groups, folds, pins and tails tool rows itself (deterministic rules on V63);
+the engine supplies the facts per call. `turn.tool` and tool `Entry` gain:
+
+```
+kind: "read" | "search" | "run" | "edit" | "web" | "connector" | "task" | "asks_first" | "other"
+started_at, ended_at?            wall clock; duration = ended - started
+batch?                           same value for calls the agent started together (parallel)
+exit_code?                       run
+retried_of?                      call id this one re-runs (a later pass of the same command)
+files?: [{path, add, del}]       edit
+connector?                       e.g. "GitHub" (connector kind)
+task?                            task id (task kind)
+ask?                             ask id (asks_first kind: the log pauses here)
+input?: {cwd?, timeout_s?, text} what was asked (command, query, path)
+tail?: string[]                  last ≤3 output lines while running, ≤12 when ended
+lines?                           total output lines
+```
+
+| method | params | result |
+|---|---|---|
+| `tools.output` | `{agent, call, from_line?, limit?}` | `{lines: string[], next_line, total}` full output of one call (works after the turn) |
+| `tools.follow` / `tools.unfollow` | `{agent, call}` | `{}`; live `tool.output {agent, call, lines}` events only while followed |
+
+`turn.tool` is sent at begin, at end, and at most every 500 ms in between with a
+fresh `tail` for calls running longer than 5 s.
