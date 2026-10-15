@@ -1,4 +1,4 @@
-# Engine protocol (UI2 ⇄ codeaf), contract 1
+# Engine protocol (UI2 ⇄ codeaf), contract 1 (additive revisions keep 1)
 
 UI2's Rust core (`crates/core`) starts the bundled codeaf binary as a child
 process, `codeaf app`, and talks to it over the child's stdin/stdout. No port
@@ -44,10 +44,15 @@ Error codes: `unknown_method`, `bad_params`, `not_found`, `busy`, `engine`
 Agent  { id, title, workspace, model?, state, updated_at }
        id: stable string (the conversation's session file id/path key)
        state: "idle" | "working" | "needs_you" | "stopped" | "closed"
+       "stopped": its conversation engine failed; the next send reopens it
        updated_at: RFC 3339
 Task   { id, agent, title, state, updated_at }
        state: "queued" | "running" | "done" | "failed" | "unverified"
 Crew   { id, name, manager?, members: [{agent, handle?}] }
+Ask    { id, agent, kind, title, detail?, options?: [{id, label}] }
+       kind: "approval" (a tool call waiting for allow/deny) | "question" (the agent asks the person)
+       approval options are the engine's own choices (e.g. allow once / always / deny);
+       a question may have options, free text, or both
 ```
 
 ## Methods
@@ -62,6 +67,8 @@ Crew   { id, name, manager?, members: [{agent, handle?}] }
 | `agents.send` | `{id, text}` | `{turn: <u64>}`; output arrives as events |
 | `agents.stop` | `{id}` | `{}` (interrupt the running turn) |
 | `agents.close` | `{id}` | `{}` (detach and stop its engine; conversation stays on disk) |
+| `asks.list` | `{agent}` | `{asks: Ask[]}` (open asks only) |
+| `asks.answer` | `{agent, id, option?, text?}` | `{}`; `not_found` if already answered elsewhere |
 | `tasks.list` | `{agent}` | `{tasks: Task[]}` |
 | `crews.list` | – | `{crews: Crew[]}` |
 
@@ -75,6 +82,9 @@ Crew   { id, name, manager?, members: [{agent, handle?}] }
 | `turn.delta` | `{agent, turn, kind: "text" \| "thinking", text}` |
 | `turn.tool` | `{agent, turn, call, name, phase: "begin" \| "end", ok?, summary?}` |
 | `turn.done` | `{agent, turn, ok, error?}` |
+| `ask.opened` | `{ask: Ask}` (agent state becomes `needs_you`) |
+| `ask.closed` | `{agent, id, by: "app" \| "elsewhere" \| "stopped"}` |
 | `task.changed` | `{task: Task}` |
 | `crew.changed` | `{crew: Crew}` |
+| `crew.removed` | `{id}` |
 | `log` | `{level: "info" \| "warn" \| "error", message}` (non-fatal notices) |
