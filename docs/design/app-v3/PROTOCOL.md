@@ -827,3 +827,57 @@ naming it, and refuses a field it does not know.
 | `spend.export` | `{from: "YYYY-MM-DD", to: "YYYY-MM-DD"}` | `{path}` a CSV under `<home>/app/exports/` (at, day, conversation, model, role, seat, calls, tokens in/out, usd), both days included |
 | `models.pin` | `{ids}` | `{settings}` |
 Accounts (providers and keys) are Wave 2's `providers.list` / `keys.*`; GitHub sign-in is not served yet.
+
+## Wave 9: Collections (V75)
+
+A collection is a hand-picked list of references: conversations, tasks, files, crews, processes and
+other collections. It is a list, not a saved query and not memory: nothing is copied, nothing is
+learned, and removing a reference never touches the thing. The store is `workspace.Store`
+(`<home>/v3/collections.db`, the same file `codeaf collections` reads), separate from memory.
+Hello carries the feature `collections`; an engine without it answers `unknown_method`.
+
+Ref is `{kind, id, session_id?}`: `kind` is `collection` · `conversation` · `task` · `artifact` ·
+`crew` · `process` (`standing` is legacy: found and removed, never added). A task is
+`{kind: "task", id: "<n>", session_id: "<agent>"}`; a process is `{kind: "process", id, session_id:
+"<agent>"}`; an artifact is a clean absolute path. Member is a Ref plus `added_at` (RFC 3339; absent
+for a row written by a store older than schema 2).
+
+Collection is `{id, name, created_at?, count, last_added_at?, holds?}`: `count` its direct members,
+`last_added_at` the newest membership, `holds` (only when `collections.list` was given `holds`)
+whether it directly holds that ref.
+
+Target is what `collections.open` found a member to be now, never stored:
+`{state: "live" | "deleted" | "missing" | "unknown", title?, in?: string[], status?, repo?, branch?,
+path?, count?}`. `deleted`: the conversation, task, crew, process or collection is gone; `missing`:
+the file is moved or missing; `unknown`: the owner could not be asked (it says nothing about the
+thing). `title` is the thing's own name (a conversation's title, a task's title, a crew's name, a
+process's title or command, a collection's name, a file's base name). `in` is where it lives, outer
+first: a conversation's crew path (empty: not in a crew), a task's or a process's crew path then its
+agent's title, a crew's parent crew path. `status`: a task's state, a process's state, a crew's
+state, a conversation's state. `repo` and `branch` for a file inside a git work tree (`repo` is the
+origin's `owner/name`, else the work tree's folder name) and `path` the file relative to that tree.
+`count`: a crew's members, a collection's direct members.
+
+| method | params | result |
+|---|---|---|
+| `collections.list` | `{holds?: Ref}` | `{collections: Collection[]}` oldest first, at most 1000 |
+| `collections.create` | `{name}` | `{collection}`; a name already taken (case-insensitive) answers `conflict` |
+| `collections.rename` | `{id, name}` | `{collection}`; `conflict` as create; renaming to its own name in another case is allowed |
+| `collections.duplicate` | `{id, name}` | `{collection}` a new collection holding the same refs with the same `added_at`; `conflict` as create |
+| `collections.delete` | `{id}` | `{}` the collection, its memberships, and every membership naming it in another collection; the things stay |
+| `collections.add` | `{id, refs: (Ref & {added_at?})[]}` 1–200 | `{added: Member[], already: Ref[]}` all or nothing; `added_at` given restores a removed one in place (Undo); a collection ref that would make a cycle (itself, or one that already holds `id` at any depth) answers `cycle` and changes nothing |
+| `collections.remove` | `{id, refs: Ref[]}` 1–200 | `{removed: Member[]}` what was there, with its `added_at`, for Undo |
+| `collections.open` | `{id, depth?: 0–2 (default 1), limit?: 1–500 (default 500)}` | `{collection, members: Node[], more: bool}` newest added first (rows with no `added_at` last, newest inserted first); Node is Member + `{target, children?: {members: Node[], more}}`; a `collection` node within `depth` carries its children, deeper ones carry `target.count` only; at most 1500 nodes in all, a collection already on the path is never opened again |
+| `collections.expand` | `{id, depth?: 1–3 (default 3), limit?: 1–500 (default 200)}` | `{collection, refs: (Member & {target})[], missing, collections, more}` every live non-collection ref the collection holds to `depth` levels, each once, outer first; `missing` counts targets that are deleted or missing (skipped); a target whose owner could not be asked (`unknown`) is skipped and not counted; `collections` the nested collections read |
+
+| event | data |
+|---|---|
+| `collection.changed` | `{id, deleted?: bool}` after any change made through this door (create, rename, duplicate, delete, add, remove), once per collection changed |
+
+Codes: `conflict` (name taken), `cycle` (add refused), `not_found` (no such collection), `bad_params`
+(a malformed ref, name or bound), `busy` (the store waited 10 s for another writer).
+
+Schema 2: `collections.created_at`, `memberships.added_at` (unix ms, 0 unknown), kinds `crew` and
+`process`, and deletes that cascade. A schema-1 file is migrated in place by the first write (one
+immediate transaction); reads of a schema-1 file still work. A build that only knows schema 1 refuses
+a migrated file ("unsupported collections database"), never misreads it.
