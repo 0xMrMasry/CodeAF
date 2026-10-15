@@ -703,6 +703,81 @@ def scenario_inbox(app):
     return out
 
 
+# ── Wave 5: a real crew ───────────────────────────────────────────────────────
+
+
+def allow_permissions(app):
+    """Answers permission asks only; a crew's own asks are the scenario's."""
+    def answer(line):
+        if line.get("event") == "ask.opened":
+            ask = line["data"]["ask"]
+            if ask.get("subkind") == "permission":
+                app.send("asks.answer", {"agent": ask["agent"], "id": ask["id"], "option": "allow_once"})
+    app.on_line = answer
+
+
+def call(app, method, params, timeout=120):
+    rid, _ = app.send(method, params)
+    _, line = app.wait(response(rid), timeout)
+    return line.get("result") if "result" in line else {"error": line.get("error")}
+
+
+def scenario_crew(app):
+    """A real crew: proposed by an agent and made from the app, its members
+    started by the manager and talking, a sub-crew, a question climbing from
+    the sub-crew to the person, a wrap-up report, finished and reopened."""
+    allow_permissions(app)
+    out = {}
+    ws = folder("crew", ["README.md"])
+    agent, _ = start(app, ws, "We are going to write a tiny static site in this folder: index.html (a home page) and about.html. Reply with one short sentence; do not write anything yet.", "crew-1")
+    app.wait(event("turn.done", agent=agent), 300)
+    out["propose"] = call(app, "crews.propose", {"agent": agent})
+    prop = first(app, lambda l: l.get("event") == "ask.opened" and l["data"]["ask"].get("subkind") == "crew_proposal", 400)
+    out["proposal"] = prop and prop["ask"]
+    if not prop:
+        return out
+    out["create"] = call(app, "asks.answer", {"agent": agent, "id": prop["ask"]["id"], "option": "create"}, 300)
+    crews = call(app, "crews.list", {})
+    crew = next((c for c in crews.get("crews", []) if c.get("manager") == agent), None)
+    out["crew"] = crew
+    if not crew:
+        return out
+    cid = crew["id"]
+    joined = first(app, lambda l: l.get("event") == "member.changed" and l["data"]["member"]["crew"] == cid and l["data"]["member"]["agent"] != agent, 300)
+    out["first_helper"] = joined and joined["member"]
+    talk = first(app, lambda l: l.get("event") == "crew.log" and l["data"]["line"]["crew"] == cid and l["data"]["line"]["kind"] in ("note", "event") and l["data"]["line"]["from"] not in ("manager", "you", "system"), 900)
+    out["member_talk"] = talk and talk["line"]
+    out["questions_up"] = call(app, "crews.update", {"id": cid, "settings": {"questions_up": True}})
+    out["to_manager"] = call(app, "crews.message", {"crew": cid, "to": "manager", "text": (
+        "Start a sub-team now with team_start kind team: name docs, handle writer, brief: write about.html with one paragraph about the site. "
+        "When a question from @writer reaches you, do not decide it: send it up to me with team_escalate to you."), "client_id": "crew-2"}, 120)
+    sub = first(app, lambda l: l.get("event") == "crew.changed" and l["data"]["crew"].get("parent") == cid and l["data"]["crew"].get("manager"), 900)
+    out["sub_crew"] = sub and {k: sub["crew"].get(k) for k in ("id", "name", "parent", "manager", "brief", "tint")}
+    if sub and sub["crew"].get("manager"):
+        writer = sub["crew"]["manager"]
+        out["to_writer"] = call(app, "crews.message", {"crew": sub["crew"]["id"], "to": "manager", "text": (
+            "Before you write, ask your manager with the ask tool whether about.html should name the authors or stay anonymous. "
+            "It is not yours to decide, so ask; then wait for the answer."), "client_id": "crew-3"}, 120)
+        climbed = first(app, lambda l: l.get("event") == "ask.opened" and l["data"]["ask"].get("subkind") == "crew_decision", 900)
+        out["climbed"] = climbed and climbed["ask"]
+        if climbed:
+            ask = climbed["ask"]
+            option = (ask.get("options") or [{"id": ""}])[0]["id"]
+            out["answer"] = call(app, "asks.answer", {"agent": ask["agent"], "id": ask["id"], "option": option, "text": "" if option else "Stay anonymous."})
+            out["decided"] = first(app, lambda l: l.get("event") == "decision.changed" and l["data"]["decision"]["id"] == ask["id"].split(":", 1)[1], 60)
+    out["wrap_up"] = call(app, "crews.wrap_up", {"id": cid})
+    report = first(app, lambda l: l.get("event") == "decision.opened" and l["data"]["decision"]["kind"] == "closing", 900)
+    out["report"] = report and report["decision"]
+    if report:
+        out["finish"] = call(app, "crews.decide", {"packet": report["decision"]["id"], "option": "close"})
+        closed = first(app, lambda l: l.get("event") == "crew.changed" and l["data"]["crew"]["id"] == cid and l["data"]["crew"]["state"] == "closed", 60)
+        out["closed"] = bool(closed)
+        again = call(app, "crews.reopen", {"id": cid})
+        out["reopened"] = again.get("crew", {}).get("state") if isinstance(again, dict) else again
+    out["log_lines"] = len(call(app, "crews.log", {"id": cid}).get("lines", []))
+    return out
+
+
 SCENARIOS = {
     "proposal": (scenario_proposal, "task-proposal-clock", "allow"),
     "yourcall": (scenario_yourcall, "task-your-call", "allow"),
@@ -719,6 +794,7 @@ SCENARIOS = {
     "batch": (scenario_batch, "permission-batch", "prompt"),
     "tasknote": (scenario_tasknote, "task-note-pause-resume", "allow"),
     "inbox": (scenario_inbox, "inbox-answer-undo-dock", "prompt"),
+    "crew": (scenario_crew, "crew-real", "allow"),
     "retry": (scenario_retry, "provider-retry", "allow", [], {"CODEAF_BASE_URL": "http://127.0.0.1:18503/v1"}),
     "keys": (scenario_keys, "keys-check-bad", "allow"),
     "budget": (scenario_budget, "turn-budget-ask", "allow"),

@@ -46,8 +46,10 @@ Agent  { id, title, workspace, model?, state, updated_at }
        state: "idle" | "working" | "needs_you" | "stopped" | "closed"
        "stopped": its conversation engine failed; the next send reopens it
        updated_at: RFC 3339
-Task   { id, agent, title, state, updated_at, parent?, group?, line? }
-       parent: the task that spawned it (nesting); group: the agent's grouping label;
+Task   { id, agent, title, state, updated_at, parent?, group?, group_title?, line? }
+       parent: the task that spawned it (nesting); group: the id of the handed-over run
+       (the engine's one grouping: a run and the workers under it; absent for a lone task);
+       group_title: that run's own name, the label to draw over the group;
        line: the one live status line the TUI shows for it
        state: "queued" | "running" | "done" | "failed" | "unverified"
 Crew   { id, name, manager?, members: [{agent, handle?}] }
@@ -405,7 +407,7 @@ and `stop`.
 | `crews.get` | `{id}` | `{crew}` | `File.Team` + `Effective` + `TeamSpend` |
 | `crews.create` | `{name, agents: [id], manager?: id, parent?, hue?}` | `{crew}` | `Update`: a new `Team` with `NewID`, `AddMember` per agent, `SetManager`, `SetParent` (refused past `depth_limit`: `CanNest`) |
 | `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
-| `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; words to a member are also told to the manager by the app layer (below) |
+| `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; to an agent mid-turn they are queued (`agents.queue`) and `entry.turn` is 0; words to a member are also told to the manager by the app layer (below) |
 | `crews.log` | `{id, after?, limit?}` | `{lines, cursor}` | `ReadTraffic` (oldest first, cursor = last id) |
 | `crews.decisions` | `{id?, all?}` | `{decisions}` | `Packets(id)` / `OpenPackets(scope)`; `all` includes decided ones (`History`) |
 | `crews.decide` | `{packet, option?, text?, reason?}` | `{decision}` | `Decide(id, "you", …)`; a decided `closing` packet with close/close-now then `AcceptClosing` |
@@ -423,7 +425,9 @@ and `stop`.
 | `crews.defaults` · `crews.set_default` | – / `{key, value}` | `{defaults}` | `DefaultsAt` / `config.ApplyTeamDefault` (the five `teams.` rows) |
 
 Events: `crew.changed {crew}`, `crew.removed {id}`, `crew.log {line}` (every new Traffic line),
-`decision.opened {decision}`, `decision.changed {decision}`, `member.changed {member}`. A crew's
+`decision.opened {decision}`, `decision.changed {decision}`, `member.changed {member}`. A crew that
+closes is said again as `crew.changed` with `state: "closed"` (it stays readable and can be reopened);
+`crew.removed` is only for a crew deleted from the store. A crew's
 `state` moves to `needs_you` while a packet waits on you from it or a member is asking.
 
 ### The app layer (fields teams do not have)
