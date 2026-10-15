@@ -379,7 +379,7 @@ def scenario_process(app):
 
 def scenario_long(app):
     """A reply that runs long, said at the override, then moved to a task."""
-    agent, lat = start(app, folder("long"), "Write ten files here, essay1.md to essay10.md, each a 300-word essay on a different sea creature. Write them strictly one at a time: one write call per response, and wait for each write to finish before the next. Do not use a task; do it yourself in this reply.", "trace-long-1")
+    agent, lat = start(app, folder("long"), "Write ten files here, note1.md to note10.md, each three sentences about a different sea creature. Start at once with note1.md and write them strictly one at a time: one short write call per response, then the next. Do not use a task; do it yourself in this reply.", "trace-long-1")
     long = first(app, lambda l: l.get("event") == "turn.long", 300)
     out = {"turn_long": long}
     if long:
@@ -387,6 +387,9 @@ def scenario_long(app):
         _, line = app.wait(response(rid), 200)
         out["moved"] = line.get("result") or line.get("error")
     app.wait(event("turn.done", agent=agent), 600)
+    # The task goes on after the reply ends; its live line is watched to the end.
+    first(app, lambda l: l.get("event") == "task.changed" and l["data"]["task"]["state"] in ("done", "failed"), 600)
+    out["lines"] = sorted({l["data"]["task"].get("line") for l in app.seen if l.get("event") == "task.changed" and l["data"]["task"].get("line")})[:12]
     return out
 
 
@@ -461,7 +464,7 @@ def scenario_worklog(app):
         if line.get("event") != "turn.tool":
             return
         row = line["data"]
-        if row.get("kind") == "run" and row.get("phase") == "begin" and not followed:
+        if row.get("tool_kind") == "run" and row.get("phase") == "begin" and not followed:
             followed["call"] = row["call"]
             app.send("tools.follow", {"agent": agent, "call": row["call"]})
 
@@ -469,7 +472,7 @@ def scenario_worklog(app):
     app.wait(event("turn.done", agent=agent), 900)
     app.on_line = None
     rows = [l["data"] for l in app.seen if l.get("event") == "turn.tool" and l["data"].get("phase") == "end"]
-    out = {"calls": len(rows), "kinds": sorted({r.get("kind") for r in rows})}
+    out = {"calls": len(rows), "kinds": sorted({r.get("tool_kind") for r in rows})}
     failing = next((r for r in rows if r.get("exit_code")), None)
     out["failed"] = failing and {k: failing.get(k) for k in ("call", "exit_code", "lines", "tail")}
     out["retried"] = [r["call"] for r in rows if r.get("retried_of")]
@@ -484,6 +487,217 @@ def scenario_worklog(app):
     return out
 
 
+# ── Wave 3b: the conversation, the dock, the queue, tasks as chats ───────────
+
+
+def scenario_steer(app):
+    """A steer consumed at a step, then one the turn ends before reading."""
+    agent, lat = start(app, folder("steer"), "Run `sleep 6; echo first` with your bash tool, then run `ls` with it, then reply in one sentence.", "trace-steer-1")
+    first(app, lambda l: l.get("event") == "turn.tool" and l["data"].get("phase") == "begin", 300)
+    rid, _ = app.send("agents.steer", {"id": agent, "text": "Also run `date` before you reply.", "client_id": "steer-1"})
+    app.wait(response(rid), 30)
+    consumed = first(app, lambda l: l.get("event") == "entry.added" and l["data"]["entry"]["kind"] == "steer" and l["data"]["entry"].get("state") != "pending", 300)
+    app.wait(event("turn.done", agent=agent), 300)
+    rid, _ = app.send("agents.send", {"id": agent, "text": "Reply with exactly one word: ready.", "client_id": "steer-2"})
+    app.wait(response(rid), 30)
+    app.wait(event("turn.started", agent=agent), 60)
+    rid, _ = app.send("agents.steer", {"id": agent, "text": "Now say the word twice.", "client_id": "steer-3"})
+    app.wait(response(rid), 30)
+    late = first(app, lambda l: l.get("event") == "entry.added" and l["data"]["entry"].get("client_id") == "steer-3" and l["data"]["entry"].get("state") in ("consumed", "fell_through"), 300)
+    for _ in range(2):
+        try:
+            app.wait(event("turn.done", agent=agent), 300)
+        except TimeoutError:
+            break
+    return {"first": consumed and consumed["entry"], "second": late and late["entry"]}
+
+
+def scenario_queue(app):
+    """Two queued messages, edited and reordered while the turn runs, then sent in order."""
+    agent, lat = start(app, folder("queue"), "Run `sleep 10` with your bash tool, then reply with the word done.", "trace-queue-1")
+    app.wait(event("turn.tool"), 300)
+    ids = []
+    for text in ("Then say the word alpha.", "Then say the word beta."):
+        rid, _ = app.send("agents.queue", {"id": agent, "text": text, "client_id": "q-" + text[-6:-1]})
+        _, line = app.wait(response(rid), 30)
+        ids.append(line["result"]["queued"][-1]["id"])
+    rid, _ = app.send("queue.edit", {"agent": agent, "id": ids[0], "text": "Then say the word gamma."})
+    app.wait(response(rid), 30)
+    rid, _ = app.send("queue.move", {"agent": agent, "id": ids[1], "to": 0})
+    _, line = app.wait(response(rid), 30)
+    order = [q["text"] for q in line["result"]["queued"]]
+    for _ in range(3):
+        app.wait(event("turn.done", agent=agent), 300)
+    rid, _ = app.send("queue.edit", {"agent": agent, "id": ids[0], "text": "too late"})
+    _, line = app.wait(response(rid), 30)
+    return {"order": order, "edit_after_send": line.get("error")}
+
+
+def scenario_update(app):
+    """Thinking, an interim update before a tool call, and the answer."""
+    work = folder("update", ["a.txt", "b.txt"])
+    agent, lat = start(app, work, "Think it over first. Then, before using any tool, tell me in one sentence what you will do; then list this folder with a tool; then answer with the file count.", "trace-update-1")
+    app.wait(event("turn.done", agent=agent), 300)
+    kinds = [l["data"]["entry"]["kind"] for l in app.seen if l.get("event") == "entry.added"]
+    thought = [l["data"] for l in app.seen if l.get("event") == "turn.thinking_done"]
+    return {"entries": kinds, "thought": thought}
+
+
+def scenario_asks(app):
+    """A choice with the agent's suggestion handed back, and a clarification answered in words."""
+    agent, lat = start(app, folder("asks"), "Use your ask tool to ask me one multiple-choice question: should trailing commas be strict or tolerant by default? Give two options, mark strict as your own suggested pick, and wait for my answer.", "trace-asks-1")
+    opened = first(app, lambda l: l.get("event") == "ask.opened", 300)
+    out = {"choice": opened and opened["ask"]}
+    if opened:
+        rid, _ = app.send("asks.answer", {"agent": agent, "id": opened["ask"]["id"], "you_decide": True})
+        _, line = app.wait(response(rid), 30)
+        out["you_decide"] = line.get("error") or "ok"
+    app.wait(event("turn.done", agent=agent), 300)
+    rid, _ = app.send("agents.send", {"id": agent, "text": "Use your ask tool to ask me, as a free-text question with no options, which customers still run v1. Wait for my answer, then repeat it back.", "client_id": "trace-asks-2"})
+    app.wait(response(rid), 30)
+    opened = first(app, lambda l: l.get("event") == "ask.opened", 300)
+    out["clarification"] = opened and opened["ask"]
+    if opened:
+        rid, _ = app.send("asks.answer", {"agent": agent, "id": opened["ask"]["id"], "text": "Northwind and Acme"})
+        app.wait(response(rid), 30)
+    app.wait(event("turn.done", agent=agent), 300)
+    return out
+
+
+def scenario_batch(app):
+    """Three commands asked about together, allowed as one."""
+    work = folder("batch", ["a.txt", "b.txt", "c.txt"])
+    agent, lat = start(app, work, "In one single step, call your bash tool three times in parallel: `rm a.txt`, `rm b.txt` and `rm c.txt`. Then reply in one sentence.", "trace-batch-1")
+    asks = []
+    while True:
+        opened = first(app, lambda l: l.get("event") in ("ask.opened", "turn.done"), 300)
+        if not opened or "ask" not in opened:
+            break
+        asks.append(opened["ask"])
+        if len(asks) == 1:
+            time.sleep(1)
+            continue
+        if len(opened["ask"].get("batch") or []) >= 2:
+            rid, _ = app.send("asks.answer", {"agent": agent, "id": opened["ask"]["id"], "option": "allow_once"})
+            app.wait(response(rid), 30)
+            break
+    try:
+        app.wait(event("turn.done", agent=agent), 300)
+    except TimeoutError:
+        pass
+    return {"asks": len(asks), "batch": asks and asks[-1].get("batch")}
+
+
+def scenario_tasknote(app):
+    """A task's note read at a step, and the task paused and resumed."""
+    allow_every_ask(app)
+    agent, lat = start(app, folder("tasknote"), "Propose one task with your task tool: write six files here, f1.txt to f6.txt, one per step, each holding one sentence about rivers. Do not do it yourself.", "trace-note-1")
+    running = first(app, lambda l: l.get("event") == "task.changed" and l["data"]["task"]["state"] == "running", 600)
+    out = {}
+    if running:
+        task = running["task"]["id"]
+        rid, _ = app.send("tasks.note", {"id": task, "text": "Make the last file about the Nile.", "client_id": "note-1"})
+        _, line = app.wait(response(rid), 30)
+        out["note"] = line.get("result") or line.get("error")
+        read = first(app, lambda l: l.get("event") == "note.changed" and l["data"]["state"] == "read", 600)
+        out["read"] = read
+        rid, _ = app.send("tasks.pause", {"id": task})
+        _, line = app.wait(response(rid), 30)
+        out["pause"] = line.get("error") or "ok"
+        paused = first(app, lambda l: l.get("event") == "task.changed" and l["data"]["task"].get("paused"), 120)
+        out["paused"] = bool(paused)
+        time.sleep(5)
+        rid, _ = app.send("tasks.resume", {"id": task})
+        _, line = app.wait(response(rid), 30)
+        out["resume"] = line.get("error") or "ok"
+        done = first(app, lambda l: l.get("event") == "task.changed" and l["data"]["task"]["id"] == task and l["data"]["task"]["state"] in ("done", "failed", "unverified"), 900)
+        out["ended"] = done and done["task"]["state"]
+        rid, _ = app.send("tasks.entries", {"id": task, "limit": 50})
+        _, line = app.wait(response(rid), 60)
+        out["entries"] = len((line.get("result") or {}).get("entries") or [])
+    return out
+
+
+def serve_busy(port):
+    """A provider that answers every call with 503, so the engine's retry
+    ladder runs and says each retry. An unreachable address is not used: the
+    engine reads a refused dial as no connection and waits for the network
+    without retrying."""
+    import http.server
+    import threading
+
+    class Busy(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = b'{"error":{"message":"the provider is busy","code":503}}'
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_GET = do_POST
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Busy)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def scenario_retry(app):
+    """A provider that answers 503: retries said as they happen, then the failure."""
+    agent, lat = start(app, folder("retry"), "Say hi.", "trace-retry-1")
+    done = first(app, lambda l: l.get("event") == "turn.done", 600)
+    retries = [l["data"] for l in app.seen if l.get("event") == "turn.retrying"]
+    footers = [l["data"]["entry"] for l in app.seen if l.get("event") == "entry.added" and l["data"]["entry"]["kind"] == "footer"]
+    return {"retries": retries, "footers": footers, "done": done}
+
+
+# ── Wave 4: the Inbox ─────────────────────────────────────────────────────────
+
+
+def scenario_inbox(app):
+    """An ask answered from the Inbox, one undone in its hold and answered in
+    the dock instead, which clears it from the Inbox."""
+    agent, lat = start(app, folder("inbox"), "Run these three commands with your bash tool, strictly one at a time, waiting for each to finish: `echo one`, then `echo two`, then `echo three`. Then reply with one short sentence.", "trace-inbox-1")
+    out = {}
+    added = first(app, lambda l: l.get("event") == "inbox.added", 300)
+    if not added:
+        return {"error": "no inbox item"}
+    rid, _ = app.send("inbox.list", {"list": "waiting"})
+    _, line = app.wait(response(rid), 30)
+    out["listed"] = len(line["result"]["items"])
+    rid, _ = app.send("inbox.answer", {"id": added["item"]["id"], "option": "allow_once"})
+    _, line = app.wait(response(rid), 30)
+    out["held_until"] = (line.get("result") or {}).get("undo_until")
+    resolved = first(app, lambda l: l.get("event") == "inbox.resolved", 30)
+    out["first"] = resolved
+    added = first(app, lambda l: l.get("event") == "inbox.added" and l["data"]["item"]["id"] != out["first"]["id"], 300)
+    if added:
+        item = added["item"]
+        rid, _ = app.send("inbox.answer", {"id": item["id"], "option": "allow_once"})
+        app.wait(response(rid), 30)
+        time.sleep(1)
+        rid, _ = app.send("inbox.undo", {"id": item["id"]})
+        _, line = app.wait(response(rid), 30)
+        out["undo"] = line.get("error") or "ok"
+        time.sleep(6)
+        rid, _ = app.send("asks.answer", {"agent": agent, "id": item["ask"]["id"], "option": "allow_once"})
+        app.wait(response(rid), 30)
+        out["second"] = first(app, lambda l: l.get("event") == "inbox.resolved" and l["data"]["id"] == item["id"], 30)
+    added = first(app, lambda l: l.get("event") == "inbox.added", 300)
+    if added:
+        rid, _ = app.send("asks.answer", {"agent": agent, "id": added["item"]["ask"]["id"], "option": "allow_once"})
+        app.wait(response(rid), 30)
+    app.wait(event("turn.done", agent=agent), 300)
+    rid, _ = app.send("inbox.list", {"list": "done"})
+    _, line = app.wait(response(rid), 30)
+    out["counts"] = line["result"]["counts"]
+    return out
+
+
 SCENARIOS = {
     "proposal": (scenario_proposal, "task-proposal-clock", "allow"),
     "yourcall": (scenario_yourcall, "task-your-call", "allow"),
@@ -491,8 +705,16 @@ SCENARIOS = {
     # off the session tree runs both verbs, which is the road quick tasks are on.
     "quick": (scenario_quick, "quick-undo", "allow", [], {"CODEAF_TASK_BELT": "off"}),
     "process": (scenario_process, "process-start-stop", "allow"),
-    "long": (scenario_long, "turn-long-move", "allow", ["--turn-long", "20s"]),
+    "long": (scenario_long, "turn-long-move", "allow", ["--turn-long", "10s"]),
     "worklog": (scenario_worklog, "worklog-20-calls", "allow"),
+    "steer": (scenario_steer, "steer-consumed-fell-through", "allow"),
+    "queue": (scenario_queue, "queue-edit-reorder", "allow"),
+    "update": (scenario_update, "thinking-and-update", "allow"),
+    "asks": (scenario_asks, "ask-choice-and-clarification", "allow"),
+    "batch": (scenario_batch, "permission-batch", "prompt"),
+    "tasknote": (scenario_tasknote, "task-note-pause-resume", "allow"),
+    "inbox": (scenario_inbox, "inbox-answer-undo-dock", "prompt"),
+    "retry": (scenario_retry, "provider-retry", "allow", [], {"CODEAF_BASE_URL": "http://127.0.0.1:18503/v1"}),
     "keys": (scenario_keys, "keys-check-bad", "allow"),
     "budget": (scenario_budget, "turn-budget-ask", "allow"),
     "basic": (scenario_basic, "turn-basic", "allow"),
@@ -517,6 +739,8 @@ def main():
         run, file, approval = SCENARIOS[name][:3]
         extra = SCENARIOS[name][3] if len(SCENARIOS[name]) > 3 else ()
         extra_env = SCENARIOS[name][4] if len(SCENARIOS[name]) > 4 else None
+        if name == "retry":
+            serve_busy(18503)
         home = os.path.join(args.out, "home-" + name)
         make_home(home, args.source, approval)
         app = App(args.bin, home, os.path.join(args.out, file + ".jsonl"), os.path.join(args.out, file + ".requests.jsonl"), extra, extra_env)

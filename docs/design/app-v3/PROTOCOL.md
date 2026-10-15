@@ -214,7 +214,8 @@ The app groups, folds, pins and tails tool rows itself (deterministic rules on V
 the engine supplies the facts per call. `turn.tool` and tool `Entry` gain:
 
 ```
-kind: "read" | "search" | "run" | "edit" | "web" | "connector" | "task" | "asks_first" | "other"
+tool_kind: "read" | "search" | "run" | "edit" | "web" | "connector" | "task" | "asks_first" | "other"
+                                 (named tool_kind so it never clashes with Entry.kind)
 started_at, ended_at?            wall clock; duration = ended - started
 batch?                           same value for calls the agent started together (parallel)
 exit_code?                       run
@@ -247,7 +248,7 @@ Entry kind "update"   { text }   interim mid-turn message (eyebrow "Update"), fu
 Entry kind "steer"    { text, state: "pending"|"consumed"|"fell_through", step? }
 Entry kind "note"     { task, text, from: "you"|"task", state?: "sending"|"waiting"|"read", read_at_step? }
 Entry kind "summary"  { text }   "Earlier messages summarized" (engine compaction point)
-Entry kind "footer"   { text, kind: "stopped_by_you"|"retrying"|"provider_failed"|"fallback"|"process_finished",
+Entry kind "footer"   { text, footer_kind: "stopped_by_you"|"retrying"|"provider_failed"|"fallback"|"process_finished",
                         retry_in_s?, model_from?, model_to? }
 Entry (user) adds     attachments?: [{kind: "file"|"link"|"paste", path?, url?, title?, lines?, add?, del?,
                                       state?: "exists"|"changed"|"missing"|"outside"}]
@@ -296,3 +297,68 @@ Task { …, paused?: bool, waits_on?: [task], holding_up?: [task], model?, steps
 Limits the engine enforces and reports: 16 processes per agent (17th fails with a footer
 "16 processes are running for this agent."); process/tool output kept to the last 512 KB
 ("… earlier output trimmed to the last 512 KB").
+
+## Wave 4: Inbox (V04, V68 "The dock and the Inbox")
+
+Every Ask from every agent (held or not), task and crew is one Inbox item. The
+Inbox needs agents with open asks to stay held (never idle-released while an ask is open).
+
+```
+InboxItem { id, ask: Ask, where: {agent, crew?, task?, path: string[]}, at,
+            list: "waiting"|"later"|"done", answered?: {option?, text?, by, at, where} ,
+            context: Entry[] }   context = the two turns before the question
+```
+| method | params | result |
+|---|---|---|
+| `inbox.list` | `{list, query?}` | `{items: InboxItem[], counts: {waiting, later, done_today}}` |
+| `inbox.answer` | `{id, option?, text?, why?}` | `{undo_until}` the answer is held 5 s ("Approving… Undo") then sent |
+| `inbox.undo` | `{id}` | `{}` within the 5 s window: nothing is sent, item returns to Waiting |
+| `inbox.later` · `inbox.back` | `{id}` | `{}` Later / back to Waiting |
+| `inbox.open` | `{id}` | `{agent, task?}` where to navigate |
+
+Events: `inbox.added {item}`, `inbox.resolved {id, by: "app"|"elsewhere"|"stopped"|"no_longer_needed", receipt}`,
+`inbox.counts {waiting, later, done_today}` (drives the rail badge and the macOS Dock badge).
+Answering anywhere (dock, task, crew, Inbox) resolves it everywhere within 1 s.
+
+## Wave 5: Crews (U3, X2, V01, V02, V15, V15b, V15c, V16–V20, V64)
+
+A crew is a codeaf team. The app process starts and stops crew members itself (as
+tui3/teamtraffic.go does for the TUI) and keeps every member of an open crew held.
+
+```
+Crew   { id, name, tint: "iris"|"sage"|"sand"|"tide"|"rose"|"graphite", goal?, manager, state:
+         "working"|"needs_you"|"idle"|"closed", budget_usd?, spent_usd, ends_at?, parent?,
+         members: Member[], created_at, closed_at?, report? }
+Member { agent, handle, role?, model, cap_usd?, spent_usd, reports_to?, state, paused?, crew }
+Role   { id, name, instructions, model, copies: [{crew, agent}] }
+Item   { id, crew, kind: "job"|"issue"|"pr"|"file", ref, title, state?, line?, at }
+LogLine{ id, crew, from, to?, text, at }          members talking (V19 Log, V64 crew talk)
+Report { crew, shipped, decisions: string[], files: [{path, add, del}], left_open: string[],
+         cost: {usd, cap_usd, steps, agents}, from, to, markdown }
+Proposal { id, agent, name, tint, manager, helpers: [{handle, role, model, budget}], existing?: [agent],
+           budget_usd, ends_at? }   the Bring in helpers card (an Ask with subkind "crew_proposal")
+```
+| method | params | result |
+|---|---|---|
+| `crews.list` | `{closed?: bool}` | `{crews}` |
+| `crews.get` | `{id}` | `{crew}` |
+| `crews.propose` | `{agent}` | `{}` asks the agent to propose; arrives as an Ask (crew_proposal) |
+| `crews.create` | `{from: "proposal", proposal, edits?}` or `{from: "agents", agents, name, goal?, manager: "new"\|agent, tint}` | `{crew}`; "Made the crew … · you · 15:04" receipt |
+| `crews.update` | `{id, name?, tint?, goal?, budget_usd?, ends_at?}` | `{crew}` |
+| `crews.message` | `{crew, member?, text, client_id}` | `{}` member messages are "@manager sees it" and appear in the Log |
+| `crews.log` | `{id, before?}` | `{lines}` |
+| `crews.items` · `crews.link` · `crews.unlink` | `{id}` / `{id, ref}` | `{items}` |
+| `members.add` | `{crew, role?/agent?, handle, model, cap_usd?, reports_to?, instructions?}` | `{member}` |
+| `members.update` | `{crew, agent, instructions?, model?, cap_usd?, reports_to?}` | `{member}` |
+| `members.pause` · `members.resume` · `members.remove` | `{crew, agent}` | `{}` (remove is never offered for the manager) |
+| `members.move` | `{crew, agent, to}` | `{}` |
+| `crews.replace_manager` | `{crew, agent}` | `{}` new manager reads the old one's notes and the Log |
+| `crews.sub` | `{crew, name, manager, members}` | `{crew}` sub-crew (≤ 3 deep, default 50 % of parent budget) |
+| `crews.wrap_up` | `{id}` | `{}` manager writes the report → `report.ready` |
+| `crews.finish` | `{id}` | `{}` keeps the report, members stop (agents in other crews keep working), crew → Closed |
+| `crews.reopen` | `{id}` | `{crew}` as it was |
+| `roles.list` · `roles.update` | – / `{id, instructions?, model?}` | `{roles}` / `{role}` editing a role updates every copy's instructions |
+
+Events: `crew.changed {crew}`, `crew.removed {id}`, `crew.log {line}`, `crew.item {item}`,
+`report.ready {report}`, `member.changed {member}`. Asks carry `path` ("Backend → Release → you")
+when they climb through managers.
