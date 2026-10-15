@@ -36,7 +36,16 @@ Error codes: `unknown_method`, `bad_params`, `not_found`, `busy`, `engine`
 3. Requests and events flow.
 4. codeaf exits cleanly (closing every agent engine it started) when its stdin
    reaches EOF, on SIGTERM/SIGINT, or on request `shutdown`. The app closes
-   stdin to stop it, then kills after 3 s.
+   stdin to stop it, then kills after 8 s.
+5. QUIT PAUSES, REOPEN RESUMES. Before anything stops, codeaf writes down every
+   agent in the middle of a reply and every task it had running. A reply is
+   stopped where it stands; at the next start codeaf opens that agent, sends
+   `entry.added {kind: "notice", text: "Resumed after quit"}` and the reply carries
+   on as a turn with no user entry in front of it (`turn.started` … `turn.done`); a
+   task the quit left with nothing driving it is picked up where its record stands.
+   Every running process gets SIGTERM, then SIGKILL after 5 s, and is listed
+   afterwards with `state: "stopped", reason: "stopped by quit"`. Automations and
+   standing orders are the store's and are untouched; they fire again once open.
 
 ## Types
 
@@ -181,7 +190,8 @@ TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, read
 Quick    { id, agent, title, files: [{path, add, del}], state: "running"|"done"|"undone"|"grew"|"conflict",
            grew?: {files, reason}, conflict?: {changed: string[]} }
 Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped",
-           started_at, ended_at?, exit_code?, last_line? }
+           started_at, ended_at?, exit_code?, last_line?, reason? }
+           reason: why a stopped process stopped when a person did not stop it: "stopped by quit"
 ```
 
 | method | params | result |
@@ -264,6 +274,11 @@ Ask { …, source: {kind: "reply"|"task", task?}, reason?, evidence?: {lines: st
       choices?: [{id, label, detail?, suggested?: bool}], clock_until?, irreversible?,
       batch?: [{id, text, state?: "allowed"|"denied"}], holding_up?: [task ids], say_why?: bool }
 ```
+A choice with a `suggested` answer carries `clock_until` (the app's proposed-task clock, 12 s by
+default; none when the clock is off, the stakes are irreversible, or the project set its own rule
+for choices): the card reads "Picks Suggested in 12s", and when the clock runs out the engine takes
+the suggestion and the ask closes. A proposed task its clock started closes with the receipt
+"Started on its own after 12s · 15:04".
 | method | params | result |
 |---|---|---|
 | `asks.answer` (adds) | `{…, why?, batch_item?, later?: bool, you_decide?: bool}` | `{}` |
@@ -291,10 +306,10 @@ Task { …, paused?: bool, waits_on?: [task], holding_up?: [task], model?, steps
 ```
 | method | params | result |
 |---|---|---|
-| `tasks.pause` · `tasks.resume` · `tasks.retry` | `{id}` | `{}` |
+| `tasks.pause` · `tasks.resume` · `tasks.retry` | `{id}` | `{}` · also on a handed-over task (a moved reply, a run): pause holds the run, nothing new starts and the step in hand is the last until resume |
 | `tasks.brief` | `{id, text}` | `{}` Change the brief (read at its next step) |
 | `tasks.note` (adds) | `{id, text, client_id}` | note entry; `note.changed {task, id, state, read_at_step}` |
-| `tasks.entries` | `{id, before?, limit?}` | the task's own conversation (log, notes, its sub-tasks) |
+| `tasks.entries` | `{id, before?, limit?}` | the task's own conversation (log, notes, its sub-tasks); a handed-over task's log is its worker's steps, one quiet notice each, and its notes carry `read_at_step` once the worker had them |
 
 Limits the engine enforces and reports: 16 processes per agent (17th fails with a footer
 "16 processes are running for this agent."); process/tool output kept to the last 512 KB
@@ -453,39 +468,115 @@ field below is marked **app** on the wire's Crew/Member; everything else is **te
 
 ## Wave 7: closing, archiving, finding (V21, V22, J03, J04, X4)
 
-Agent adds `closed_at?`, `archived_at?`, `last_active_at`, `spent_usd`.
+Agent adds `closed_at?`, `archived_at?`, `last_active_at` (when the person last spoke in it),
+`spent_usd` (all it has spent). `state` adds `"archived"`.
 | method | params | result |
 |---|---|---|
-| `agents.list` (adds) | `{state?: "open"\|"closed"\|"archived"\|"all", query?}` | closed/archived only when asked |
-| `agents.move_to_closed` | `{ids}` | `{}` "Move to Closed": stops its engine, keeps everything, leaves the rail at once |
-| `agents.archive` | `{ids}` | `{}` |
-| `agents.reopen` | `{id}` | `{agent}` exactly as it was |
-| `agents.rename` | `{id, title}` | `{agent}` |
-| `agents.idle` | `{days}` | `{ids}` agents idle longer than `idle_close_days` (Select idle) |
-| `search.all` | `{query, limit_per_group?}` | `{groups: [{kind: "agent"\|"crew"\|"task"\|"message", hits: [...]}]}` ⌘K / All crews and agents |
-Tidy commands are undoable until quit: the app keeps the inverse call.
+| `agents.list` (adds) | `{workspace?, state?: "open"\|"closed"\|"archived"\|"all", query?}` | open only by default; `query` matches title or folder |
+| `agents.move_to_closed` | `{ids}` | `{}` "Move to Closed": lets its conversation go, keeps everything, leaves the rail at once; `agent.changed` per id |
+| `agents.archive` | `{ids}` | `{}` closed and put away (the conversation's own archive mark, the one the terminal's list reads) |
+| `agents.reopen` | `{id}` | `{agent}` exactly as it was; opening or sending to a closed agent also reopens it |
+| `agents.rename` | `{id, title}` | `{agent}` the person's name, kept literally; no namer renames it afterwards |
+| `agents.idle` | `{days?}` | `{ids}` open agents nobody has spoken in for `days` (default `idle_close_days`) |
+| `search.all` | `{query, limit_per_group?: 1–50, default 8}` | `{groups: [{kind: "agent"\|"crew"\|"task"\|"message", hits: [{kind, id, agent?, title, excerpt?, at?}]}]}` ⌘K / All crews and agents |
+
+Where it comes from: closed and archived times are the app's (`<home>/app/state.json`); the archive
+mark is the conversation's meta; agents and their spend are the conversations' rows; crews are the
+teams; tasks are each project's task index (`id` is `<agent>:<n>`); messages are the conversation
+search store (`id` is `<agent>#<seq>`, `excerpt` the matched words). An agent idle past
+`idle_close_days` still reads `closed` without a `closed_at`.
+Tidy commands are undoable until quit: the app keeps the inverse call (`agents.reopen`).
 
 ## Wave 6: Standing orders and reminders (V40, U2 7–8, X1)
 
+An order IS an automation (`internal/automation`): one store (`<home>/v3/automations/automations.db`),
+one clock, the same rows the terminal's `/automations` list reads. The app adds no store of its own.
+The app holds an open window for its whole life, so the clock runs while the app is open; nothing
+runs while it is closed, and a slot missed while the Mac slept or the app was closed runs ONCE,
+late, when it is open again (`order.missed`).
+
 ```
-Order { id, agent, crew?, kind: "order"|"reminder", when, does, wont?, answers_in: "chat"|"crew"|"everywhere"|"not_here",
-        trust: "asks_first"|"earning"|"trusted", approved_runs, budget_per_run_usd?, state: "proposed"|"active"|"paused"|"stopped"|"done",
-        last_run?: {at, result: "ok"|"not_right"|"skipped"|"missed"}, fires_at? }
+Order { id, agent?, crew?, kind: "order"|"reminder"|"watch", title, workspace?, when, when_exact?,
+        does, wont?, answers_in: "chat"|"crew"|"everywhere"|"not_here",
+        trust: "asks_first"|"earning"|"trusted", approved_runs, trust_after: 5,
+        budget_per_run_usd, time_per_run_s, state: "proposed"|"active"|"paused"|"stopped"|"done",
+        fires_at?, last_run?: OrderRun, asking?: OrderRun, created_at }
+OrderRun { id, ask_id?: "order:<id>", due_at, at?, result?: "ok"|"quiet"|"incomplete"|"skipped"|"not_right",
+           late?, line?, usd?, transcript? }
 ```
+
+Order ⇄ Automation, field by field:
+
+| Order | Automation | note |
+|---|---|---|
+| `id` | `ID` | |
+| `agent` | `Origin.Transcript` (folder name), else `Origin.SessionID` | the conversation it was proposed in |
+| `crew`, `wont` | `Crew`, `Wont` | new; kept in the automation's document |
+| `kind` | `Look` set → watch; `Action.Do` → order; `Action.Say` → reminder | |
+| `title`, `workspace` | `Title`, `Workspace` | |
+| `when`, `when_exact` | `Describe(Schedule)`, `Exact(Schedule)` | |
+| `does` | `Action.Do`, or `Action.Say` for a reminder | |
+| `answers_in` | `AnswersIn` (empty reads `chat`) | new; the app decides where a result is shown |
+| `trust`, `approved_runs`, `trust_after` | `Trust` (empty reads `trusted`), `Approved`, `TrustAfter` = 5 | new (trust.go) |
+| `budget_per_run_usd`, `time_per_run_s` | `Limits.USD`, `Limits.Time` (defaults $5, 30 min) | the per-run cap the clock enforces |
+| `state` | `Status`: proposed · active · paused · stopped · finished → `done` | proposed and stopped are new |
+| `fires_at` | `Next` (active only) | |
+| `last_run` | `Last` | `result` from `Outcome`: done → ok, quiet, skipped (+ line) → skipped or not_right, else incomplete |
+| `asking` | the run in phase `asking` | new phase |
+| `OrderRun.late` | `Why == "late"` | missed while asleep or closed |
+
 | method | params | result |
 |---|---|---|
 | `orders.list` | `{agent?}` | `{orders}` |
-| `orders.ratify` · `orders.change` · `orders.not_now` | `{id, edits?}` | `{order}` nothing runs before Ratify |
-| `orders.pause` · `orders.resume` · `orders.stop` | `{id}` | `{order}` Pause keeps the trust level |
-| `orders.run` | `{id, verdict: "go"\|"skip"\|"not_right"}` | `{}` per-run ask answers; Not right drops trust to asks_first |
-Events: `order.changed {order}`, `order.fired {order, run}`, `order.missed {order}` (Mac asleep).
-Trust: asks_first → earning (n of 5) → trusted after 5 approved runs.
+| `orders.runs` | `{id, limit?: 1–100, default 20}` | `{runs}` newest first |
+| `orders.ratify` | `{id, edits?}` | `{order}` the person's yes; NOTHING RUNS BEFORE RATIFY. Answers the proposal card too, if it is still up |
+| `orders.change` | `{id, edits}` | `{order}` `edits: {title?, when?, does?, wont?, answers_in?, crew?, budget_per_run_usd?, time_per_run_s?, trust?: "asks_first"\|"trusted"}`; `when` is `every 15m`, `every 0 9 * * 1`, `at 18:00`, `in 2h` |
+| `orders.not_now` | `{id}` | `{}` a proposed order is taken away (and its card answered no); refused once agreed to |
+| `orders.pause` · `orders.resume` · `orders.stop` | `{id}` | `{order}` pause keeps the trust; stop is for good (listed, never resumed) |
+| `orders.run` | `{id, run?, verdict?: "go"\|"skip"\|"not_right"}` | `{order}` with a verdict, the answer to the run that is asking (`run` 0 = whichever is); without one, run now — the person's own go, counted on the ladder |
+
+Proposals: the conversation's `automation` tool saves what it proposes as `proposed` BEFORE the card is
+up (launch `standingOrders`), and the card's ask carries `subject.ref` = the order id. The card's Save
+ratifies it, Don't save or a change takes it away, and a card left unanswered leaves it proposed.
+Work proposed this way starts at `asks_first`; reminders and watches never ask.
+
+Per-run ask: when work that is not trusted comes due, its run waits as `asking` instead of starting,
+and later slots are passed over while it waits. `order.asking {order, run}` says it; answer with
+`orders.run {id, verdict}` or `asks.answer {id: run.ask_id, option: go|skip|not_right}`. The ask
+shows the run's budget (`budget_per_run_usd`).
+Trust: `asks_first` (no go yet) → `earning` (n of 5 go's) → `trusted` after 5, runs alone. Any
+`not_right` resets to `asks_first`.
+
+Events: `order.changed {order}` (new, edited, ratified, run ended, changed in the terminal),
+`order.removed {id}`, `order.asking {order, run}`, `order.fired {order, run}` (a run started),
+`order.missed {order}` (a run that started late). The app polls the store every 2 s.
 
 ## Wave 8: Settings window (V42–V44, V60, V24)
 
-`settings.get/set` cover every row on V42–V44 and V60 (General: appearance, text size, open at
-login, dock badge; Models: default, pinned (⌥⌘1–3), Checks and Planner roles; Spending: day cap,
-per-agent budget, task cap, export; Memory: list/forget; Permissions: always-allow rules list/remove;
-Accounts: providers (keys via the Keychain), GitHub; Advanced: proposed-task clock, tidying numbers,
-work folder, fallback model). Extra methods: `rules.list`/`rules.remove`, `memory.list`/`memory.forget`,
-`spend.export {from, to}` → CSV path, `models.pin {ids}`.
+`settings.get` / `settings.set` carry every row; `settings.set` takes any subset and answers the
+whole `{settings}`, with `settings.changed {settings}` to every window.
+```
+Settings (adds) { appearance: "system"|"light"|"dark", text_size: "small"|"medium"|"large",
+                  open_at_login: bool, dock_badge: bool,
+                  pinned_models: [model id] (⌥⌘1–3, at most 3), checks_model, planner_model,
+                  fallback_model }
+```
+| row | kept as | notes |
+|---|---|---|
+| General: appearance, text size, open at login, dock badge | app (`state.json`) | defaults system, medium, false, true; the window applies them (login item, badge) |
+| Models: default | profile `models.talk` | `default_model`, as before |
+| Models: pinned | app | `models.pin {ids}` → `{settings}` |
+| Models: Checks / Planner | profile crew rows `models.tiers.high` / `models.tiers.mastermind` | `""` follows the default (the router's pick); the same rows `/crew` writes |
+| Advanced: fallback model | profile `models.fallbacks` | the first entry; `""` clears |
+| Spending: day cap, per-agent budget, task cap | as before | `day_cap_usd`, `budget_usd`, `task_cap_usd` |
+| Advanced: proposed-task clock, idle days, work folder | as before | the clock also times a suggested choice |
+
+| method | params | result |
+|---|---|---|
+| `rules.list` | – | `{rules: [{id, kind: "tool"\|"bash", tool?, match?, action: "allow"\|"prompt"\|"deny"}]}` tool rules A–Z, then command patterns in match order |
+| `rules.remove` | `{id}` | `{}` (`tool:<name>` or `bash:<pattern>`); not_found for a rule nobody wrote |
+| `memory.list` | `{limit?: ≤500, default 200}` | `{memories: [{id, title?, text, owner, project?, origin?}]}` newest first; engine error "memory is off" |
+| `memory.forget` | `{id}` | `{}` |
+| `spend.export` | `{from: "YYYY-MM-DD", to: "YYYY-MM-DD"}` | `{path}` a CSV under `<home>/app/exports/` (at, day, conversation, model, role, seat, calls, tokens in/out, usd), both days included |
+| `models.pin` | `{ids}` | `{settings}` |
+Accounts (providers and keys) are Wave 2's `providers.list` / `keys.*`; GitHub sign-in is not served yet.

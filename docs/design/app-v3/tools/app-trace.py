@@ -25,6 +25,9 @@ import time
 
 TRACE_ROOT = "/tmp/ui2trace"
 
+# What main is running now, for a scenario that has to start the app again.
+RUNNING = {}
+
 
 class App:
     """One running `codeaf app`, its output recorded as it arrives."""
@@ -390,6 +393,29 @@ def scenario_long(app):
     # The task goes on after the reply ends; its live line is watched to the end.
     first(app, lambda l: l.get("event") == "task.changed" and l["data"]["task"]["state"] in ("done", "failed"), 600)
     out["lines"] = sorted({l["data"]["task"].get("line") for l in app.seen if l.get("event") == "task.changed" and l["data"]["task"].get("line")})[:12]
+    return out
+
+
+def scenario_stays(app):
+    """A reply of many reads that nobody moves stays a reply: it is said to run
+    long and is never turned into a task by the engine."""
+    files = ["part%02d.txt" % i for i in range(1, 26)]
+    agent, lat = start(app, folder("stays", files), "Read every partNN.txt file in this folder, part01.txt to part25.txt, strictly one read call per response, then tell me in one line how many there were. Do not use a task; do it yourself in this reply.", "trace-stays-1")
+    long = first(app, lambda l: l.get("event") == "turn.long" and l["data"].get("agent") == agent, 600)
+    done = app.wait(event("turn.done", agent=agent), 900)
+    tasks = [l["data"]["task"] for l in app.seen if l.get("event") == "task.changed" and l["data"]["task"].get("agent") == agent]
+    reads = [l for l in app.seen if l.get("event") == "turn.tool" and l["data"].get("agent") == agent and l["data"].get("phase") == "end"]
+    return {"turn_long": bool(long), "tasks": [(t["id"], t["state"]) for t in tasks], "tool_calls": len(reads), "done": bool(done)}
+
+
+def scenario_choiceclock(app):
+    """A choice with a suggested answer carries the app's clock and is taken
+    when it runs out."""
+    agent, lat = start(app, folder("choiceclock"), "Ask me with your ask tool, kind choice, which colour the README heading should use: red, green or blue, and recommend blue as your pick. Then, once answered, say the colour in one line.", "trace-clock-1")
+    opened = first(app, lambda l: l.get("event") == "ask.opened" and l["data"]["ask"].get("agent") == agent, 300)
+    out = {"ask": opened and {k: opened["ask"].get(k) for k in ("kind", "subkind", "clock_until", "choices")}}
+    closed = first(app, lambda l: l.get("event") == "ask.closed" and l["data"].get("agent") == agent, 200)
+    out["closed"] = closed
     return out
 
 
@@ -778,6 +804,65 @@ def scenario_crew(app):
     return out
 
 
+def scenario_orders(app):
+    """A standing order: proposed by an agent and saved as proposed before the
+    card, ratified from the orders list (which answers the card), its first run
+    asking first and answered go through its ask, then stopped."""
+    out = {}
+    ws = folder("orders")
+    agent, _ = start(app, ws, "Set up an automation with your automation tool: every 1m, append the current date and time as one line to stamp.txt in this folder. Use the do action, not a reminder. Propose it once and wait for my answer.", "orders-1")
+    card = first(app, lambda l: l.get("event") == "ask.opened" and l["data"]["ask"].get("agent") == agent, 300)
+    out["card"] = card and {k: card["ask"].get(k) for k in ("id", "kind", "subkind", "title")}
+    listed = call(app, "orders.list", {})
+    orders = listed.get("orders", []) if isinstance(listed, dict) else []
+    out["listed_before_answer"] = [{k: o.get(k) for k in ("id", "kind", "state", "trust", "agent", "when")} for o in orders]
+    if not orders:
+        return out
+    oid = orders[0]["id"]
+    out["ratify"] = call(app, "orders.ratify", {"id": oid})
+    out["card_closed"] = bool(first(app, lambda l: l.get("event") == "ask.closed" and l["data"].get("agent") == agent, 60))
+    asking = first(app, lambda l: l.get("event") == "order.asking" and l["data"]["order"]["id"] == oid, 240)
+    out["asking"] = asking and asking["run"]
+    if not asking:
+        return out
+    out["go"] = call(app, "asks.answer", {"agent": agent, "id": asking["run"]["ask_id"], "option": "go"})
+    fired = first(app, lambda l: l.get("event") == "order.fired" and l["data"]["order"]["id"] == oid, 120)
+    out["fired"] = fired and {"run": fired["run"], "trust": fired["order"]["trust"], "approved": fired["order"]["approved_runs"]}
+    ended = first(app, lambda l: l.get("event") == "order.changed" and l["data"]["order"]["id"] == oid and (l["data"]["order"].get("last_run") or {}).get("result"), 600)
+    out["last_run"] = ended and ended["order"]["last_run"]
+    out["stop"] = call(app, "orders.stop", {"id": oid})
+    out["runs"] = call(app, "orders.runs", {"id": oid})
+    try:
+        with open(os.path.join(ws, "stamp.txt")) as f:
+            out["stamp_lines"] = len(f.read().splitlines())
+    except OSError:
+        out["stamp_lines"] = 0
+    return out
+
+
+def scenario_quit(app):
+    """Quit in the middle of a reply: the app stops it, and the next start
+    carries it on by itself."""
+    files = ["part%02d.txt" % i for i in range(1, 13)]
+    agent, _ = start(app, folder("quit", files), "Read every partNN.txt file in this folder, part01.txt to part12.txt, strictly one read call per response, then tell me in one line how many there were.", "quit-1")
+    reads = 0
+    while reads < 3:
+        _, line = app.wait(lambda l: l.get("event") == "turn.tool" and l["data"].get("agent") == agent and l["data"].get("phase") == "end", 300)
+        reads += 1
+    app.close()
+    again = App(RUNNING["bin"], RUNNING["home"], RUNNING["out_file"] + ".after.jsonl", RUNNING["out_file"] + ".after.requests.jsonl")
+    try:
+        again.wait(event("hello"), 30)
+        listed = call(again, "agents.list", {})
+        started = first(again, lambda l: l.get("event") == "turn.started" and l["data"].get("agent") == agent, 120)
+        done = first(again, lambda l: l.get("event") == "turn.done" and l["data"].get("agent") == agent, 600)
+        tools = len([l for l in again.seen if l.get("event") == "turn.tool" and l["data"].get("agent") == agent and l["data"].get("phase") == "end"])
+        return {"reads_before_quit": reads, "listed": [(a["id"], a["state"]) for a in listed.get("agents", [])],
+                "resumed": bool(started), "done": bool(done), "reads_after": tools}
+    finally:
+        again.close()
+
+
 SCENARIOS = {
     "proposal": (scenario_proposal, "task-proposal-clock", "allow"),
     "yourcall": (scenario_yourcall, "task-your-call", "allow"),
@@ -786,6 +871,8 @@ SCENARIOS = {
     "quick": (scenario_quick, "quick-undo", "allow", [], {"CODEAF_TASK_BELT": "off"}),
     "process": (scenario_process, "process-start-stop", "allow"),
     "long": (scenario_long, "turn-long-move", "allow", ["--turn-long", "10s"]),
+    "stays": (scenario_stays, "turn-long-stays", "allow", ["--turn-long", "10s"]),
+    "choiceclock": (scenario_choiceclock, "choice-clock", "allow"),
     "worklog": (scenario_worklog, "worklog-20-calls", "allow"),
     "steer": (scenario_steer, "steer-consumed-fell-through", "allow"),
     "queue": (scenario_queue, "queue-edit-reorder", "allow"),
@@ -795,6 +882,8 @@ SCENARIOS = {
     "tasknote": (scenario_tasknote, "task-note-pause-resume", "allow"),
     "inbox": (scenario_inbox, "inbox-answer-undo-dock", "prompt"),
     "crew": (scenario_crew, "crew-real", "allow"),
+    "orders": (scenario_orders, "standing-order", "allow"),
+    "quit": (scenario_quit, "quit-resume", "allow"),
     "retry": (scenario_retry, "provider-retry", "allow", [], {"CODEAF_BASE_URL": "http://127.0.0.1:18503/v1"}),
     "keys": (scenario_keys, "keys-check-bad", "allow"),
     "budget": (scenario_budget, "turn-budget-ask", "allow"),
@@ -824,6 +913,7 @@ def main():
             serve_busy(18503)
         home = os.path.join(args.out, "home-" + name)
         make_home(home, args.source, approval)
+        RUNNING.update(bin=args.bin, home=home, out_file=os.path.join(args.out, file))
         app = App(args.bin, home, os.path.join(args.out, file + ".jsonl"), os.path.join(args.out, file + ".requests.jsonl"), extra, extra_env)
         try:
             results[name] = run(app)
