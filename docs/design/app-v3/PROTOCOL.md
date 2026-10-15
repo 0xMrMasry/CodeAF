@@ -938,3 +938,45 @@ The engine states compaction as facts; the app words them.
   another window asked for), and every call ends exactly once on `compaction.ended {agent,
   outcome: compacted|busy|nothing|error, message?}`. `compacted` from an engine too old to state
   pass facts arrives with no entry. Stop cancels a running pass's summary request.
+## V76: Competence map (Settings → Models → Competence)
+
+What each model has PROVEN, read-only. A **checked result** is one finished approved task
+whose declared checks (the tests, lint or build its proposal named) ran against the work with
+a physical exit status; every check's last run exiting 0 is a pass, any non-zero a failure.
+It comes from the default run road: the run's check seats run the declared checks, the plan
+store records each declared command's exit off the check's own trajectory, and the settled
+run becomes one result on the ONE model that answered its work (after any fallback, read
+from the run's spend rows, which are written per answering model). A run answered by more
+than one model or by an unnamed one, and a run another approved task joined, is not
+recorded. Never counted: the checker's verdict, unchecked done, a model's account of itself,
+a check that never started (126/127), timed out or was cut. The ledger is
+`<home>/v3/checked-results.jsonl`, append-only, and survives deleting the task or the
+conversation. Work finished before it existed is no evidence. `undone` is in the shape and
+reads 0 today: the only undo door, `quick.undo`, takes back quick tasks, which run no
+declared checks, and an undo never makes a result. `source.kind: "conversation"` is reserved.
+
+| method | params | result |
+|---|---|---|
+| `competence.map` | `{model?, scope?}` | `{model, models: [{id, results, last_at}] (≤50), scope, filters: [{id, kind: "place"\|"work", path?, place_kind?, removed?, words?}] (≤200), groups: [{class, scopes: [Scope]}] (always strong, frontier, weak, stale; ≤300 scopes), totals: {scopes, results}, policy: {stale_after_days, strong_at_least, weak_at_most, min_results}, read_at, truncated, omitted: {scopes, filters, models}}` |
+| `competence.evidence` | `{model, scope, outcome?: "passed"\|"failed"\|"undone", cursor?, limit?: default 7, ≤100}` | `{model, scope, counts: {all, passed, failed, undone}, items: [Item] newest first, next_cursor?}` |
+
+```
+Scope { id, place: {id, path, place_kind: "repo"|"folder", removed}, work: {id, words},
+        class, results, passed, failed, undone, last_at, since? }
+Item  { id, title, at, outcome, source: {kind: "task"|"conversation", id, agent, turn?, title?},
+        source_missing: ""|"task"|"conversation", check?: {command, outcome}, checks: [...] (≤8),
+        undone_at? }
+```
+`model` absent is the model with the newest result (`""` with none). A scope is a place and
+the engine's exact kind of work (the task title's words), so its id is stable. `scope` on the
+map is a `place:`, `work:` or `scope:` id; an unknown one, or a cursor from another model or
+scope, is `bad_params`. Class: stale when nothing landed in `stale_after_days`; otherwise over
+that window, passed/results ≥ `strong_at_least` with ≥ `min_results` is strong,
+≤ `weak_at_most` is weak, else frontier. An item's outcome is decided over every check that
+ran, and `check` is the first that failed (else the last run) and is always among `checks`.
+`totals` count every matching scope; `omitted` is what this answer left out for size.
+`place.removed` is a folder no codeaf conversation works in now. `source.title` is the owning
+conversation's current title. Each call reads at most the newest 32 MiB of the ledger
+(`truncated` says it was cut) and answers within 10 s or errs `engine` "competence read timed
+out". There is no event: the app reads on open, filter and Retry.
+`codeaf competence --json [--model id] [--scope id]` prints the same `competence.map` answer.
