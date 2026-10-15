@@ -77,6 +77,13 @@ Model  { id, name, provider }
 Settings { default_model, budget_usd, asks_before, day_cap_usd }
 Spend  { today_usd, day_cap_usd }
 Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irreversible? }
+       subject?: {kind, ref?}: what the ask is about, so the app draws that thing's card —
+         "automation" (ref = order id; Save ratifies it, Don't save takes it away), "task" (ref = task id),
+         "call" (ref = tool call id), "run", "page", "account", "crew_proposal", "crew_decision" (ref = packet id),
+         "budget" (ref = "agent"|"day")
+       irreversible: true exactly when the engine itself grades the call irreversible (internal/approval's
+         AlwaysAsks: bash's critical-command table, e.g. a recursive forced delete, or a call that acts in the
+         person's name); then "always" is not offered
        subkind (approval): "permission" | "budget"; options carry the engine's ids,
        e.g. permission: allow_once · deny · always (absent when irreversible)
        kind: "approval" (a tool call waiting for allow/deny) | "question" (the agent asks the person)
@@ -225,7 +232,12 @@ Events: `quick.changed {quick}`, `process.changed {process}`, `process.output {i
 Rules: in app mode the engine never moves a running reply to a task by itself (dev's
 checkpoint auto hand-over is off); it emits `turn.long` and waits for `agents.move_to_task`.
 Proposed tasks start on their own after `proposed_task_clock_s` unless held, typed in or
-answered; irreversible tasks have no clock. Quick tasks: > 30 files or any test run → `grew`.
+answered; irreversible tasks have no clock. Quick tasks: > 30 files or any shell command that can change
+things (a test run included) → `grew`; a read-only command (search, listing, `git status`) stays quick.
+App agents are always offered quick tasks (launch `quickTasks`), beside full tasks that are runs.
+Never in entries: the lines the engine writes to its model (wakes, landing notes, the carry-on after a
+quit, a checkpoint's question) and a reply that is only the withdrawal token `[no change]`; a quit-resumed
+reply is marked by the footer `resumed_after_quit` ("Resumed after quit").
 
 ## Work log detail (V63 · An agent at work, 20+ tool calls)
 
@@ -267,7 +279,7 @@ Entry kind "update"   { text }   interim mid-turn message (eyebrow "Update"), fu
 Entry kind "steer"    { text, state: "pending"|"consumed"|"fell_through", step? }
 Entry kind "note"     { task, text, from: "you"|"task", state?: "sending"|"waiting"|"read", read_at_step? }
 Entry kind "summary"  { text }   "Earlier messages summarized" (engine compaction point)
-Entry kind "footer"   { text, footer_kind: "stopped_by_you"|"retrying"|"provider_failed"|"fallback"|"process_finished",
+Entry kind "footer"   { text, footer_kind: "stopped_by_you"|"retrying"|"provider_failed"|"fallback"|"process_finished"|"process_limit"|"resumed_after_quit",
                         retry_in_s?, model_from?, model_to? }
 Entry (user) adds     attachments?: [{kind: "file"|"link"|"paste", path?, url?, title?, lines?, add?, del?,
                                       state?: "exists"|"changed"|"missing"|"outside"}]
