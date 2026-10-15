@@ -235,3 +235,64 @@ lines?                           total output lines
 
 `turn.tool` is sent at begin, at end, and at most every 500 ms in between with a
 fresh `tail` for calls running longer than 5 s.
+
+## Wave 3b: conversation, dock, queue, tasks as chats (V65–V70)
+
+Boards: docs/design/boards/V65-TaskIsAChat, V66-TaskTree, V67-TurnStates,
+V68-DecisionDock, V69-ComposerQueue, V70-ConversationBehaviour.
+
+Entries and turn events (adds):
+```
+Entry kind "update"   { text }   interim mid-turn message (eyebrow "Update"), full markdown
+Entry kind "steer"    { text, state: "pending"|"consumed"|"fell_through", step? }
+Entry kind "note"     { task, text, from: "you"|"task", state?: "sending"|"waiting"|"read", read_at_step? }
+Entry kind "summary"  { text }   "Earlier messages summarized" (engine compaction point)
+Entry kind "footer"   { text, kind: "stopped_by_you"|"retrying"|"provider_failed"|"fallback"|"process_finished",
+                        retry_in_s?, model_from?, model_to? }
+Entry (user) adds     attachments?: [{kind: "file"|"link"|"paste", path?, url?, title?, lines?, add?, del?,
+                                      state?: "exists"|"changed"|"missing"|"outside"}]
+turn.thinking         {agent, turn, text}  live only, never saved; turn.thinking_done {agent, turn, seconds}
+turn.retrying         {agent, turn, in_s, attempt}   (2 s, 4 s, 8 s), then provider_failed or fallback
+```
+
+Asks (the decision dock, V68) add:
+```
+Ask { …, source: {kind: "reply"|"task", task?}, reason?, evidence?: {lines: string[], more: int},
+      choices?: [{id, label, detail?, suggested?: bool}], clock_until?, irreversible?,
+      batch?: [{id, text, state?: "allowed"|"denied"}], holding_up?: [task ids], say_why?: bool }
+```
+| method | params | result |
+|---|---|---|
+| `asks.answer` (adds) | `{…, why?, batch_item?, later?: bool, you_decide?: bool}` | `{}` |
+| `asks.hold` | `{agent, id}` | `{}` stops the choice clock (H / typing) |
+
+Queue and steer (V69):
+| method | params | result |
+|---|---|---|
+| `agents.steer` | `{id, text, client_id}` | `{}` lands after the current step (`steer` entry pending → consumed / fell_through) |
+| `agents.queue` | `{id, text, client_id}` | `{queued: Queued[]}` sent when the turn ends |
+| `queue.edit` · `queue.remove` · `queue.move` | `{agent, id, text?/to?}` | `{queued}`; edit after send → error `sent` |
+Events `queue.changed {agent, queued: [{id, text}]}`.
+
+Files and links in the composer (V69 @ reference, chips):
+| method | params | result |
+|---|---|---|
+| `files.find` | `{agent, query, limit?}` | `{groups: [{label: "Changed in this chat"\|<repo>, files: [{path, add?, del?, dir?}]}]}` |
+| `files.stat` | `{agent, paths}` | `{files: [{path, state, add?, del?, size?, binary?}]}` |
+| `attachments.add` | `{agent, kind, path?/text?/url?}` | `{attachment}` paste over 12 lines or 2,000 chars → paste card |
+
+Tasks as conversations (V65, V66) add:
+```
+Task { …, paused?: bool, waits_on?: [task], holding_up?: [task], model?, steps?, cost_usd?,
+       tokens?, started_at?, started_by?, instructions?, children_done?, children?, finished_at? }
+```
+| method | params | result |
+|---|---|---|
+| `tasks.pause` · `tasks.resume` · `tasks.retry` | `{id}` | `{}` |
+| `tasks.brief` | `{id, text}` | `{}` Change the brief (read at its next step) |
+| `tasks.note` (adds) | `{id, text, client_id}` | note entry; `note.changed {task, id, state, read_at_step}` |
+| `tasks.entries` | `{id, before?, limit?}` | the task's own conversation (log, notes, its sub-tasks) |
+
+Limits the engine enforces and reports: 16 processes per agent (17th fails with a footer
+"16 processes are running for this agent."); process/tool output kept to the last 512 KB
+("… earlier output trimmed to the last 512 KB").

@@ -379,7 +379,7 @@ def scenario_process(app):
 
 def scenario_long(app):
     """A reply that runs long, said at the override, then moved to a task."""
-    agent, lat = start(app, folder("long"), "Write ten files here, essay1.md to essay10.md, each a 400-word essay on a different sea creature, one write call per file. Do not use a task; do it yourself in this reply.", "trace-long-1")
+    agent, lat = start(app, folder("long"), "Write ten files here, essay1.md to essay10.md, each a 300-word essay on a different sea creature. Write them strictly one at a time: one write call per response, and wait for each write to finish before the next. Do not use a task; do it yourself in this reply.", "trace-long-1")
     long = first(app, lambda l: l.get("event") == "turn.long", 300)
     out = {"turn_long": long}
     if long:
@@ -387,6 +387,100 @@ def scenario_long(app):
         _, line = app.wait(response(rid), 200)
         out["moved"] = line.get("result") or line.get("error")
     app.wait(event("turn.done", agent=agent), 600)
+    return out
+
+
+WORKLOG_FILES = {
+    "README.md": "# acme-webhooks\n\nDelivers webhooks with retries. Run the tests with `python3 -m unittest -v`.\n",
+    "retry.py": (
+        "\"\"\"Retry with capped exponential backoff.\"\"\"\n\n"
+        "MAX_ATTEMPTS = 5\nBASE_S = 1.0\nCAP_S = 30.0\n\n\n"
+        "def backoff(attempt):\n"
+        "    \"\"\"Seconds to wait before the given attempt (1-based).\"\"\"\n"
+        "    return BASE_S * 2 ** attempt\n\n\n"
+        "def should_retry(attempt, status):\n"
+        "    return attempt < MAX_ATTEMPTS and status >= 500\n"
+    ),
+    "deliver.py": (
+        "from retry import backoff, should_retry\n\n\n"
+        "def deliver(send, payload, sleep):\n"
+        "    attempt = 1\n"
+        "    while True:\n"
+        "        status = send(payload)\n"
+        "        if status < 300 or not should_retry(attempt, status):\n"
+        "            return status, attempt\n"
+        "        sleep(backoff(attempt))\n"
+        "        attempt += 1\n"
+    ),
+    "test_retry.py": (
+        "import unittest\n\nfrom retry import backoff, should_retry, CAP_S\n\n\n"
+        "class RetryTest(unittest.TestCase):\n"
+        "    def test_first_wait_is_base(self):\n        self.assertEqual(backoff(1), 1.0)\n\n"
+        "    def test_waits_double(self):\n        self.assertEqual(backoff(3), 4.0)\n\n"
+        "    def test_wait_is_capped(self):\n        self.assertEqual(backoff(20), CAP_S)\n\n"
+        "    def test_no_retry_on_4xx(self):\n        self.assertFalse(should_retry(1, 404))\n"
+    ),
+    "test_deliver.py": (
+        "import time\nimport unittest\n\nfrom deliver import deliver\n\n\n"
+        "class DeliverTest(unittest.TestCase):\n"
+        "    def test_gives_up_after_max_attempts(self):\n"
+        "        waits = []\n"
+        "        status, attempts = deliver(lambda p: 503, {}, waits.append)\n"
+        "        self.assertEqual((status, attempts), (503, 5))\n\n"
+        "    def test_soak(self):\n"
+        "        for i in range(8):\n"
+        "            print('soak round', i, flush=True)\n"
+        "            time.sleep(1)\n"
+    ),
+}
+
+
+def scenario_worklog(app):
+    """An agent at work: twenty and more calls, a failing run, its retry,
+    parallel reads, an edit, a long run's tail, and one call's whole output."""
+    work = folder("worklog")
+    for name, body in WORKLOG_FILES.items():
+        with open(os.path.join(work, name), "w") as out:
+            out.write(body)
+    text = (
+        "This folder is a small Python project. Work through it step by step with your tools; "
+        "this needs at least twenty-four tool calls, so do not combine or skip steps: "
+        "1) list the folder; 2) read README.md, retry.py, deliver.py, test_retry.py and "
+        "test_deliver.py all at once in one batch of parallel reads; 3) search, as separate calls, "
+        "for MAX_ATTEMPTS, for backoff, for CAP_S, for should_retry and for sleep; 4) run "
+        "`python3 -m unittest -v` (it fails); 5) fix the bug in retry.py with one edit; 6) run exactly "
+        "`python3 -m unittest -v` again; 7) run `python3 -m unittest -v test_deliver`, "
+        "`python3 -m py_compile retry.py deliver.py` and `wc -l retry.py deliver.py` as three separate "
+        "commands; 8) read each of the five files again, one call each; 9) finish with one short "
+        "sentence. Do not start a task."
+    )
+    agent, lat = start(app, work, text, "trace-worklog-1")
+    followed = {}
+
+    def follow_runs(line):
+        if line.get("event") != "turn.tool":
+            return
+        row = line["data"]
+        if row.get("kind") == "run" and row.get("phase") == "begin" and not followed:
+            followed["call"] = row["call"]
+            app.send("tools.follow", {"agent": agent, "call": row["call"]})
+
+    app.on_line = follow_runs
+    app.wait(event("turn.done", agent=agent), 900)
+    app.on_line = None
+    rows = [l["data"] for l in app.seen if l.get("event") == "turn.tool" and l["data"].get("phase") == "end"]
+    out = {"calls": len(rows), "kinds": sorted({r.get("kind") for r in rows})}
+    failing = next((r for r in rows if r.get("exit_code")), None)
+    out["failed"] = failing and {k: failing.get(k) for k in ("call", "exit_code", "lines", "tail")}
+    out["retried"] = [r["call"] for r in rows if r.get("retried_of")]
+    out["batches"] = sorted({r["batch"] for r in rows if r.get("batch")})
+    if failing:
+        rid, _ = app.send("tools.output", {"agent": agent, "call": failing["call"], "from_line": 0})
+        _, line = app.wait(response(rid), 30)
+        res = line.get("result") or {}
+        out["output"] = {"total": res.get("total"), "first": (res.get("lines") or [None])[0]}
+    rid, _ = app.send("agents.entries", {"id": agent, "limit": 200})
+    app.wait(response(rid), 30)
     return out
 
 
@@ -398,6 +492,7 @@ SCENARIOS = {
     "quick": (scenario_quick, "quick-undo", "allow", [], {"CODEAF_TASK_BELT": "off"}),
     "process": (scenario_process, "process-start-stop", "allow"),
     "long": (scenario_long, "turn-long-move", "allow", ["--turn-long", "20s"]),
+    "worklog": (scenario_worklog, "worklog-20-calls", "allow"),
     "keys": (scenario_keys, "keys-check-bad", "allow"),
     "budget": (scenario_budget, "turn-budget-ask", "allow"),
     "basic": (scenario_basic, "turn-basic", "allow"),
