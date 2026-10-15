@@ -194,6 +194,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.update` | `{clear, ends_at, goal, hue, id, name, settings, tint}` | `{crew}` |
 | `crews.wrap_up` | `{id, text}` | `{}` |
 | `files.find` | `{agent, limit, query}` | `{groups}` |
+| `files.read` | `{agent, limit, offset, path}` | `{file}` |
 | `files.stat` | `{agent, paths}` | `{files}` |
 | `inbox.answer` | `{id, option, text, why}` | `{undo_until}` |
 | `inbox.back` | `{id}` | `{}` |
@@ -498,6 +499,7 @@ Files and links in the composer (V69 @ reference, chips):
 |---|---|---|
 | `files.find` | `{agent, query, limit?}` | `{groups: [{label: "Changed in this chat"\|<repo>, files: [{path, add?, del?, dir?}]}]}` |
 | `files.stat` | `{agent, paths}` | `{files: [{path, state, add?, del?, size?, binary?}]}` |
+| `files.read` | `{agent, path, offset?, limit?}` | `{file: {path, resolved?, kind, outside?, symlink?, size?, modified?, add?, del?, lines?, offset, text, next?}}` read-only preview. `kind` text · binary · too_large · directory · missing · unreadable. Text only for UTF-8 without NUL up to 1 MiB; a page is at most 64 KiB (limit clamped), cut after a line or at a character, `next` where the following one starts; limit 0 answers facts only. `resolved` is canonical (links followed); `outside` is judged on it. Nothing over 1 MiB, no folder and no non-regular file is ever read. A bad offset is `bad_params`; an unknown agent `not_found` |
 | `attachments.add` | `{agent, kind, path?/text?/url?}` | `{attachment}` paste over 12 lines or 2,000 chars → paste card |
 | `attachments.remove` | `{agent, id}` | `{}` drops one staged attachment; a missing or already sent id is fine, an unknown agent is `not_found` |
 
