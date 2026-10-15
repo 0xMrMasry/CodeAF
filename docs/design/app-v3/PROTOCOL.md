@@ -465,6 +465,7 @@ Entry kind "note"     { task, text, from: "you"|"task", state?: "sending"|"waiti
 Entry kind "summary"  { text }   "Earlier messages summarized" (engine compaction point)
 Entry kind "footer"   { text, footer_kind: "stopped_by_you"|"retrying"|"provider_failed"|"fallback"|"process_finished"|"process_limit"|"resumed_after_quit",
                         retry_in_s?, model_from?, model_to? }
+Entry kind "receipt" with `op` { op: {kind: "crew.formed", crew, name?}, text: "" } — a crew made under the entry's agent as manager; durable (the teams file's `founder`/`made`), same id `rcrew:<crew>` and `at` live and after a restart; the app words it
 Entry (user) adds     attachments?: [{kind: "file"|"link"|"paste", path?, url?, title?, lines?, add?, del?,
                                       state?: "exists"|"changed"|"missing"|"outside"}]
 turn.thinking         {agent, turn, text}  live only, never saved; turn.thinking_done {agent, turn, seconds}
