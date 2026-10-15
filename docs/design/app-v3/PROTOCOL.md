@@ -322,46 +322,125 @@ Answering anywhere (dock, task, crew, Inbox) resolves it everywhere within 1 s.
 
 ## Wave 5: Crews (U3, X2, V01, V02, V15, V15b, V15c, V16–V20, V64)
 
-A crew is a codeaf team. The app process starts and stops crew members itself (as
-tui3/teamtraffic.go does for the TUI) and keeps every member of an open crew held.
+A crew IS a codeaf team (`internal/teams`). The data is the engine's own: the same
+`<profile>/teams.json`, the same per-team Traffic log `<profile>/teams/<id>/traffic.jsonl`, the
+same decisions file, the same usage ledger. The app adds no store and no fields of its own; it
+renames only the words the UI shows (team → crew). A crew made in the app is a team in the
+terminal's Teams page, and the reverse.
 
-```
-Crew   { id, name, tint: "iris"|"sage"|"sand"|"tide"|"rose"|"graphite", goal?, manager, state:
-         "working"|"needs_you"|"idle"|"closed", budget_usd?, spent_usd, ends_at?, parent?,
-         members: Member[], created_at, closed_at?, report? }
-Member { agent, handle, role?, model, cap_usd?, spent_usd, reports_to?, state, paused?, crew }
-Role   { id, name, instructions, model, copies: [{crew, agent}] }
-Item   { id, crew, kind: "job"|"issue"|"pr"|"file", ref, title, state?, line?, at }
-LogLine{ id, crew, from, to?, text, at }          members talking (V19 Log, V64 crew talk)
-Report { crew, shipped, decisions: string[], files: [{path, add, del}], left_open: string[],
-         cost: {usd, cap_usd, steps, agents}, from, to, markdown }
-Proposal { id, agent, name, tint, manager, helpers: [{handle, role, model, budget}], existing?: [agent],
-           budget_usd, ends_at? }   the Bring in helpers card (an Ask with subkind "crew_proposal")
-```
-| method | params | result |
+The app process does what the terminal window does for teams it holds
+(`internal/tui3/teamtraffic.go`): it performs a manager's `start` and `stop` lines for members it
+holds, and it keeps every member of an open crew held while the crew is open (never idle-released).
+Closing a crew does NOT stop its conversations (the engine's Disband); the app only stops holding them.
+
+### Crew ⇄ Team
+
+| Crew (wire) | Team (`internal/teams`) | Notes |
 |---|---|---|
-| `crews.list` | `{closed?: bool}` | `{crews}` |
-| `crews.get` | `{id}` | `{crew}` |
-| `crews.propose` | `{agent}` | `{}` asks the agent to propose; arrives as an Ask (crew_proposal) |
-| `crews.create` | `{from: "proposal", proposal, edits?}` or `{from: "agents", agents, name, goal?, manager: "new"\|agent, tint}` | `{crew}`; "Made the crew … · you · 15:04" receipt |
-| `crews.update` | `{id, name?, tint?, goal?, budget_usd?, ends_at?}` | `{crew}` |
-| `crews.message` | `{crew, member?, text, client_id}` | `{}` member messages are "@manager sees it" and appear in the Log |
-| `crews.log` | `{id, before?}` | `{lines}` |
-| `crews.items` · `crews.link` · `crews.unlink` | `{id}` / `{id, ref}` | `{items}` |
-| `members.add` | `{crew, role?/agent?, handle, model, cap_usd?, reports_to?, instructions?}` | `{member}` |
-| `members.update` | `{crew, agent, instructions?, model?, cap_usd?, reports_to?}` | `{member}` |
-| `members.pause` · `members.resume` · `members.remove` | `{crew, agent}` | `{}` (remove is never offered for the manager) |
-| `members.move` | `{crew, agent, to}` | `{}` |
-| `crews.replace_manager` | `{crew, agent}` | `{}` new manager reads the old one's notes and the Log |
-| `crews.sub` | `{crew, name, manager, members}` | `{crew}` sub-crew (≤ 3 deep, default 50 % of parent budget) |
-| `crews.wrap_up` | `{id}` | `{}` manager writes the report → `report.ready` |
-| `crews.finish` | `{id}` | `{}` keeps the report, members stop (agents in other crews keep working), crew → Closed |
-| `crews.reopen` | `{id}` | `{crew}` as it was |
-| `roles.list` · `roles.update` | – / `{id, instructions?, model?}` | `{roles}` / `{role}` editing a role updates every copy's instructions |
+| `id` | `Team.ID` | random, minted once (`teams.NewID`) |
+| `name` | `Team.Name` | unique among open teams (the TUI refuses a duplicate) |
+| `parent?` | `Team.Parent` | sub-crew = child team; `crews` nest to `depth_limit` |
+| `root` | `Team.Root` | the "All teams" row; never closes |
+| `manager?` | `Team.Manager` | the manager's conversation key, sent as its agent id; always a member |
+| `hue`, `tier` | `Team.Hue`, `Team.Tier` | OKLCH hue degrees and lightness tier 0/1 |
+| `tint` | derived from `Hue` | see Tint below; never stored |
+| `made_at` | `Team.Made` | |
+| `state` | `Team.State` + live members | `closed` when `Team.State == "closed"`; otherwise `needs_you` / `working` / `idle` from members (below) |
+| `closed_at?`, `closed_with?` | `Team.ClosedAt`, `Team.ClosedWith` | `closed_with` is the crew whose close closed this one (itself or an ancestor) |
+| `report?` | `Team.Report` | id of the closing-report packet; the Report itself is that packet's `report` |
+| `wrap?` | `Team.Wrap` | `{started, bound_s}` while a wrap-up runs |
+| `settings` | `Team.Settings` | the crew's own overrides, each nullable: `questions_up`, `cap_usd_day`, `depth_limit`, `sub_share`, `wake` |
+| `effective` | `File.Effective(id, Defaults)` | each value with its `*_from` origin (`team`/`ancestor`/`settings`/`closed`) for "· from Settings" |
+| `spend` | `teams.TeamSpend(profile, id, today)` | `{day, usd, calls, by_member}`; a crew's pool counts every crew under it |
+| `members` | `Team.Members` | see Member |
+| `former_members` | `Team.FormerMembers` | handles kept for history links; no membership |
+| `brief?` | parent Traffic `start` line with `team == id` | the words the sub-crew's manager was started with (derived, read-only) |
 
-Events: `crew.changed {crew}`, `crew.removed {id}`, `crew.log {line}`, `crew.item {item}`,
-`report.ready {report}`, `member.changed {member}`. Asks carry `path` ("Backend → Release → you")
-when they climb through managers.
+| Member (wire) | Team member | Notes |
+|---|---|---|
+| `agent` | `Member.Key` → agent id | the conversation; also listed in `agents.list` with `crews: [id]` |
+| `crew` | the team id | |
+| `handle` | `Member.Handle`, `Member.HandleBy` | 2–12 lowercase, unique in the crew |
+| `title`, `workspace` | `Member.Word`, `Member.Where` | |
+| `joined_at` | `Member.JoinedAt` | |
+| `started` | `Member.Started` | made by the manager's `team_start` |
+| `home`, `independent` | `Member.Home`, `Member.Independent` | which membership reports to a manager |
+| `reports_to?` | `File.Home(key)` | `{crew, manager, distance}`: the manager this member answers to |
+| `also_in` | other teams that hold the key | derived |
+| `state` | live state of the member's conversation | `running` / `asking` / `idle` / `finished` / `failed` (the engine's `MemberState` words); the latest Traffic `event` line says the same |
+| `line?` | the member's live one-liner | the agent's running line, same as `agents.list` |
+| `spent_usd` | `Spend.ByMember[key]` today | |
+| `model` | the member conversation's model | from the agent, not the team |
+
+**Tint** (derived, read-only): the UI's named tints are the nearest anchor to `Hue`, in OKLCH
+degrees: `rose` 15, `sand` 75, `sage` 145, `tide` 215, `iris` 285; `graphite` is the root crew and
+any crew with no colour yet. Setting a tint writes the anchor's hue (`Team.SetHue`, tier kept);
+a new crew takes `teams.NextHue` (the farthest free hue) unless the UI picks one, and the five
+`hue_choices` the terminal offers come from `teams.HueChoices`.
+
+**LogLine** is a Traffic `Entry` as stored: `{id, crew, at, kind, from, to, text, handles?,
+answers?, files?, member?, state?, packet?, reply?, team?}` with kinds `event`, `note`,
+`directive`, `stop`, `start`, `question`, `answer`, `packet`, `close`, `reopen` (and `you`).
+`from`/`to` are handles or `manager`/`you`/`system`/`everyone`/`room`/`several`. The app adds
+`agent` (the member's agent id) when `member` names one.
+
+**Decision** is a decision packet (`teams.Packet`) as stored: `{id, crew (Origin), waits_on
+(Team: a crew id or "you"), kind: question|conflict|cap|judgement|closing, raised_by, parties,
+question, options: [{id, label, consequence}], recommendation?: {option, reason}, report?, cap?,
+state: open|escalated|decided, decided_by?, decision?, reason?, trail: [{from, to, by, reason?,
+at}], raised, at}`. A packet waiting on you is also an Ask (`kind: "question"`, `subkind:
+"crew_decision"`, `path` = the crew names from `Origin` up the `trail` to you, "Backend → Release
+→ you"), so it reaches the dock and the Inbox. A member's permission prompt never becomes a
+packet: it stays the member's own ask, as in the terminal.
+
+**Report** is `Packet.report` of a `closing` packet: `{done, left?, files?, spend_usd?,
+incomplete?}` with options `close`, `close-now`, `keep-going`.
+
+**Cap**: a `cap` packet carries `{crew, day, cap_usd, spent_usd, raise_to}` with options `raise`
+and `stop`.
+
+| method | params | result | engine call |
+|---|---|---|---|
+| `crews.list` | `{closed?: bool}` | `{crews}` | `File.Open()` / `File.ClosedTeams()` |
+| `crews.get` | `{id}` | `{crew}` | `File.Team` + `Effective` + `TeamSpend` |
+| `crews.create` | `{name, agents: [id], manager?: id, parent?, hue?}` | `{crew}` | `Update`: a new `Team` with `NewID`, `AddMember` per agent, `SetManager`, `SetParent` (refused past `depth_limit`: `CanNest`) |
+| `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
+| `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; the engine never writes the person's words to Traffic, so a manager does not see words sent to a member |
+| `crews.log` | `{id, after?, limit?}` | `{lines, cursor}` | `ReadTraffic` (oldest first, cursor = last id) |
+| `crews.decisions` | `{id?, all?}` | `{decisions}` | `Packets(id)` / `OpenPackets(scope)`; `all` includes decided ones (`History`) |
+| `crews.decide` | `{packet, option?, text?, reason?}` | `{decision}` | `Decide(id, "you", …)`; a decided `closing` packet with close/close-now then `AcceptClosing` |
+| `members.add` | `{crew, agent, handle?}` | `{member}` | `AddMember` (+ `SetHandle`), as `team_add` |
+| `members.stop` | `{crew, agent, reason?}` | `{}` | Traffic `stop` line; the app stops the member's running turn (nothing is deleted) |
+| `members.remove` | `{crew, agent}` | `{}` | `RemoveMember`; never offered for the manager (the store clears the manager when removed) |
+| `members.handle` | `{crew, agent, handle}` | `{member}` | `SetHandle` |
+| `members.home` | `{crew, agent}` | `{member}` | `SetHome`: which manager this member reports to |
+| `crews.manager` | `{id, agent}` | `{crew}` | `SetManager` (the agent must be a member) / `ClearManager` with `agent: ""` |
+| `crews.move` | `{ids, parent}` | `{}` | `MoveCheck` then `Move` (re-parent crews; `""` = top level) |
+| `crews.wrap_up` | `{id, text?}` | `{}` | `WrapUpRequest(text)` to Traffic; the manager wakes and raises a `closing` packet → `decision.opened` |
+| `crews.close` | `{id}` | `{}` | `Disband` (cascades to sub-crews; conversations keep working) + Traffic `close` |
+| `crews.reopen` | `{id}` | `{crew}` | `Reopen` (refused while the parent is closed) + Traffic `reopen` |
+| `crews.delete` | `{id}` | `{ids}` | `Delete` (closed crews only; conversations are never deleted) |
+| `crews.defaults` · `crews.set_default` | – / `{key, value}` | `{defaults}` | `DefaultsAt` / `config.ApplyTeamDefault` (the five `teams.` rows) |
+
+Events: `crew.changed {crew}`, `crew.removed {id}`, `crew.log {line}` (every new Traffic line),
+`decision.opened {decision}`, `decision.changed {decision}`, `member.changed {member}`. A crew's
+`state` moves to `needs_you` while a packet waits on you from it or a member is asking.
+
+**Not in the engine (needs engine work before the UI may show it):**
+- Roles and role copies (`roles.*`, `Role`): teams have handles, not roles.
+- A per-member budget (`cap_usd`): caps are per crew and pool down the tree.
+- Pausing a member (`members.pause/resume`): there is only stop.
+- Linked items (`Item`, `crews.items/link/unlink`, LogLine `factory`): teams keep no links.
+- A crew goal, end date (`goal`, `ends_at`, Proposal `span`) and a manager plan text (`plan`).
+- The "Bring in helpers" proposal card (`crews.propose`, `Proposal`, option `keep`): no engine
+  tool proposes a crew; a crew is made by the person (`crews.create`) and grows by the
+  manager's `team_start`.
+- A member started by the person with a brief (`members.start`): a Traffic `start` line and its
+  brief are read only when they are the manager's. The person adds an existing agent
+  (`members.add`) or asks the manager, whose `team_start` the app performs.
+- A person's message to a member that the manager also sees: the person's words are never
+  written to Traffic.
+- Member `was` and crew `history`.
 
 ## Wave 7: closing, archiving, finding (V21, V22, J03, J04, X4)
 
@@ -376,12 +455,6 @@ Agent adds `closed_at?`, `archived_at?`, `last_active_at`, `spent_usd`.
 | `agents.idle` | `{days}` | `{ids}` agents idle longer than `idle_close_days` (Select idle) |
 | `search.all` | `{query, limit_per_group?}` | `{groups: [{kind: "agent"\|"crew"\|"task"\|"message", hits: [...]}]}` ⌘K / All crews and agents |
 Tidy commands are undoable until quit: the app keeps the inverse call.
-
-### Wave 5 additions (fields the crew UI reads)
-- Member adds `line` (live one-liner), `updated_at`, `started_at`, `also_in: [crew]`, `was?` (previous role/state shown in the member card).
-- Crew adds `steps`, `plan?` (manager's current plan text), `updated_at`, `brief?` (the parent's brief for sub-crews), `history: [task]` (tasks the agent had before it became a crew).
-- Role adds `made_at`; Proposal adds `span?` (end date text); LogLine adds `factory?` (linked job/issue/PR ref); Ask adds `path: string[]`.
-- Members' agents appear in `agents.list` with `crew` set; `crews.create` emits a receipt `entry.added` in the manager's chat; the "Keep it one agent" answer is option id `keep`.
 
 ## Wave 6: Standing orders and reminders (V40, U2 7–8, X1)
 
