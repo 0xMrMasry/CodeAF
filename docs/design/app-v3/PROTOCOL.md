@@ -49,7 +49,19 @@ Agent  { id, title, workspace, model?, state, updated_at }
 Task   { id, agent, title, state, updated_at }
        state: "queued" | "running" | "done" | "failed" | "unverified"
 Crew   { id, name, manager?, members: [{agent, handle?}] }
-Ask    { id, agent, kind, title, detail?, options?: [{id, label}] }
+Entry  { id, agent, turn?, kind, at, ... }   one transcript item, in order
+       kind "user"     { text }
+       kind "answer"   { text, thinking? }
+       kind "tool"     { call, name, ok?, summary? }
+       kind "receipt"  { text }          e.g. "Allowed once · you · 14:02"
+       kind "notice"   { text, ref? }
+       kind "error"    { text, error_kind?, status? }
+Model  { id, name, provider }
+Settings { default_model, budget_usd, asks_before, day_cap_usd }
+Spend  { today_usd, day_cap_usd }
+Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irreversible? }
+       subkind (approval): "permission" | "budget"; options carry the engine's ids,
+       e.g. permission: allow_once · deny · always (absent when irreversible)
        kind: "approval" (a tool call waiting for allow/deny) | "question" (the agent asks the person)
        approval options are the engine's own choices (e.g. allow once / always / deny);
        a question may have options, free text, or both
@@ -62,7 +74,10 @@ Ask    { id, agent, kind, title, detail?, options?: [{id, label}] }
 | `ping` | – | `{}` |
 | `shutdown` | – | `{}` then exit |
 | `agents.list` | `{workspace?}` | `{agents: Agent[]}` (recent conversations, newest first) |
-| `agents.create` | `{workspace, model?}` | `{agent: Agent}` |
+| `agents.create` | `{workspace?, model?, budget_usd?, text?}` | `{agent: Agent}`; with `text` the first turn starts at once (`turn.started` follows) and `title` is the first words of `text`, cut to 40 characters with "…". No workspace: the user's home folder. |
+| `agents.entries` | `{id, before?, limit?}` | `{entries: Entry[], more: bool}` (oldest first; works for agents not held) |
+| `agents.set_model` | `{id, model}` | `{agent: Agent}` |
+| `agents.retry` | `{id}` | `{turn}` (re-run the last failed turn) |
 | `agents.open` | `{id}` | `{agent: Agent}` (attach an engine to a saved conversation) |
 | `agents.send` | `{id, text}` | `{turn: <u64>}`; output arrives as events |
 | `agents.stop` | `{id}` | `{}` (interrupt the running turn) |
@@ -70,6 +85,9 @@ Ask    { id, agent, kind, title, detail?, options?: [{id, label}] }
 | `asks.list` | `{agent}` | `{asks: Ask[]}` (open asks only) |
 | `asks.answer` | `{agent, id, option?, text?}` | `{}`; `not_found` if already answered elsewhere |
 | `tasks.list` | `{agent}` | `{tasks: Task[]}` |
+| `models.list` | – | `{models: Model[]}` (what the configured keys can use) |
+| `settings.get` | – | `{settings: Settings}` |
+| `spend.today` | – | `{spend: Spend}` |
 | `crews.list` | – | `{crews: Crew[]}` |
 
 ## Events
@@ -81,9 +99,11 @@ Ask    { id, agent, kind, title, detail?, options?: [{id, label}] }
 | `turn.started` | `{agent, turn}` |
 | `turn.delta` | `{agent, turn, kind: "text" \| "thinking", text}` |
 | `turn.tool` | `{agent, turn, call, name, phase: "begin" \| "end", ok?, summary?}` |
-| `turn.done` | `{agent, turn, ok, error?}` |
+| `turn.done` | `{agent, turn, ok, error?, error_kind?: "provider" \| "budget" \| "stopped" \| "other", status?}` (provider: the provider failed 3 times in a row; message is the provider's own words) |
 | `ask.opened` | `{ask: Ask}` (agent state becomes `needs_you`) |
-| `ask.closed` | `{agent, id, by: "app" \| "elsewhere" \| "stopped"}` |
+| `ask.closed` | `{agent, id, by: "app" \| "elsewhere" \| "stopped", option?, at}`; a receipt Entry follows as `entry.added` |
+| `entry.added` | `{entry: Entry}` (user message, final answer, receipt, notice, error; streaming text still uses turn.delta) |
+| `spend.changed` | `{spend: Spend}` |
 | `task.changed` | `{task: Task}` |
 | `crew.changed` | `{crew: Crew}` |
 | `crew.removed` | `{id}` |
