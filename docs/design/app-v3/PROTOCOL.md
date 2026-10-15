@@ -46,7 +46,9 @@ Agent  { id, title, workspace, model?, state, updated_at }
        state: "idle" | "working" | "needs_you" | "stopped" | "closed"
        "stopped": its conversation engine failed; the next send reopens it
        updated_at: RFC 3339
-Task   { id, agent, title, state, updated_at }
+Task   { id, agent, title, state, updated_at, parent?, group?, line? }
+       parent: the task that spawned it (nesting); group: the agent's grouping label;
+       line: the one live status line the TUI shows for it
        state: "queued" | "running" | "done" | "failed" | "unverified"
 Crew   { id, name, manager?, members: [{agent, handle?}] }
 Entry  { id, agent, turn?, kind, at, ... }   one transcript item, in order
@@ -108,3 +110,30 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
 | `crew.changed` | `{crew: Crew}` |
 | `crew.removed` | `{id}` |
 | `log` | `{level: "info" \| "warn" \| "error", message}` (non-fatal notices) |
+
+## Identity and de-duplication (rev 2)
+
+- `agents.create` and `agents.send` accept `client_id` (string chosen by the app).
+  The engine echoes it on the user `Entry` (`client_id`) so the app replaces its
+  optimistic bubble instead of adding a second one.
+- `agents.create` answers at once (target under 50 ms): it returns the Agent
+  (state `working` when `text` was given) before the conversation engine has
+  finished loading; loading continues in the background and failures arrive as
+  `turn.done {ok:false}` + `agent.changed`.
+- Every assistant message inside a turn has an index `msg` (0, 1, 2 …).
+  `turn.delta` carries `msg`; the `entry.added` answer for that message carries
+  `turn` and `msg`. The app keys answers by `(agent, turn, msg)`: deltas append,
+  the entry replaces. An answer is never shown twice.
+- Entry ids are stable: the id sent live in `entry.added` equals the id returned
+  later by `agents.entries` for the same item.
+- `turn.tool` and tool entries carry `title`: the same one-line label the TUI
+  shows for that call (e.g. `read src/auth/session.ts`, `bash pnpm test`), and
+  `detail?` (short result line). Never just the bare tool name.
+- Engine notices (e.g. "skills carried: …") are `kind: "notice"` with
+  `quiet: true` when the TUI shows them as a dim line; the app renders quiet
+  notices as one muted line, not a card.
+- `models.list` returns every model the user can pick in the TUI's model
+  picker for their configured providers, plus the current default, each with
+  `{id, name, provider, default?: bool}`; never empty when a turn can run.
+- `agents.set_effort {id, effort: "low"|"medium"|"high"}` and Agent gains
+  `effort?`.
