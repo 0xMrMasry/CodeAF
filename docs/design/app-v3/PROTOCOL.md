@@ -947,10 +947,12 @@ It comes from the default run road: the run's check seats run the declared check
 store records each declared command's exit off the check's own trajectory, and the settled
 run becomes one result on the ONE model that answered its work (after any fallback, read
 only from the run's spend rows marked answered; a row naming the model a seat was built on,
-as every row before this build does, leaves the run unrecorded). A run answered by more
-than one model or by an unnamed one, and a run another approved task joined, is not
-recorded. Never counted: the checker's verdict, unchecked done, a model's account of itself,
-a check the shell could not start (126/127). A check a signal killed (128+signal) or that
+as every row before this build does, leaves the run unrecorded). An answer is counted
+whether or not it cost anything or carried usage, so a free second model is a second model.
+A run answered by more than one model or by an unnamed one, a run another approved task
+joined, and a run with ANY declared check the shell could not start (126/127, or a negative
+code) is not recorded — never folded as a pass from the checks that did run. Never counted:
+the checker's verdict, unchecked done, a model's account of itself. A check a signal killed (128+signal) or that
 the run cut off is a failure, never a pass. The ledger is
 `<home>/v3/checked-results.jsonl`, append-only, and survives deleting the task or the
 conversation. Work finished before it existed is no evidence. `undone` is in the shape and
