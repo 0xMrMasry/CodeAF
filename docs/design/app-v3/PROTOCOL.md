@@ -405,7 +405,7 @@ and `stop`.
 | `crews.get` | `{id}` | `{crew}` | `File.Team` + `Effective` + `TeamSpend` |
 | `crews.create` | `{name, agents: [id], manager?: id, parent?, hue?}` | `{crew}` | `Update`: a new `Team` with `NewID`, `AddMember` per agent, `SetManager`, `SetParent` (refused past `depth_limit`: `CanNest`) |
 | `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
-| `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; the engine never writes the person's words to Traffic, so a manager does not see words sent to a member |
+| `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; words to a member are also told to the manager by the app layer (below) |
 | `crews.log` | `{id, after?, limit?}` | `{lines, cursor}` | `ReadTraffic` (oldest first, cursor = last id) |
 | `crews.decisions` | `{id?, all?}` | `{decisions}` | `Packets(id)` / `OpenPackets(scope)`; `all` includes decided ones (`History`) |
 | `crews.decide` | `{packet, option?, text?, reason?}` | `{decision}` | `Decide(id, "you", …)`; a decided `closing` packet with close/close-now then `AcceptClosing` |
@@ -426,21 +426,26 @@ Events: `crew.changed {crew}`, `crew.removed {id}`, `crew.log {line}` (every new
 `decision.opened {decision}`, `decision.changed {decision}`, `member.changed {member}`. A crew's
 `state` moves to `needs_you` while a packet waits on you from it or a member is asking.
 
-**Not in the engine (needs engine work before the UI may show it):**
-- Roles and role copies (`roles.*`, `Role`): teams have handles, not roles.
-- A per-member budget (`cap_usd`): caps are per crew and pool down the tree.
-- Pausing a member (`members.pause/resume`): there is only stop.
-- Linked items (`Item`, `crews.items/link/unlink`, LogLine `factory`): teams keep no links.
-- A crew goal, end date (`goal`, `ends_at`, Proposal `span`) and a manager plan text (`plan`).
-- The "Bring in helpers" proposal card (`crews.propose`, `Proposal`, option `keep`): no engine
-  tool proposes a crew; a crew is made by the person (`crews.create`) and grows by the
-  manager's `team_start`.
-- A member started by the person with a brief (`members.start`): a Traffic `start` line and its
-  brief are read only when they are the manager's. The person adds an existing agent
-  (`members.add`) or asks the manager, whose `team_start` the app performs.
-- A person's message to a member that the manager also sees: the person's words are never
-  written to Traffic.
-- Member `was` and crew `history`.
+### The app layer (fields teams do not have)
+
+What the design needs and teams do not keep lives in the APP LAYER: `<home>/app/crews.json`, keyed
+by team id and member key, never written into `teams.json`. The terminal never sees it. Every
+field below is marked **app** on the wire's Crew/Member; everything else is **teams**.
+
+| Field / method | Kept as | How the app makes it true |
+|---|---|---|
+| Crew `goal?`, `ends_at?` | app | stored; `ends_at` passing raises nothing by itself (shown only) |
+| Crew `history: [task id]` | app | the manager agent's tasks at the moment the crew was made |
+| Crew `items: Item[]`; `crews.items` · `crews.link {id, kind, ref, title?}` · `crews.unlink {id, item}` | app | `Item {id, crew, kind: "job"\|"issue"\|"pr"\|"file", ref, title, at}`; links only, nothing is fetched |
+| Member `role?` and `Role {id, name, instructions, model?, made_at, copies: [{crew, agent}]}`; `roles.list` · `roles.update {id, name?, instructions?, model?}` | app | a member given a role gets the role's instructions as a message in its own conversation and the role's model as its model; editing a role sends each copy the new instructions the same way |
+| Member `cap_usd?`; `members.cap {crew, agent, cap_usd}` | app (the agent's app budget) | the same per-agent budget `agents.create` sets: bound to the member's conversation as its spend limit, so the engine stops it at the cap with a budget ask, as for any agent |
+| Member `paused`; `members.pause` · `members.resume {crew, agent}` | app | pause = the team's own stop (Traffic `stop`, the turn ends) + paused mark; while paused the app does not let the conversation start a turn on its own (a wake is held; the person's words still go); resume clears the mark and sends nothing |
+| Member `was? {role?, crew?, at}` | app | written when a member's role changes or it moves crews |
+| `crews.message` to a member, "@manager sees it" | app + Traffic | the words go into the member's conversation; the app also appends one Traffic `you` line (`kind: "you", from: "you", to: <handle>`) so the manager reads "you told @web: …" in its team digest at its next step; it does not wake the manager |
+| `members.start {crew, handle, brief, role?, model?}` | app | a new conversation in the crew's folder whose first message is the brief, as the person's own words; added to the crew under the handle |
+| `crews.propose {agent}` and the Bring in helpers card (`Proposal`) | app | the app asks the agent, in its own chat, for a crew proposal as one JSON block `{name, helpers: [{handle, role, brief, model?}]}`; the answer becomes an Ask (`subkind: "crew_proposal"`) with options `create`, `edit`, `keep` ("Keep it one agent") |
+| `Proposal {id, agent, name, hue, helpers: [{handle, role, brief, model?}], existing?: [agent], cap_usd_day?, goal?, ends_at?}` → `crews.create {from: "proposal", proposal, edits?}` | app → teams | create = a team with the agent as manager; each helper is a manager's start (`start` line from `manager`, its brief the manager's own words from the proposal) which the app performs; `existing` agents are added |
+| Crew `plan?` | not kept | needs engine work: the manager keeps no plan text the app can read |
 
 ## Wave 7: closing, archiving, finding (V21, V22, J03, J04, X4)
 
