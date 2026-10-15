@@ -50,9 +50,13 @@ Error codes: `unknown_method`, `bad_params`, `not_found`, `busy`, `engine`
 ## Types
 
 ```
-Agent  { id, title, workspace, model?, state, updated_at }
+Agent  { id, title, workspace, model?, state, updated_at, crews?, line? }
        id: stable string (the conversation's session file id/path key)
        state: "idle" | "working" | "needs_you" | "stopped" | "closed"
+       "working" whenever a turn runs, on every agent.changed and every list, whichever window
+       started the turn (a terminal working in an agent the app closed reads "working" too)
+       crews: the open crews it is a member of, on every agent.changed (said again when it joins or leaves one)
+       line: its live one-liner: the step it is on while working, or the question it waits on
        "stopped": its conversation engine failed; the next send reopens it
        updated_at: RFC 3339
 Task   { id, agent, title, state, updated_at, parent?, group?, group_title?, line? }
@@ -192,6 +196,9 @@ Quick    { id, agent, title, files: [{path, add, del}], state: "running"|"done"|
 Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped",
            started_at, ended_at?, exit_code?, last_line?, reason? }
            reason: why a stopped process stopped when a person did not stop it: "stopped by quit"
+           id: "<agent>:p<n>.<start>" — the job's number and when it started, so a process stopped by
+           a quit and one started after the restart never share an id; an id naming a process the
+           conversation no longer runs is answered not_found, never applied to another
 ```
 
 | method | params | result |
