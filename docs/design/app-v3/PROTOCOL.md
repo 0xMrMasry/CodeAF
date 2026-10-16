@@ -918,6 +918,7 @@ naming it, and refuses a field it does not know.
 | `spend.export` | `{from: "YYYY-MM-DD", to: "YYYY-MM-DD"}` | `{path}` a CSV under `<home>/app/exports/` (at, day, conversation, model, role, seat, calls, tokens in/out, usd), both days included |
 | `spend.ledger` | `{from, to, filters…, limit?, cursor?}` | `{from, to, totals, rows, next?, skipped}` — see Spending ledger below; unchanged `spend.export` stays the raw call CSV |
 | `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
+| `spend.report` | `{from, to, filters…}` | `{from, to, totals, cells, models, gaps, not_recorded, limits}` — the ledger added up by local day, model and subject; see Spending report below |
 | `models.pin` | `{ids}` | `{settings}` |
 Accounts (providers and keys) are Wave 2's `providers.list` / `keys.*`; GitHub sign-in is not served yet.
 
@@ -1009,6 +1010,44 @@ which could replace a file created between the two steps.
 |---|---|---|
 | `spend.ledger` | `{from, to, model?, kind?, subject?, session?, root?, task?, automation?, run?, workspace?, limit?, cursor?}` | `{from, to, totals, rows: [{grain, key, run?, time, end, kind?, subject?, name?, session?, root?, task?, automation?, workspace?, models, unnamed_model_records?, records, calls, tokens_in, tokens_out, cost_usd?, unpriced_records?, unbilled_records?}], next?, skipped: {malformed, oversized}}` |
 | `spend.ledger.export` | `{from, to, …the same filters, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` |
+
+## Spending report
+
+`spend.report` takes `spend.ledger`'s filter (`from` and `to` required local days, both included, at
+most 366 days apart; the same exact matches; no `limit` or `cursor`) and answers the lines it
+matches added up into **cells**, one per stored local `day`, `model`, and subject (`kind`,
+`subject`, plus `root` on a task, because a task id repeats in every conversation). `totals` is the
+whole range, exactly; `calls` (provider requests) and `records` (ledger lines) are different
+numbers. `models` are the distinct named models, sorted. Cells are sorted by day, model, kind,
+subject, root. The engine folds nothing: no top three, no "Other" — that is the screen's job.
+
+**Unknown is absent.** The ledger does not record which provider billed a call, whether the task it
+served landed, or which crew owned it, and the engine does not join those from today's crews or
+task states, which are not what they were when the money was spent. No cell has such a field;
+`not_recorded` lists them (`provider`, `billing_source`, `outcome`, `crew`) on every answer. A
+call that named no model is a cell with no `model` — not a model named "Unknown". A cell with no
+`cost_usd` has no priced line; `unpriced_records` says how many, and it is not $0. `day` is the day
+the ledger stored on the line, which can differ from the instant's day in the engine's zone;
+`gaps.days_derived` counts lines with no valid stored day, placed by their instant instead.
+
+**The totals do not claim a complete bill.** `gaps` is what is known to be missing:
+`dropped_since_start` (records this process failed to write; not range-specific, and blind to
+earlier runs), `malformed` and `oversized` (ledger lines skipped). `totals.unpriced_records` and
+`unbilled_records` count lines with no figure or a missing receipt. All zeros is not proof that
+nothing is missing.
+
+**Bounds, refusals and cost.** One pass reads the ledger from its first byte to the length it had
+when the request began; a line appended meanwhile belongs to the next request. It is linear in the
+ledger, with no cache and no index. A range with more than 8 192 cells, or whose cells are
+estimated at over 4 MiB, is `bad_params` asking for a shorter range or a narrower filter — never
+a truncated list; likewise an answer over 4 MiB of JSON. The byte figure is an estimate used to
+refuse early, not a promise about the engine's memory. Figures that cannot be added up (negative,
+overflowing, non-finite) are `bad_params`, and a third concurrent ledger reading is `busy`.
+`spend.ledger` and its cursors are unchanged.
+
+| method | params | result |
+|---|---|---|
+| `spend.report` | `{from, to, model?, kind?, subject?, session?, root?, task?, automation?, run?, workspace?}` | `{from, to, totals: {cells, records, calls, tokens_in, tokens_out, cost_usd?, runless_records, unpriced_records, unbilled_records}, cells: [{day, model?, kind?, subject?, root?, records, calls, tokens_in, tokens_out, cost_usd?, unpriced_records?, unbilled_records?}], models, gaps: {dropped_since_start, malformed, oversized, days_derived}, not_recorded, limits: {max_cells, max_bytes}}` |
 
 ## Wave 9: Collections (V75)
 
