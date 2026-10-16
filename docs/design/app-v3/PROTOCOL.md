@@ -1021,7 +1021,9 @@ A tick is one model on ONE provider: unticking GLM 5.3 on OpenRouter leaves it t
 It is kept in the allowed rule `/crew models` reads, as `-model@provider` / `+model@provider`.
 `price` is that provider's OWN published price (OpenRouter's rows from OpenRouter's catalog, a
 direct provider only from its own cached listing), and null when it published none — such a row is
-still listed, tickable and pinnable, and Auto skips it (`reason: "no_price"`). A provider with no key
+still listed, tickable and pinnable, and Auto skips it (`reason: "no_price"`); a direct route with
+its own price is weighed at that price. A published zero is `{in_per_m: 0, out_per_m: 0}`; a
+listing seeded from model ids alone publishes nothing. A provider with no key
 is a header with no models; a provider whose key was refused, whose sign-in ran out, or whose
 credit is gone keeps its models listed with their ticks, `available: false`, until it answers again.
 `fix` is only a fix this engine can start: `sign_in` where `providers.sign_in` serves it.
@@ -1032,12 +1034,18 @@ with `pins: {role: null}`. `settings.checks_model` and `settings.planner_model` 
 planner pins (the same rows). One mode needs `one_model` (in the patch or saved) on a connected
 provider that lists it; it ignores pins and ticks, which stay as they are for when Auto is back.
 A role with no eligible model fails the task's admission with the typed no-eligible refusal (the
-task waits and asks); it is never moved onto the conversation's own model.
+task waits and asks); it is never moved onto the conversation's own model. So does an ALLOWED pin
+(or the one model) whose route is known not to answer — provider gone or off, key refused, out of
+credit, or resting — and setting such a one model is `bad_params`; only a pin the allowed models
+no longer admit is set aside for Auto.
 
 The caps are `settings.task_cap_usd` (the router's per-task limit) and `settings.day_cap_usd` (the
 app's all-usage day cap); neither is part of this family. Each patch is validated whole and written
 in one profile write, refused with `conflict` when its `revision` is stale or the rows moved under
-it. `settings.changed` carries `task_models` (the get answer) after any settings change. get and
+it. `revision` covers every task-models row and not the caps. `read_at` is when the engine's read
+BEGAN; one answer is one consistent observation, or `busy` when the rows kept changing under three
+tries. `settings.changed` carries `task_models` (the get answer) only when the change touched a
+task-models row: `settings.models.set`, or `settings.set` of `checks_model`/`planner_model`. get and
 list answer within 10 s or err `engine` "task models read timed out"; a cursor is only good for the
 filters and revision it came from (else `bad_params`).
 
