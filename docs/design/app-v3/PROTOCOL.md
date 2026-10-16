@@ -1710,3 +1710,11 @@ duration is refused. The attachment's typed source names the clip, its canonical
 computed, and `attachments.remove` abandons a definitely-unsent frame. Accepted or uncertain
 deliveries keep their file. The clip is never modified.
 
+### Recorded retry support
+
+`Task.retryable` and `work.graph` node `retryable` are explicit booleans from the
+owning producer. Graph-node tasks support a fresh attempt; quick, handed-over
+Run and Plan rows do not support this action. This is road support, not a promise
+that admission will succeed: the current workspace, state and budget are still
+validated when `tasks.retry` is requested. A client reading an older engine that
+omits this additive field treats support as unknown and disables bulk retry.
