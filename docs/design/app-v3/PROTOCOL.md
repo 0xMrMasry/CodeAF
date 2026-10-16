@@ -913,8 +913,71 @@ naming it, and refuses a field it does not know.
 | `memory.list` | `{limit?: ≤500, default 200}` | `{memories: [{id, title?, text, owner, project?, origin?}]}` newest first; engine error "memory is off" |
 | `memory.forget` | `{id}` | `{}` |
 | `spend.export` | `{from: "YYYY-MM-DD", to: "YYYY-MM-DD"}` | `{path}` a CSV under `<home>/app/exports/` (at, day, conversation, model, role, seat, calls, tokens in/out, usd), both days included |
+| `spend.ledger` | `{from, to, filters…, limit?, cursor?}` | `{from, to, totals, rows, next?, skipped}` — see Spending ledger below; unchanged `spend.export` stays the raw call CSV |
+| `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
 | `models.pin` | `{ids}` | `{settings}` |
 Accounts (providers and keys) are Wave 2's `providers.list` / `keys.*`; GitHub sign-in is not served yet.
+
+## Spending ledger (V62)
+
+`spend.ledger` reads the machine's usage ledger a page at a time; `spend.ledger.export` writes the
+same rows to a file. Both take ONE filter, so a preview and the file saved from it ask the same
+question. Both are optional: an engine that is not a `SpendLedgerer` answers `unknown_method`.
+
+**Filter.** `from` and `to` are required local calendar days (`YYYY-MM-DD`), both included, read
+in the engine's zone from midnight to midnight (a 23- or 25-hour day is still that day). Every
+other field is an exact match on what the ledger wrote: `model`, `kind` (`agent`, `task`,
+`automation` — what the money was spent on, classified as the spend place classifies it),
+`subject` (that thing's id; needs `kind`), `session`, `root`, `task`, `automation`, `run`,
+`workspace`. A field the method does not know is `bad_params`, never ignored. `limit` is 1–500,
+default 200; `0` or absent is the default, anything else is refused. `cursor` is a page's `next`
+and belongs to the filter that made it — another filter's cursor, or one that does not decode,
+is `bad_params`.
+
+**Grain.** A row is either `grain: "run"` — every call one immutable execution made, summed
+whatever models it used (`models` lists them, sorted) — or `grain: "call"` — one ledger line
+that carries no run: a line older builds wrote, an auxiliary call made beside a turn, a receipt
+that arrived late. Call rows are never grouped, with each other or into a run. A run is the calls the filter matched: one that crosses
+the range's edge, or used a model the filter excludes, is summed over its matching calls only. `key` is a row's
+stable identity (`run:<id>` or `call:<byte offset>`). Rows come newest first by `time` (the first
+call's instant, with the engine's offset); `end` is the last call's.
+
+**Unknown stays absent.** `kind`, `subject` and the ids are present where the ledger wrote them
+and, on a run, only where every call agreed. `name` is present only where the engine holds a
+title: a conversation's settled title, a task's index title in the conversation named by `root`
+(a task row with no `root` is not named), an automation's title. Nothing names who asked for a
+call, so there is no `by`. `cost_usd` is absent when no record in the row was priced;
+`unpriced_records` counts records with no figure and `unbilled_records` those marked as a
+missing receipt — neither is $0.
+
+**Totals** are the whole filtered range, exactly, whatever `limit`: `rows` = `runs` +
+`unknown_run_records`; `records`, `calls`, `tokens_in`, `tokens_out`; `cost_usd` with its halves
+`run_cost_usd` and `unknown_run_cost_usd`; `unpriced_records`, `unbilled_records`. `skipped`
+counts ledger lines passed over: `malformed` (did not parse) and `oversized` (over 64 KiB). A
+last line still being written is not read.
+
+**Reading costs.** Every request reads the ledger from its first byte, line by bounded line; there
+is no index, so a long history is a slower answer, not a larger one. Memory is a page plus the
+runs in the range, under a budget: a range holding more than 100 000 runs (or 64 MiB of them) is
+`bad_params` asking for a shorter range — never a truncated answer. At most two readings run at
+once; a third is `busy`, to be retried. A later page is a later reading: rows recorded meanwhile
+newer than the cursor are not shown again, and the totals may have grown.
+
+**Export.** `destination` is an absolute, clean path whose folder exists; the file is the CSV
+below, written to a temporary sibling (mode 0600), synced, and moved into place. An existing
+file is refused unless `overwrite: true`; any failure leaves the destination's previous bytes
+as they were and removes the temporary file. The file holds the rows the filter matched at the
+moment of the save, in ledger order (a run placed at its first call), and `totals` are those
+rows'. Columns: `time, kind, name, models, tokens_in, tokens_out, cost_usd, by, grain, run, key,
+subject, session, root, task, automation, workspace, end_time, records, calls, unpriced_records,
+unbilled_records, unnamed_model_records`. `name` falls back to `subject`, then `run`; `models`
+is `;`-joined; `by` is always empty; an unpriced cost is an empty cell; a text cell starting
+`=`, `+`, `-` or `@` gets a leading `'`.
+
+| method | params | result |
+|---|---|---|
+| `spend.ledger` | `{from, to, model?, kind?, subject?, session?, root?, task?, automation?, run?, workspace?, limit?, cursor?}` | `{from, to, totals, rows: [{grain, key, run?, time, end, kind?, subject?, name?, session?, root?, task?, automation?, workspace?, models, unnamed_model_records?, records, calls, tokens_in, tokens_out, cost_usd?, unpriced_records?, unbilled_records?}], next?, skipped: {malformed, oversized}}` |
+| `spend.ledger.export` | `{from, to, …the same filters, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` |
 
 ## Wave 9: Collections (V75)
 
