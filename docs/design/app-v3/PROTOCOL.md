@@ -185,7 +185,7 @@ result or an event, `?` marks a field that may be absent.
 | `caps.raise` | `{for, id, scope, to_usd}` | `{}` |
 | `crews.archive` | `{id}` | `{crew}` |
 | `crews.close` | `{id}` | `{}` |
-| `crews.create` | `{agents, cap_usd_day, edits, ends_at, from, goal, hue, manager, name, parent, proposal, settings, tint}` | `{crew}` |
+| `crews.create` | `{agents, attachments, cap_usd_day, client_id, edits, ends_at, from, goal, hue, manager, manager_starts_members, model, name, parent, proposal, request_id, said, settings, start_manager, tint, workspace}` | `{crew, start?}` |
 | `crews.decide` | `{option, packet, reason, text}` | `{decision}` |
 | `crews.decisions` | `{all, id}` | `{decisions}` |
 | `crews.defaults` | `{}` | `{defaults}` |
@@ -202,6 +202,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.move` | `{ids, parent}` | `{}` |
 | `crews.propose` | `{agent}` | `{}` |
 | `crews.reopen` | `{id}` | `{crew}` |
+| `crews.root.start` | `{model, workspace}` | `{crew, manager, root_created, manager_created}` |
 | `crews.set_default` | `{key, value}` | `{defaults}` |
 | `crews.unlink` | `{id, item}` | `{}` |
 | `crews.update` | `{clear, ends_at, goal, hue, id, name, settings, tint}` | `{crew}` |
