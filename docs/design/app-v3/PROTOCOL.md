@@ -596,6 +596,7 @@ Closing a crew does NOT stop its conversations (the engine's Disband); the app o
 | `tint` | derived from `Hue` | see Tint below; never stored |
 | `made_at` | `Team.Made` | |
 | `state` | `Team.State` + live members | `closed` when `Team.State == "closed"`; otherwise `needs_you` / `working` / `idle` from members (below) |
+| `idle_since?` | members' stop instants | no member has run since: on an `idle` or `needs_you` crew, the latest instant any member stopped running. A member at rest stopped at its conversation's `updated_at` (the end of its last turn); a member whose turn is open but held by a question that stops the turn stopped when the first such open question was put. Absent while any member runs (or may: an open turn with no turn-holding question), on a `closed` crew, and when any member's instant is unknown. A `needs_you` crew's wait on the person is a separate fact: each waiting ask's own Inbox `at` |
 | `closed_at?`, `closed_with?` | `Team.ClosedAt`, `Team.ClosedWith` | `closed_with` is the crew whose close closed this one (itself or an ancestor) |
 | `report?` | `Team.Report` | id of the closing-report packet; the Report itself is that packet's `report` |
 | `wrap?` | `Team.Wrap` | `{started, bound_s}` while a wrap-up runs |
