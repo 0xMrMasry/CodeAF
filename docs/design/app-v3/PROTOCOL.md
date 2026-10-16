@@ -219,6 +219,7 @@ result or an event, `?` marks a field that may be absent.
 | `media.get` | `{agent, source}` | `{source}` |
 | `media.attach` | `{agent, source, version}` | `{attachment}` |
 | `media.attach_frame` | `{agent, source, version, at_ms, png}` | `{attachment}` |
+| `media.attach_range` | `{agent, source, version, from_ms, to_ms}` | `{attachment}` |
 | `media.list` | `{agent, cursor, limit}` | `{incomplete?, next?, sources}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -1718,3 +1719,28 @@ Run and Plan rows do not support this action. This is road support, not a promis
 that admission will succeed: the current workspace, state and budget are still
 validated when `tasks.retry` is requested. A client reading an older engine that
 omits this additive field treats support as unknown and disables bulk retry.
+### Recorded audio and video ranges
+
+An engine implementing optional `MediaRangeAttacher` advertises `media.attach_range`.
+`media.attach_range {agent, source, version, from_ms, to_ms}` returns `{attachment}`: an
+ordinary `file` attachment that is an exact, byte-for-byte snapshot of the recorded AUDIO or
+VIDEO at that version, named `<stem>.range-<from>-<to><ext>`. The range is provenance, never
+a cut: nothing is clipped, rendered, decoded or sent to a model, and the snapshot is never a
+picture. `from_ms` and `to_ms` are integers, `0 <= from_ms < to_ms`, within a year; the
+source's RECORDED duration must be known and `to_ms` must not pass it (an unknown duration
+is refused, never guessed). The source must be recorded, unchanged, in scope, a regular
+non-symlink file of at most 32 MiB whose first bytes sniff as its kind; it is opened without
+blocking and streamed in 32 KiB pieces, so a FIFO swapped in cannot hold the worker. Admission
+and ownership are `media.attach`'s: two active, ten per conversation, 64 process-wide, `busy`
+before I/O; `attachments.remove` abandons a definitely-unsent snapshot, an accepted or
+uncertain delivery keeps its file. `attachment.media.source` carries `source_id`, `path`,
+`version`, `from_ms`, `to_ms` (never `at_ms`).
+
+The attachment rides `agents.send` in `attachments`, as any file does, and is refused if
+named in `submission.media` (that list is for pictures). The engine records the source and
+range on the person's own line (`attachments[].source`), beside the unchanged words and
+`client_id`; a reopened conversation returns it as the entry attachment's `media.source`.
+Only an engine-made snapshot can carry one: a source on an ordinary staged attachment is
+dropped when it is staged. A remote host advertises `attachmentSources` in its welcome, and
+a client refuses to send a source to a host that does not.
+
