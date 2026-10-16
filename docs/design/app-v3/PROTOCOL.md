@@ -2269,7 +2269,7 @@ here and says so by having none.
   before the producer runs. Before every claim the claims folder's entry in `<home>/app` and that folder's entry
   in `<home>` are synced, and a failed sync is `engine` with nothing claimed or run; `<home>`'s own entry is not
   synced here. So a claim survives a process crash, and a power loss once `<home>` itself is on disk. On Windows
-  a folder cannot be synced this way and the step does nothing, so there it claims a process crash only. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
+  a folder cannot be synced this way and the step makes nothing durable, so there it claims a process crash only. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
   `client_id` with other words, another action or for another conversation is `conflict`; a
   claimed attempt whose outcome is not known is `state: "uncertain"` and is never run again by the engine. A
   record that cannot be read is `uncertain` (code), never "new"; so is a `client_id` another process claimed whose
