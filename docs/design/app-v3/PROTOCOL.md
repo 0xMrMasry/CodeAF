@@ -97,6 +97,7 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
 |---|---|---|
 | `ping` | – | `{}` |
 | `shutdown` | – | `{}` then exit |
+| `agents.labels` | `{ids: string[]}` (at most 32) | `{labels:[{id,title}], incomplete?}`; optional metadata-only lookup, no transcript reads. Missing names stay unknown; incomplete means a scan bound was reached. |
 | `agents.list` | `{workspace?}` | `{agents: Agent[]}` (recent conversations, newest first) |
 | `agents.create` | `{workspace?, model?, budget_usd?, text?}` | `{agent: Agent}`; with `text` the first turn starts at once (`turn.started` follows) and `title` is the first words of `text`, cut to 40 characters with "…". No workspace: the user's home folder. |
 | `agents.entries` | `{id, before?, limit?}` | `{entries: Entry[], more: bool}` (oldest first; works for agents not held) |
