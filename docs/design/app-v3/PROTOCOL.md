@@ -151,6 +151,8 @@ result or an event, `?` marks a field that may be absent.
 |---|---|---|
 | `agents.archive` | `{ids}` | `{}` |
 | `agents.close` | `{id}` | `{}` |
+| `agents.budget.get` | `{id}` | `{budget}` |
+| `agents.budget.set` | `{id, usd}` | `{budget}` |
 | `agents.compact` | `{id}` | `{}` |
 | `agents.create` | `{attachments, budget_usd, client_id, model, text, workspace}` | `{agent}` |
 | `agents.entries` | `{before, id, limit}` | `{entries, more}` |
@@ -1175,3 +1177,45 @@ busy or could not be checked is skipped, and none found is `not_found`. BOTH ARE
 port is not reserved, a later bind can still lose, and a port held by another program is never
 touched. Out of range is `bad_params`, a spent concurrency budget `busy`, a deadline `engine`.
 An engine without the capability answers `unknown_method`.
+
+## One agent's own budget
+
+`settings.budget_usd` is the profile's DEFAULT conversation limit, the figure a conversation with
+nothing of its own is built with. It is never one agent's cap: read that from `Agent.budget`.
+
+```
+AgentBudget { scope: "agent", source: "set"|"unlimited"|"inherited",
+              limit: "limited"|"unlimited"|"unknown", usd?, base_usd?, raised_until?,
+              from: "record"|"engine", engine?: { limit: "limited"|"unlimited", usd?, spent_usd } }
+```
+
+`source` is where the cap comes from: `set` is this agent's own figure (`agents.create
+{budget_usd}`, `caps.raise {scope:"agent"}` or `agents.budget.set`), `unlimited` is an agent
+explicitly set to none, and `inherited` is nothing of its own — it runs on the limit its engine
+read when the conversation opened. `limit` is what is in force now; `usd` is present only when it
+is `limited`, `base_usd` only for `set`, and `raised_until` while a `for:"today"` raise lifts `usd`
+above `base_usd` (until the next local midnight). Every `Agent` the engine sends carries `budget`
+from the app's own record, so an `inherited` one reads `limit:"unknown"` there; an absent `budget`
+is an engine that does not say, which is also unknown. Neither is ever `settings.budget_usd`.
+
+`agents.budget.get {id}` adds `engine` — the open conversation's own limit and the spend it is
+measured against — when the conversation is held and its engine can say; an `inherited` budget is
+then that figure, with `from:"engine"`. `agents.budget.set {id, usd}` takes a positive amount for
+good (clearing a raise for today) or `null` for none; a missing `usd`, zero, a negative or a
+non-number is `bad_params`. It is written to the app's file before it is bound to the open
+conversation; a write the disk refuses changes nothing, and one the conversation refuses is rolled
+back and answers `engine`. If rollback cannot be confirmed, the error explicitly asks the caller to read the budget again. A set closes the agent's open budget ask and
+retries the turn it refused. `caps.raise {scope:"agent", for:"today"}` on an `unlimited` agent is
+`bad_params`. An engine without the capability answers `unknown_method`.
+
+The cap is the agent's alone: it is measured against the conversation's own spend over its whole
+life (the journaled figure, kept across reopens) and checked before each turn, never cutting one in
+half. A task's cap, the day cap and a task's models are other limits. A `set` or `unlimited` budget
+is in the app's file and bound again at every open, so a relaunched app reopens an agent with the
+same cap.
+
+The top-level recorded cap is what the app binds before the next turn. The optional `engine`
+reading is the conversation's last bound configuration; it can differ after a temporary raise
+expires until that next bind. In-flight work retains its admission and is never cut short.
+Successful creation, individual Set and `caps.raise` publish `Agent.budget` on `agent.changed`
+so other windows update without polling. Ordinary list enrichment does not query the engine.
