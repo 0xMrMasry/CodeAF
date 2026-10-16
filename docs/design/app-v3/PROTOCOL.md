@@ -319,6 +319,7 @@ result or an event, `?` marks a field that may be absent.
 | `tasks.dismiss` | `{id}` | `{}` |
 | `tasks.entries` | `{before, id, limit}` | `{entries, more}` |
 | `tasks.get` | `{id}` | `{page}` |
+| `tasks.program_actions` | `{before, id}` | `{actions?, before?, earlier_actions?, read, read_cut?}` |
 | `tasks.hold` | `{id}` | `{}` |
 | `tasks.list` | `{agent}` | `{tasks}` |
 | `tasks.note` | `{client_id, id, text}` | `{entry?}` |
@@ -561,17 +562,32 @@ TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, from
            program?: TaskProgram }
 TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage?, ceiling_usd?, calls?,
               models?, effort?, listens, listening, started, inbox_closed?,
-              actions: [{at, step?, text, outcome?, added?, removed?, steer?, memory?, model?, reason?}] (newest 60),
-              earlier_actions?, ending?: {at, status?, text, outcome?, facts?: EndingFacts} }
+              read: "complete"|"partial"|"unknown", read_cut?: "budget"|"damaged"|"unreadable"|"deadline",
+              actions?: [{at, step?, text, outcome?, added?, removed?, steer?, memory?, model?, reason?}] (newest ≤60),
+              earlier_actions?, before?, ending?: {at, status?, text, outcome?, facts?: EndingFacts} }
            program: present ONLY for a task a specialist was handed. Absent is not "none was run":
            an engine that predates it omits it too. Stages are the hello's own list and count; a
            stage with no word keeps the word before it; the APP groups consecutive equal words
-           (senior-dev's 15 stages are 7 consecutive words, not 6). last_stage is the newest stage
-           record's own name; there is no index, percent, attempt number or auto: the record is the
-           latest process, not a history. earlier_actions says how many came before the list.
-           ending is present only while the log's last line is the ending. EndingFacts are typed
-           and allow-listed (a count nobody said is absent, not 0); reports are display names, not a
-           file handle and not for the renderer to open.
+           (senior-dev's 15 stages are 7 consecutive words, not 6). There is no index, percent,
+           attempt number or auto: the record is the latest process, not a history.
+           CURRENT PROCESS ONLY, BY ITS LAUNCH, NEVER BY TIME. Every launch of a program has an
+           identity its producer draws before the process exists and stamps on the record, on a
+           start line, on every action line and every call; actions, last_stage, ending and calls are
+           the lines carrying the record's launch and nothing else — an earlier run's lines, however
+           late or early their time, never. read: "complete" = every line of that process was read
+           within the read's budget (16 MiB of its action log, 200 000 lines, 3 s; an earlier run's
+           history before its start costs nothing); actions are exact, earlier_actions is how many of
+           its own came before them, before is the cursor for tasks.program_actions (present only when
+           there are earlier ones), last_stage is its newest stage record's own name, ending is present
+           only when its own last line is the ending. "partial" (read_cut says why: over the budget, a
+           damaged or overlong line among its lines, a disk refusal, the deadline) = the actions carried
+           are some of its own, and there is NO earlier_actions, before, last_stage or ending — no
+           claim of none either. "unknown" = no line can be tied to the record's process (a run from
+           before launches were, a relaunch before its hello): no actions at all. calls: how many of
+           that process's calls reached a model, PRESENT ONLY WHEN EVERY ONE WAS READ (its whole
+           conversation log within 32 MiB, every line parsed); 0 is a real zero, absent is unknown.
+           EndingFacts are typed and allow-listed (a count nobody said is absent, not 0); reports are
+           display names, not a file handle and not for the renderer to open.
            log: ONE ENTRY PER STEP, each a tool `Entry` carrying its call's facts (see "Work log
            detail" below), so a task's log is grouped, folded and timed by exactly the rules a
            conversation's is. A step the record holds with NO TOOL PAYLOAD — an older journal or
@@ -598,6 +614,7 @@ Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped
 | method | params | result |
 |---|---|---|
 | `tasks.get` | `{id}` | `{page: TaskPage}` |
+| `tasks.program_actions` | `{id, before}` | `{read, read_cut?, actions?, earlier_actions?, before?}` OPTIONAL (unknown_method = this engine cannot page; never "no earlier actions"). The page of a program's actions before the opaque cursor `before` a `TaskProgram.before` or an earlier page handed out, ≤60, oldest first, read in the program's own words from its launch's first line, so a page reads exactly as the newest did. Every action of the process is reachable by following `before` until it is absent. Same `read` rules as `TaskProgram`; a cursor of a launch that is no longer the task's (handed off again since) is `conflict` — read the task again; a task with no program is `not_found` |
 | `tasks.start` · `tasks.hold` · `tasks.decline` | `{id}` | `{}` proposed-task card actions |
 | `tasks.typing` | `{id}` | `{}` holds the clock while the person types in the card |
 | `tasks.decide` | `{id, verdict: "accept"\|"not_right"\|"recheck"\|"let_it_decide", text?}` | `{}` Your call (Tell it… = `not_right` or a note with text) |
