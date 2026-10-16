@@ -586,8 +586,11 @@ TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage
            before launches were, a relaunch before its hello): no actions at all. calls: how many of
            that process's calls reached a model, PRESENT ONLY WHEN EVERY ONE WAS READ (its whole
            conversation log within 32 MiB, every line parsed); 0 is a real zero, absent is unknown.
-           EndingFacts are typed and allow-listed (a count nobody said is absent, not 0); reports are
-           display names, not a file handle and not for the renderer to open.
+           EndingFacts are typed and allow-listed (a count nobody said is absent, not 0), every key the
+           engine's ending keeps (a test holds the two field for field); hunt_coverage is {unknown:true}
+           alone or a whole {attempted, failures}; nothing_to_audit is true-only (absent is not "there
+           was something to audit"). reports are display names, not a file handle and not for the
+           renderer to open; there is no report handle on this wire.
            log: ONE ENTRY PER STEP, each a tool `Entry` carrying its call's facts (see "Work log
            detail" below), so a task's log is grouped, folded and timed by exactly the rules a
            conversation's is. A step the record holds with NO TOOL PAYLOAD — an older journal or
