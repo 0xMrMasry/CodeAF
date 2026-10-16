@@ -234,6 +234,8 @@ result or an event, `?` marks a field that may be absent.
 | `ping` | `{}` | `{}` |
 | `power.sleep` | `{}` | `{}` |
 | `power.wake` | `{}` | `{}` |
+| `ports.inspect` | `{port}` | `{port, state, checked_at, holder?, detail?}` |
+| `ports.suggest` | `{after}` | `{port, checked_at, checked_count}` |
 | `processes.follow` | `{id}` | `{}` |
 | `processes.list` | `{agent}` | `{processes}` |
 | `processes.output` | `{from_line, id}` | `{lines, next_line}` |
@@ -253,6 +255,16 @@ result or an event, `?` marks a field that may be absent.
 | `rules.list` | `{}` | `{rules}` |
 | `rules.remove` | `{id}` | `{}` |
 | `search.all` | `{limit_per_group, query}` | `{groups}` |
+| `services.get` | `{id}` | `{process}` |
+| `services.list` | `{agent}` | `{processes}` |
+| `services.output` | `{from_line, id, max_lines}` | `{first_line, lines, next_line, total_lines, truncated?}` |
+| `services.policy` | `{id, policy}` | `{process}` |
+| `services.remove` | `{id}` | `{}` |
+| `services.restart` | `{id}` | `{process}` |
+| `services.start` | `{id}` | `{process}` |
+| `services.stop` | `{id}` | `{process}` |
+| `services.stop_all` | `{}` | `{stopped}` |
+| `services.tail` | `{id, lines}` | `{first_line, lines, next_line, total_lines, truncated?}` |
 | `settings.get` | `{}` | `{settings}` |
 | `settings.models.get` | `{}` | `{task_models}` |
 | `settings.models.list` | `{allowed_only, cursor, limit, provider, q, role}` | `{models, next_cursor, read_at, revision, total}` |
@@ -1056,3 +1068,95 @@ task-models row: `settings.models.set`, or `settings.set` of `checks_model`/`pla
 list answer within 10 s or err `engine` "task models read timed out"; a cursor is only good for the
 filters and revision it came from (else `bad_params`).
 
+## Kept running: services (V77)
+
+An agent may ask to keep a command running after its turn. The ask is an Ask with
+`kind: "approval", subkind: "keep_running"` and exactly three options, in this order:
+`allow` ("Allow"), `allow_never` ("Allow, never restart") and `deny` ("Deny"). Deny runs the
+command as an ordinary process that ends with the turn. The person's answer is kept for that
+exact command in that exact folder with the health check they saw; the agent cannot change the
+restart policy afterwards, only the person can (`services.policy`).
+
+The ask carries the proposal typed, read from the engine's card and never from its words:
+`ask.keep_running: {name, command (redacted), dir, health: ServiceHealth, policy, call_id?,
+timing: ServiceTiming}`.
+
+```
+ServiceTiming { check_every_s: 10, check_timeout_s: 5, unhealthy_after: 3, first_backoff_s: 2,
+                restart_limit: 3, restart_window_s: 600, healthy_reset_s: 600, stop_grace_s: 5 }
+```
+The figures are the supervisor's constants, the same for every service, sent so the app never
+spells its own.
+
+A service is a `Process` with `service` set, listed in the same Running/Ended list as the
+agent's other processes and counted with them. Its id is `"<agent>:s<n>"`, opaque, never
+reused. `processes.output`, `processes.follow`, `processes.unfollow`, `processes.stop` and
+`processes.rerun` accept a service id too (rerun = Start again with the saved command).
+`process.changed {process}` carries every change, the episode included.
+
+```
+Process (adds) { service?: Service }
+Service { name, dir, health: {kind: "port"|"url"|"cmd", port?, url?, cmd?, words}, timing: ServiceTiming, open_url?,
+          policy: "never"|"on_failure"|"always",
+          lifecycle: "starting"|"healthy"|"unhealthy"|"restarting"|"gave_up"|"not_running"|"stopped"|"failed",
+          reason?, running, stopping?, pid?,
+          started_how?: "agent"|"restart"|"person"|"after_restart"|"re_adopted",
+          started_by: {label?, turn?, call_id?, at}, check?: {ok, at, fails, detail?},
+          restarts, restart_limit, backoff_until?, re_adopted?, re_adopted_at?, port_conflict?,
+          episode?, episode_open?, episode_reason?, episode_started_at?, episode_resolved_at?,
+          stopped_by?, output_truncated?, removed? }
+```
+
+`Process.state` is `running` while the engine owns a live process (`service.running` or
+`service.stopping`) or while it is starting or restarting, so a restarting or pending service is
+active; `stopped` for a stopped service; `failed` for `failed` and `gave_up`; `ended` for
+`not_running`. A stop that could not prove the process gone leaves `running: true`.
+
+Checks run every 10 s, the first 10 s after start, each with 5 s to answer; a url check passes on
+200 only. Three failures in a row make it `unhealthy`; one pass makes it `healthy` again.
+Automatic restarts wait 2 s, 4 s, 8 s, at most `restart_limit` (3) in any 10 minutes, and the
+count clears after 10 healthy minutes; past that it is `gave_up`. `services.restart` is the
+person's restart and is not one of the automatic ones. `services.stop` sends TERM, then KILL
+after 5 s; output is kept. `services.start` starts it again from the saved command.
+`services.remove` takes it off the list and keeps its output, still readable by its id.
+
+An **episode** (`episode`, e.g. `"s3.2"`) is one run of trouble from the first failure to
+healthy again or stopped. The app shows exactly one Inbox line per episode, updated in place
+by `process.changed`, and moves it to Today when `episode_open` turns false;
+`episode_resolved_at` is fixed when it closes, and the done line's `answered.at` is that moment. An
+episode already open when the app starts has its line at once, not at the next check. The Inbox
+line is an `Ask {kind: "question", subkind: "service_health", subject: {kind: "service", ref:
+<process id>}, options: restart, stop}`; `inbox.answer` with `restart` or `stop` acts on the
+service, and the line resolves `by: "recovered"` or `"stopped"`.
+
+The origin chat gets one notice per episode: an `entry.added` footer `footer_kind:
+"service_trouble"`, `ref` the process id, id `"svc<process id>.<episode>"`. It is kept on disk
+per agent, never cut, and `agents.entries` lays every kept notice into the history by time, so
+it is there after a relaunch and its `ref` still opens the output of a removed service. A
+notice's id is a valid `before` cursor.
+
+`agents.close` stops the agent's services and waits until each is gone; while it waits nothing new
+starts for that agent (a start answers an `engine` error, "its agent is closing; nothing new is
+started for it"). If one would not stop, `agents.close` fails naming it and the agent stays open.
+The idle sweep never lets go of an agent with a service up, starting or restarting.
+`processes.follow` of a service is counted per view: each follow adds one and each unfollow takes
+one, the tail ends at none, on removal, or at quit; neither an unfollow nor a quit waits for a
+send the window is not reading.
+
+`services.list {agent?}` with no agent lists every agent's, for the quit sheet's count.
+`services.stop_all` stops them all before a quit that was asked to; an error means at least
+one could not be proved stopped. Quitting without it leaves them running, and the next codeaf
+re-adopts only a process it can prove is the same one (pid, start time and boot).
+`services.output {id, from_line, max_lines?}` and `services.tail {id, lines?}` read at most 1000
+lines and 256 KiB per call; `truncated` says earlier output is no longer kept.
+An engine without a supervisor answers every `services.*` with `unknown_method`.
+
+`ports.inspect {port}` (1 to 65535) answers `state` `free`, `in_use` or `unknown`, with `holder`
+`{pid, name}` only when the engine proved it (a positive pid and the program's name, never a
+command line or a path) and `detail` when `unknown`. `ports.suggest {after}` (1 to 65534) answers
+the first port past `after` that was free when bound, starting at `max(after+1, 1024)`, looking at
+no more than 128 candidates in about a second and never wrapping past 65535; a candidate that is
+busy or could not be checked is skipped, and none found is `not_found`. BOTH ARE OBSERVATIONS: a
+port is not reserved, a later bind can still lose, and a port held by another program is never
+touched. Out of range is `bad_params`, a spent concurrency budget `busy`, a deadline `engine`.
+An engine without the capability answers `unknown_method`.
