@@ -1262,7 +1262,7 @@ naming it, and refuses a field it does not know.
 | `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
 | `spend.report` | `{from, to, filters…}` | `{from, to, totals, cells, models, gaps, not_recorded, limits}` — the ledger added up by local day, model and subject; see Spending report below |
 | `slash.catalog` | – | `{commands: [{name, aliases?, forms: [{args?, description}], source: "table"\|"program", door?, brief_optional?, lands?, host}], skipped?, limits}` — the words the terminal chat answers to; see Slash catalogue below. An engine that does not serve it answers `unknown_method` (check `hello.features` for `slash.catalog`) |
-| `session.actions` | `{agent}` | `{agent, actions: [{action, available, why?, programs?, scopes?, efforts?}]}` — what the conversation's own engine can do of `task.start`, `program.start`, `memory.remember`; see Session actions below. `unknown_method` without the `session.actions` feature |
+| `session.actions` | `{agent}` | `{agent, actions: [{action, available, why?, programs?, scopes?, efforts?}]}` — what the conversation's own engine can be shown to do of `task.start`, `program.start`, `memory.remember`; see Session actions below. `unknown_method` without the `session.actions` feature |
 | `session.act` | `{action, agent, client_id, task? \| program? \| memory?}` | `{action, agent, client_id, digest, state: "done"\|"uncertain"\|"in_progress", replayed?, at, task?, memory?, producer_error?, note?}` — runs ONE of the three through the producer the terminal uses, once per `client_id`; unknown params fields are `bad_params` |
 | `session.action.get` | `{agent, client_id}` | the persisted receipt of that `client_id`; `not_found` is not proof nothing was sent |
 | `providers.balance` | `{provider}` | `{provider, name?, supported, status, remaining_usd?, account_remaining_usd?, key_limit_remaining_usd?, stale?, last_success_at?, last_error_at?, error_kind?, message?, retry_after_ms?, busy?}` — what the provider itself reports; see Provider balance below |
@@ -2250,21 +2250,38 @@ here and says so by having none.
   program that needs a brief, memory off, `busy`, `closed`, a claim that could not be written (`engine`) — and they
   are RPC errors that leave no record.
 - **`program.start` takes a program NAME** from `session.actions`' `programs` (the engine's own rows); never a
-  path or command. A program without `brief_optional` needs a brief.
+  path or command. A program without `brief_optional` needs a brief. Over a conversation reached through the engine
+  wire — every conversation the app holds — a failed catalogue read and an empty one look the same, so an empty
+  catalogue there is UNKNOWN: `session.actions` says "the engine's programs could not be read, or it reported none"
+  and `session.act` answers `engine` with nothing claimed, never "carries no programs" or "no program named".
+- **Only what the engine can be shown to do is offered.** A handle to an engine across the wire has every method
+  whatever the far engine can do, so its type proves nothing. No far fact states that the far agent can choose a
+  task's crew, so over such a handle `efforts` is absent and a `task.effort` is `bad_params` before anything is
+  claimed. `everywhere` is offered wherever memory is: the far engine answers a project line and an everywhere line
+  through one memory door.
 - **`memory.remember`** keeps authored text as given (`scope` `project`, or `everywhere` where offered). No model
   rewrites it; the answer carries the producer's receipt sentence and no id (the producer has none).
 - **One `client_id` is one attempt, ever.** It is claimed durably (digest of the request, never its words)
   before the producer runs. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
   `client_id` with other words, another action or for another conversation is `conflict`; a
   claimed attempt whose outcome is not known is `state: "uncertain"` and is never run again by the engine. A
-  record that cannot be read is `uncertain` (code), never "new". To try again after an uncertain attempt, read `tasks.*` or the memory, then use a new `client_id`.
+  record that cannot be read is `uncertain` (code), never "new"; so is a `client_id` another process claimed whose
+  record is gone a moment later. To try again after an uncertain attempt, read `tasks.*` or the memory, then use a
+  new `client_id`. Another process's attempt still running reads `uncertain`, not `in_progress`: only the process
+  running it knows it is running.
+- **A receipt whose record could not be confirmed** carries the producer's real answer and a `note` that a later read
+  MAY say `uncertain`: the rewrite may or may not have reached the disk before it failed.
 - **`done` means admitted**, not finished: the work's own events (`task.changed`) and `tasks.*` say the rest. The
   answer that ran the producer carries `task.title`/`note` and the memory receipt; a replay carries the ids
   (`task.id` is `"<agent>:<n>"`) and the scope only.
 - **`session.action.get`** reads the record. `not_found` means only that this engine's home has none: it does not
   prove nothing was sent from elsewhere.
 - **Bounds.** `client_id` ≤128 bytes, brief ≤32 KiB, memory text ≤8 KiB; one action per conversation and eight per
-  process at a time (`busy` otherwise); no goroutine, queue or poller is added.
+  process at a time; sixteen reads (`session.actions`, which may open the conversation and read a far catalogue, and
+  `session.action.get`) share one gate held until the read has answered. A full gate is `busy` at once; no
+  goroutine, queue or poller is added. A record is read only from a descriptor proven to be the plain file that was
+  looked at, opened without waiting, so a pipe swapped in cannot hold a read. A filesystem call cannot be cancelled:
+  the slot it holds is held until the disk answers.
 
 ## Teams deliverable scope
 
