@@ -1667,8 +1667,10 @@ can offer a picture but cannot make the engine read a file. The video must be re
 still the recorded version, in scope and a video; stale, changed, legacy, foreign or
 non-video sources are refused before any file exists. The frame is written create-new into
 owned private storage under the same admission as `media.attach` (two active, ten per
-conversation, 64 process-wide, `busy` before I/O). The attachment's typed source names the
-clip and `atMs`; ordinary `agents.send` carries it as an image with the digest the engine
+conversation, 64 process-wide, `busy` before I/O). The base64 is decoded only after that
+admission, so a full engine allocates nothing for the frame. A moment past a known clip
+duration is refused. The attachment's typed source names the clip, its canonical recorded
+`version` and `atMs` (a picture source now carries `version`, persisted on the message); ordinary `agents.send` carries it as an image with the digest the engine
 computed, and `attachments.remove` abandons a definitely-unsent frame. Accepted or uncertain
 deliveries keep their file. The clip is never modified.
 
