@@ -2121,22 +2121,18 @@ size, nanosecond modification time, or absent) are identical before and after
 the diff. A write that preserves all of those between the two reads is not
 detected.
 
-`checkout.status` answers `land: {available: false, reason: "no_producer"}` on
-every reply, and there is no land method. The only producer that merges work
-into a checkout, `Agent.Land`, lands the standing copy of a referred folder:
-it is not the producer of the task branches `branches.list` names, it binds no
-plan or revision (it re-reads what was written at the moment it is told to
-land), and the app's consent flow (`QuestionConsent`) approves a model tool
-call, not a plan. Review of a branch is what `branches.list` gives (name,
-head, base, counts); a per-file diff of a branch against its base is not
-offered, and `files.diff` compares the working tree only. PROPOSED, NOT BUILT:
-a two-phase protocol, `checkout.land.plan {agent, branch}` (read-only, answering
-a plan id, the HEAD and branch heads it was judged against, and whether it
-would conflict) then `checkout.land.confirm {agent, plan_id, revision}` that
-merges only if the revision still equals a fresh read and only on the person's
-explicit act through the native host. It needs two things that do not exist: a
-session door that lands a named kept task branch, and a consent question that
-carries a plan instead of a tool call.
+`checkout.status` derives `land` from the engine's actual protocol producer:
+`{available: true}` when it implements both `branches.land.plan` and
+`branches.land`, otherwise `{available: false, reason: "no_producer"}`. A
+checkout reader cannot manufacture this capability in its own reply. This
+fact does not prepare or confirm a plan, grant a renderer permission to land,
+or say that a particular branch is eligible. The native host must still show
+and confirm the exact plan described below; planning or confirmation may
+refuse changed, dirty or unsupported checkouts.
+
+Review of a branch is what `branches.list` gives (name, head, base, counts);
+a per-file diff of a branch against its base is not offered, and `files.diff`
+compares the working tree only.
 An index row whose `deliver.id` is not a shape the engine issues (`dlv_` and 32
 hex, or `dll_` and 24 hex) is not a deliverable, and no update under such an id
 is applied.
