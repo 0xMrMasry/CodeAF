@@ -1414,3 +1414,5 @@ so other windows update without polling. Ordinary list enrichment does not query
 Ledger display names are optional and limited to 4096 UTF-8 bytes. An oversized title is omitted rather than truncated; the original subject IDs and billing figures remain in the row and CSV. Automation-name caching is therefore bounded by both its 256 entries and the per-title byte limit.
 
 For task report cells without a recorded `root`, optional `session` preserves the recorded session identity; these tasks are never merged solely because their numeric task IDs match. An absent root remains absent.
+
+The optional `agent` filter in `spend.ledger`, `spend.ledger.export`, and `spend.report` matches the recorded `root`, falling back to recorded `session` only when root is absent. It includes that conversation and its recorded task charges without joining current crew membership. Report cells preserve this identity as optional `agent`. Existing queries without this field retain their cursor fingerprint.
