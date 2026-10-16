@@ -217,6 +217,7 @@ result or an event, `?` marks a field that may be absent.
 | `keys.remove` | `{provider}` | `{}` |
 | `keys.set` | `{key, provider}` | `{}` |
 | `media.get` | `{agent, source}` | `{source}` |
+| `media.resolve` | `{agent, path, expect_version?}` | `{source}` |
 | `media.attach` | `{agent, source, version}` | `{attachment}` |
 | `media.attach_frame` | `{agent, source, version, at_ms, png}` | `{attachment}` |
 | `media.attach_range` | `{agent, source, version, from_ms, to_ms}` | `{attachment}` |
@@ -1744,3 +1745,24 @@ Only an engine-made snapshot can carry one: a source on an ordinary staged attac
 dropped when it is staged. A remote host advertises `attachmentSources` in its welcome, and
 a client refuses to send a source to a host that does not.
 
+
+
+### Recorded media references
+
+An engine implementing optional `MediaReferenceResolver` advertises `media.resolve`
+in hello. `media.resolve {agent, path, expect_version?}` returns the same `{source}`
+descriptor as `media.get`, with its actual source ID, versions and provenance.
+The path must be an absolute, clean canonical spelling, at most 4096 bytes; it is
+only an exact lookup key among that conversation's existing media records. No
+file discovery, registration or path capability is granted. Callers must still
+use the existing source-ID/version authorization to read the file. Evidence stays
+evidence, and a viewed image is never relabeled as a generated output.
+
+The newest matching owner's recorded row wins. `ResolveMedia` supplies its real
+available, changed, missing, outside or unreadable state. `expect_version` may
+match the descriptor's recorded version or live file version; a mismatch is
+`conflict` with `detail.reason="changed"`. A matching old recorded version does
+not make a changed file available. A foreign or unrecorded path is `not_found`
+only after the whole index was searched; deadline, cancellation or exhausted
+shared lookup capacity is `busy`, never proof of absence. A surface may offer an
+explicit retry, without replaying a send or silently granting the supplied path.
