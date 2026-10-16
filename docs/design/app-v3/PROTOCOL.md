@@ -25,7 +25,10 @@ codeaf's own "crew" (`internal/crewroute`, model seats) is not exposed here.
   are ignored by both sides. Unknown event names are ignored by the app.
 
 Error codes: `unknown_method`, `bad_params`, `not_found`, `busy`, `engine`
-(the underlying engine failed; message says how), `closed`.
+(the underlying engine failed; message says how), `closed`, and additively
+`uncertain`: a mutation whose effect the engine itself cannot confirm (it may
+have happened). An app must not retry an `uncertain` call blind; it reads the
+state again first. An app that does not know the word treats it as a failure.
 
 ## Lifetime
 
@@ -222,6 +225,14 @@ result or an event, `?` marks a field that may be absent.
 | `media.attach_frame` | `{agent, source, version, at_ms, png}` | `{attachment}` |
 | `media.attach_range` | `{agent, source, version, from_ms, to_ms}` | `{attachment}` |
 | `media.list` | `{agent, cursor, limit}` | `{incomplete?, next?, sources}` |
+| `deliverables.list` | `{scope, agent, crew, member, kind, state, live, query, cursor, limit}` | `{deliverables, next?, incomplete?}` |
+| `deliverables.count` | `{scope, agent, crew, member, kind, state, live, query, cursor, limit}` | `{count, next?, incomplete?}` |
+| `deliverables.get` | `{agent, id}` | `Deliverable` (bare, not wrapped) |
+| `deliverables.read` | `{agent, id, version, max_bytes}` | `{text, bytes, truncated?, version}` |
+| `deliverables.keep` | `{agent, id, dir, name, expect_version}` flat | `Deliverable` (bare); `kept.path` is the verified receipt |
+| `deliverables.remove` | `{agent, id}` | `{}` |
+| `deliverables.snapshot` | `{agent, path, url, process}` | `Deliverable` (bare) |
+| `branches.list` | `{agent, cursor, limit}` | `{repo, head?, recorded?, branches, next?, incomplete?}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.handle` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -347,6 +358,7 @@ result or an event, `?` marks a field that may be absent.
 | `quick.changed` | `{quick}` |
 | `render.changed` | `{agent, render}` |
 | `media.changed` | `{agent, source, run?, call?}`; a successful immutable source-index append, with its actual source ID and known producer IDs. No path permission is granted. |
+| `deliverable.changed` | `{agent, id, reason}`; reason `created`, `kept`, `removed` or `snapshot`, after the index row was successfully appended. `created` follows a creation row the conversation itself wrote (the `write` tool making a new document or diagram, or a media tool); it is said once per deliverable, carries no path, and never follows an edit or a failed append. A new document a task worker writes is announced on the conversation that owns the task. Files shells create are not announced because they are not recorded. Descriptors still come from `deliverables.get`. |
 | `settings.changed` | `{settings, task_models?}` |
 | `spend.changed` | `{spend}` |
 | `task.changed` | `{task}` |
@@ -1766,3 +1778,65 @@ not make a changed file available. A foreign or unrecorded path is `not_found`
 only after the whole index was searched; deadline, cancellation or exhausted
 shared lookup capacity is `busy`, never proof of absence. A surface may offer an
 explicit retry, without replaying a send or silently granting the supplied path.
+### Deliverables (engine `40c2c2a55` and later)
+
+`deliverables.get`, `.keep` and `.snapshot` answer the bare `Deliverable`; params
+are flat (`dir`, not a nested destination). `version`/`expect_version` pin the
+observed `live_version` (the `file:` fingerprint), never the recorded `version`
+(possibly `sha256:`). `open` is the checked location to open now and `open_from`
+is `source` or `kept`; `path` stays the recorded original. A kept picture, sound
+or video whose original is gone has no `media` and carries
+`preview_unavailable: "source_gone"`: its media source names the original, and a
+lease for the kept copy is a separate capability not yet offered. A snapshot's
+`process`, when given, must have printed a loopback address and `url` must be on
+the same origin. Conflicts are `conflict` with `detail.reason` `exists`,
+`changed` or `already_kept`. A Keep whose copy was published but whose index
+row could neither be confirmed nor its copy taken back answers `uncertain` with
+a fixed message and no detail and no path: re-read the deliverable (and look in
+the folder) before keeping it again, or a second copy may be made. A Keep that
+answers `engine` left no copy of its own behind. A snapshot whose search for an
+earlier registration of the same file could not finish within one overall
+bound (about 10 s, waiting included) answers `busy` and recorded nothing.
+A task worker's row carries `task`, `branch` and `rel` and no `state` until a
+merged landing proves the exact authored bytes arrived (HEAD's blob at `rel` is
+the checkout file's bytes, which hash to the recorded sha256, and the commit the
+task was cut from held nothing there): then `state: kept`, `kept.how:
+created_in_repo`. Without that proof it stays without a state. Until then, get,
+read and Keep take the row's source from one rule, never from whatever sits at
+the path it will have: while its task branch is unmerged and holds a regular
+file at `rel`, it is `live: on_branch` with `live_version` `git:<blob>` and no
+`open`, read serves that blob, and Keep answers `not_found`; otherwise the
+checkout file is it only when its bytes hash to the recorded sha256 (checked
+through one descriptor, same size first, bounded), else `changed` (or
+`unreadable` when it could not be checked in time) with no `open`, and read and
+Keep refuse. A kept copy is judged by its own recorded identity. Keep checks
+the copied bytes against the expected sha256 before publishing. A list or count
+page decides its rows within the page's own deadline: a branch is asked about
+once per page and a folder of its files in one call; when the time runs out the
+page ends BEFORE the first row it could not decide, with `incomplete` and a
+`next` that resumes at that row (`busy` when not even one row could be
+decided), so no row is skipped and none is called gone on an unanswered
+question. A branch read
+(`deliverables.read` of a row on an unmerged task branch) reads only a regular
+file at exactly `rel` from git's object store; a link, folder or submodule there
+is not a file, and `version` is the blob id read.
+`branches.list` pages the conversation's own task branches - only names its
+task records carry (tombstoned tasks and their descendants left out), never
+another `task/*` ref - in record order, `limit` 50 by default and 100 at most,
+within a 3 s page. Each row is unmerged against `head`, the HEAD commit pinned
+for the page; `recorded` is how many names the records give. `next` resumes at
+the first name not examined and is tied to that recorded list and that `head`:
+when either has changed it is refused `bad_params` ("list again from the
+start"), never re-aimed. A page whose time ran out ends there with `incomplete`
+(a sparse page may hold no rows and still a `next`); one that examined nothing
+is `busy`, and so is a third listing while two run in the engine process (no
+queue). `repo: false` only when it is known there is no HEAD commit: no folder,
+git's exact "not a git repository", no work tree, or an unborn branch; any other
+git failure, a refused or unreadable folder, or a HEAD naming nothing is
+`engine`, and a timeout `busy`. The two-listing cap bounds how many run, not
+the engine's overall CPU. Counts are absent when git could not give them, never zero;
+`counts_capped` counts are lower bounds. Unreadable task records are `engine`,
+oversized ones `too_large`, never an empty list.
+An index row whose `deliver.id` is not a shape the engine issues (`dlv_` and 32
+hex, or `dll_` and 24 hex) is not a deliverable, and no update under such an id
+is applied.
