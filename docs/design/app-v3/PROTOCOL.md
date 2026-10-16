@@ -575,8 +575,8 @@ TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage
            start line, on every action line and every call; actions, last_stage, ending and calls are
            the lines carrying the record's launch and nothing else — an earlier run's lines, however
            late or early their time, never. read: "complete" = every line of that process was read
-           within the read's budget (16 MiB of its action log, 200 000 lines, 3 s; an earlier run's
-           history before its start costs nothing); actions are exact, earlier_actions is how many of
+           within the read's budget (a launch span of at most 16 MiB, 200 000 lines, 3 s;
+           a bounded reverse search locates its start before the forward canonical read); actions are exact, earlier_actions is how many of
            its own came before them, before is the cursor for tasks.program_actions (present only when
            there are earlier ones), last_stage is its newest stage record's own name, ending is present
            only when its own last line is the ending. "partial" (read_cut says why: over the budget, a
@@ -586,6 +586,9 @@ TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage
            before launches were, a relaunch before its hello): no actions at all. calls: how many of
            that process's calls reached a model, PRESENT ONLY WHEN EVERY ONE WAS READ (its whole
            conversation log within 32 MiB, every line parsed); 0 is a real zero, absent is unknown.
+           The metadata record is limited to 1 MiB; unsafe, corrupt or over-budget metadata carries
+           no authoritative launch. Reads accept only ordinary files, including links to ordinary
+           files; pipes, devices and other special files are unavailable, never a known empty log.
            EndingFacts are typed and allow-listed (a count nobody said is absent, not 0), every key the
            engine's ending keeps (a test holds the two field for field); hunt_coverage is {unknown:true}
            alone or a whole {attempted, failures}; nothing_to_audit is true-only (absent is not "there
@@ -617,7 +620,7 @@ Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped
 | method | params | result |
 |---|---|---|
 | `tasks.get` | `{id}` | `{page: TaskPage}` |
-| `tasks.program_actions` | `{id, before}` | `{read, read_cut?, actions?, earlier_actions?, before?}` OPTIONAL (unknown_method = this engine cannot page; never "no earlier actions"). The page of a program's actions before the opaque cursor `before` a `TaskProgram.before` or an earlier page handed out, ≤60, oldest first, read in the program's own words from its launch's first line, so a page reads exactly as the newest did. Every action of the process is reachable by following `before` until it is absent. Same `read` rules as `TaskProgram`; a cursor of a launch that is no longer the task's (handed off again since) is `conflict` — read the task again; a task with no program is `not_found` |
+| `tasks.program_actions` | `{id, before}` | `{read, read_cut?, actions?, earlier_actions?, before?}` OPTIONAL (unknown_method = this engine cannot page; never "no earlier actions"). The page of a program's actions before the opaque cursor `before` a `TaskProgram.before` or an earlier page handed out, ≤60, oldest first, read in the program's own words from its launch's first line, so a page reads exactly as the newest did. For a complete read, every action of the process is reachable by following `before` until it is absent. A launch beyond the canonical reader's byte/line budget is explicitly partial with no cursor; it is not an empty history. Same `read` rules as `TaskProgram`; a cursor of a launch that is no longer the task's (handed off again since) is `conflict` — read the task again; a task with no program is `not_found` |
 | `tasks.start` · `tasks.hold` · `tasks.decline` | `{id}` | `{}` proposed-task card actions |
 | `tasks.typing` | `{id}` | `{}` holds the clock while the person types in the card |
 | `tasks.decide` | `{id, verdict: "accept"\|"not_right"\|"recheck"\|"let_it_decide", text?}` | `{}` Your call (Tell it… = `not_right` or a note with text) |
