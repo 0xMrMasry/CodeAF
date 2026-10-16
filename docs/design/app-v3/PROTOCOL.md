@@ -1893,3 +1893,17 @@ transcript read or watcher.
   `limits` repeats them. A program row over a bound is skipped, never cut.
 
 A client that sees no `slash.catalog` feature in `hello` has no catalogue to read and must not guess one.
+
+## Teams deliverable scope
+
+For both deliverable reads, `scope: "teams"` selects conversations held by the
+actual open team hierarchy and excludes loose conversations. `crew`, when
+present, selects a canonical top-level team and its descendants. Each result's
+optional `teams` records its team, top-level team, and whether it belongs to the
+real root's own roster. A rootless hierarchy has no invented root. A cursor is
+bound to the membership revision and filter; a changed membership requires a
+new first page. Inconsistent ancestry, an open child under a closed parent, or
+an oversized union is an error, never a truncated complete result. File reads
+are bounded to the shared two-MiB team snapshot; unions admit at most 4096
+conversation owners and 16384 membership pairs under the operation's shared
+deadline. This scope does not add a union Changes feed.
