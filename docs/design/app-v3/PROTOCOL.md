@@ -1482,3 +1482,56 @@ Ledger display names are optional and limited to 4096 UTF-8 bytes. An oversized 
 For task report cells without a recorded `root`, optional `session` preserves the recorded session identity; these tasks are never merged solely because their numeric task IDs match. An absent root remains absent.
 
 The optional `agent` filter in `spend.ledger`, `spend.ledger.export`, and `spend.report` matches the recorded `root`, falling back to recorded `session` only when root is absent. It includes that conversation and its recorded task charges without joining current crew membership. Report cells preserve this identity as optional `agent`. Existing queries without this field retain their cursor fingerprint.
+## Work graph (V87, V88)
+
+`work.graph {scope, view?, cluster?, focus?, cursor?, limit?, if_revision?}` answers the facts of work that
+waits on other work. It is GENERAL: tasks, who owns them, which waits on which, what state each is in and since
+when, what each changed and cost. It knows no column, coordinate, colour, card or board; a surface computes every
+one of those. The types are `internal/workgraph`'s (`GraphRequest`, `GraphResult`, `GraphNode`, `GraphEdge`), the
+schema is generated from them, and the call is read-only. An engine that does not serve it answers
+`unknown_method`; `hello.features` carries `work.graph` for one that does.
+
+* **Scope.** `{kind: agent|crew|task, id}`. An agent is one conversation, a crew is every member of it and of the
+  crews under it, a task (`"<owner>:<n>"`) is that task's own sub-tasks at every depth, with the task itself as
+  `about.root`.
+* **Views.** `nodes` (default) one page of tasks in creation order and the edges whose dependent is on the page;
+  `clusters` the sub-crews (crew scope) and task groups with true member counts; `people` the crews and members
+  with per-member task counts; `metrics` the poster figures. `cluster` expands one cluster through `nodes`;
+  `focus` answers one task's neighbourhood along waits-on links.
+* **Identity.** A node's `id` is `"<owner>:<task>"`, the spelling `tasks.*` and `task.changed` use, so two
+  agents' task 3 never collide. `owner` is the conversation (its folder name). A task of a run's plan store keeps
+  the store's own token (`"<owner>:t-<id>"`), as `tasks.list` lists it.
+* **Edges.** `from` is the DEPENDENT and `to` the PREREQUISITE. An edge exists only where a wait was stored and
+  is enforced: `via:"record"` (the task's own `depends_on`, or a plan store's hard dependency) or
+  `via:"external"` (a wait on a task of another conversation, `Agent.WaitOnTask`). Nothing is ever inferred from
+  a title, a body or an order. `target` says how the prerequisite stands against the scope: `node` (may be on
+  another page; `to` is always a real id), `external` (a real task elsewhere, with `to_state` when readable) or
+  `missing` (the record names a task its owner no longer has). A node's `links` is `recorded` or `unrecorded`: an
+  adaptive run's row persists no waits, so zero edges there means unknown, not none.
+* **Time.** `clock.admitted_at`, `started_at`, `state_at` (when the task entered the state it is in) and
+  `ended_at` are what the record carries. A record written before they were kept carries none, and none is
+  replaced by the read time.
+* **Bounds.** A page is at most 500 nodes (default 200) and 4096 edges (it ends early and says so through
+  `next_cursor`); 64 edges and 50 paths per node (`waits_on_total` and `files.total` are the true counts); titles
+  160 runes, text 1000. A scope is built from at most 200 000 tasks (`coverage.truncated`). `totals` are always
+  the scope's true sizes. A cursor is opaque, signed and bound to scope, view and cluster; a tampered or foreign
+  one is `bad_params`. A cursor outlives a revision change (compare `revision` with the one you hold and restart
+  if it moved).
+* **Revision.** `revision` names the exact source facts. `if_revision` with the current one answers only
+  `{unchanged: true, revision}` and builds nothing. The sources are files, so the revision is stat calls; the
+  events the wire already has (`task.changed`, `member.changed`, crew events) say that something moved, and no
+  caller polls.
+* **Coverage.** `coverage.complete` is true when every conversation in scope was read and nothing was cut;
+  `coverage.unread` names those that could not be (`missing`, `unreadable`, `too_large`), and
+  `coverage.excluded` the kinds of work the graph does not hold (`proposals`: an unapproved proposal has an id
+  but no record). A figure in `metrics` is `{value, known, partial, counted, of}`: a scope read whole with
+  nothing in it is a known zero, a figure nothing established is unknown and never 0, and a sum over some of the
+  work says `partial`.
+* **Errors.** `bad_params` (scope, view, limit, cursor, focus), `not_found` (unknown agent, crew or task), `busy`
+  and `closed` as elsewhere, `engine` (cancelled, or longer than 10 s).
+
+A wait on a task of another conversation is recorded with `Agent.WaitOnTask` (there is no wire verb that writes
+one). The task must be queued; the link is stored in its record (`waits_external`) and the engine's frontier
+enforces it before the task starts: the prerequisite done lets it run, failed fails it, anything else —
+unreadable included — keeps it waiting. The other conversation is never read while a lock of the waiting one is
+held.
