@@ -464,7 +464,19 @@ ask?                             ask id (asks_first kind: the log pauses here)
 input?: {cwd?, timeout_s?, text} what was asked (command, query, path)
 tail?: string[]                  last ≤3 output lines while running, ≤12 when ended
 lines?                           total output lines
+handoff?: {crew_name?, to, post?, answers?, delivered, reason?, up?, from_crew?}
+                                 team_post only, once it has an answer: the crew log entry
+                                 (`post`, a LogLine id) the line became and the one it answers;
+                                 delivered false carries the engine's own words in `reason`
 ```
+
+A notice entry that is a crew's delivery also carries `team: [{crew_name?, from, to?, kind,
+text, post?}]`: each delivered line as facts (`kind` note · directive · start; `from` manager ·
+you · system · a handle; `post` the line's LogLine id). Its `text` is the same lines worded.
+
+An entry's `answer`/`update` kind is the live pump's: a message whose own tool calls ran after
+it is an update, every other message is its turn's answer. A turn a crew delivery or a wake
+opened (no person's line before it) never turns the previous turn's answer into an update.
 
 | method | params | result |
 |---|---|---|
