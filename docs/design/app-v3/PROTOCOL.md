@@ -2085,10 +2085,16 @@ is `<revision>:<offset>` and a cursor is refused `bad_params` ("read the
 status again from the start") once the status differs, never re-aimed. Git
 runs read-only (no optional locks, no fsmonitor, submodules by recorded commit
 only) and runs no program the repository's configuration names: every
-configured filter driver is set empty on the command line before git compares a
-file, and the index is never written. One 3 s deadline covers every git of the
+configured filter driver is set empty (and `required` set false, so a git-lfs style
+driver does not fail the status) on the command line before git compares a
+file, and the index is never written. Untracked files are listed one by one
+(`--untracked-files=all`), never as their directory, so a large untracked tree
+costs the 4 MiB budget below; a nested repository is still one entry. The 2-read
+limit is engine-wide, not per agent: one agent's reads can make another's `busy`
+for up to 3 s. One 3 s deadline covers every git of the
 call (a timeout is `busy`, never `repo: false`); status text past 4 MiB kills
-the process and answers `incomplete` with the part read, no `counts` and no
+the process and answers `incomplete` with only the whole records read (a rename
+whose original path was cut away is dropped, never sent without `old_path`), no `counts` and no
 `next` past it; at most 2 are read at once and a third is `busy` at once.
 `repo: false` only for no workspace or git's own "not a git repository"; any
 other refusal is `engine`.
