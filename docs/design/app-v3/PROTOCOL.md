@@ -1513,8 +1513,8 @@ schema is generated from them, and the call is read-only. An engine that does no
   replaced by the read time.
 * **Bounds.** A page is at most 500 nodes (default 200) and 4096 edges (it ends early and says so through
   `next_cursor`); 64 edges and 50 paths per node (`waits_on_total` and `files.total` are the true counts); titles
-  160 runes, text 1000. A scope is built from at most 200 000 tasks (`coverage.truncated`). `totals` are always
-  the scope's true sizes. A cursor is opaque, signed and bound to scope, view and cluster; a tampered or foreign
+  160 runes, text 1000. `totals` are always the scope's true sizes. A scope is NOT a promise of any size: see
+  "Memory" for what is admitted and what is refused. A cursor is opaque, signed and bound to scope, view and cluster; a tampered or foreign
   one is `bad_params`. A cursor outlives a revision change (compare `revision` with the one you hold and restart
   if it moved).
 * **Revision.** `revision` names the exact source facts. `if_revision` with the current one answers only
@@ -1535,14 +1535,29 @@ schema is generated from them, and the call is read-only. An engine that does no
   (`{prompt, completion, cache_read}`, dollars per token) — the accepted route's own published tariff at
   admission. `price` absent is UNKNOWN (an older record, or a route nobody prices), never a price of nothing, and
   it is never read from Settings.
-* **Memory.** The engine holds the graph in at most 128 MiB however many scopes are asked at once: conversations
-  32, check indexes 8, raw files being decoded 32, snapshots 56 (each priced by a conservative estimate of its
-  fields, strings counted in full). A scope whose snapshot does not fit the share is answered whole and not
-  remembered, so each ask pays the build; nothing is ever cut to fit. At most 8 distinct builds may be pending
-  and 16 requests may wait for room: past either, `busy` — the same ask a moment later is served. A conversation
-  yields at most 20 000 facts and its checkpoint is read to 16 MiB; past either it is `partial` or `too_large`.
+* **Memory.** The engine holds the graph in at most 128 MiB however many scopes are asked at once, and no gate
+  has an exemption: retained — conversations 16, check indexes 4, snapshots 16 MiB; in flight — files being read
+  28, snapshots being built 64 MiB. Each snapshot is priced by a conservative estimate of its fields (strings in
+  full) and each build by an allocation weight measured against real builds. WHAT FITS: about ten thousand
+  ordinary tasks (the size a board is tested at; a cold ask peaks near 30 MiB of live heap and every later page
+  builds nothing and reads no file). WHAT DOES NOT FIT IS REFUSED, NOT SHRUNK: a scope whose files, facts or
+  build would pass a gate is answered `too_large` BEFORE the memory is spent, reading stops at the conversation
+  that crossed the line, and nothing is served partly. `error.detail` is `{what: "files"|"facts"|"build"|
+  "working set", need, limit (bytes), reason: "needs_narrow_scope", scope?: "agent"|"task"}`: ask for the smaller
+  scope it names. Ten thousand tasks that each carry the longest text a node may are refused too (their weight is
+  over the build gate). A snapshot over its 16 MiB share but inside the build gate is built, served whole and
+  not remembered, so each ask of it pays the build. No 100 000- or 200 000-task scope is supported; the
+  `clusters` and `metrics` views of a scope that is refused are refused with it, because their counts need the
+  whole scope and a count over part of it would be false. At most 8 distinct builds may be pending and 16
+  requests may wait for room: past either, `busy`. A conversation yields at most 8 MiB of facts (`partial`) and
+  its checkpoint is read to 7 MiB (`too_large`).
+* **Not available.** `coverage.unavailable` is `["steps","asks"]`: a task's steps live in a running node's memory
+  and in its journal (a per-event trace this source never parses), and the person's open asks live in memory
+  naming blocked work by title and not by reference, so neither is a fact of the persisted graph. A surface says
+  nothing about them. `elapsed_ms` (the age the record froze at the end of work) and `attempt` are present only
+  where the record kept them.
 * **Errors.** `bad_params` (scope, view, limit, cursor, focus), `not_found` (unknown agent, crew or task), `busy`
-  and `closed` as elsewhere (`busy` also when the engine is already building as many scopes as it admits),
+  and `closed` as elsewhere (`busy` also when the engine is already building as many scopes as it admits), `too_large` (additive; see Memory),
   `engine` (cancelled, or longer than 10 s).
 
 A wait on a task of another conversation is recorded with `Agent.WaitOnTask` (there is no wire verb that writes
