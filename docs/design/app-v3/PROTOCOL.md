@@ -1595,3 +1595,7 @@ one). The task must be queued; the link is stored in its record (`waits_external
 enforces it before the task starts: the prerequisite done lets it run, failed fails it, anything else —
 unreadable included — keeps it waiting. The other conversation is never read while a lock of the waiting one is
 held.
+
+### Connected media admission refusals
+
+Connected image/video admission refusals also appear in render history with `state:"failed"`, `committed:false`, `charge:"not_charged"`, optional structured `refusal` and bounded `options` (up to 8 model IDs). This is an actual tool invocation rejected before any provider request, not a generated source or a guessed user intent. Image refusal records may use `job:0`; no cancellable process was created. A missing model remains the empty string, never a substituted paid model. Ordinary synchronous image successes/failures are not yet covered by this additive admission seam.
