@@ -158,7 +158,7 @@ result or an event, `?` marks a field that may be absent.
 | `agents.budget.get` | `{id}` | `{budget}` |
 | `agents.budget.set` | `{id, usd}` | `{budget}` |
 | `agents.compact` | `{id}` | `{}` |
-| `agents.create` | `{attachments, budget_usd, client_id, model, text, workspace}` | `{agent}` |
+| `agents.create` | `{attachments, budget_usd, client_id, model, said, text, workspace}` | `{agent}` |
 | `agents.entries` | `{before, id, limit}` | `{entries, more}` |
 | `agents.idle` | `{days}` | `{ids}` |
 | `agents.list` | `{query, state, workspace}` | `{agents}` |
