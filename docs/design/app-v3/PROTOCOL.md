@@ -217,6 +217,7 @@ result or an event, `?` marks a field that may be absent.
 | `keys.remove` | `{provider}` | `{}` |
 | `keys.set` | `{key, provider}` | `{}` |
 | `media.get` | `{agent, source}` | `{source}` |
+| `media.attach` | `{agent, source, version}` | `{attachment}` |
 | `media.list` | `{agent, cursor, limit}` | `{incomplete?, next?, sources}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -1624,3 +1625,23 @@ legacy message identities are never synthesized. The snapshot belongs to that
 request; later steering cannot change a background job's inputs. Early warm
 reads that started before the successful response keep their existing unknown
 input provenance. These fields do not grant access to paths or message bodies.
+
+### Recorded image references
+
+An engine implementing optional `MediaAttacher` advertises `media.attach` in hello.
+`media.attach {agent, source, version}` returns `{attachment}`: a staged file attachment
+for the exact recorded image version belonging to that conversation, with typed source
+provenance. A caller supplies no path or image bytes. Unknown IDs, changed sources,
+legacy sources without a recorded version, nonimages and out-of-scope files are refused.
+The original is never modified. The engine copies into owned private storage with the
+ordinary 10 MiB/image bound, at most two active copies, ten unsent/in-flight snapshots
+per conversation and 64 process-wide. A full admission answers `busy` before new copy I/O.
+
+Ordinary `agents.send` (or a crew message delivered to that same conversation) consumes
+the returned attachment ID as an image automatically, using the engine-owned source
+and snapshot digest. Its immutable provenance is retained on the person's message.
+`attachments.remove` abandons a definitely-unsent snapshot without touching its original.
+Accepted or uncertain deliveries retain their image file, including after shutdown;
+a later explicit refusal never clears uncertainty from an earlier attempt.
+An engine without this optional door answers `unknown_method`; a surface must not
+substitute a path-based staging request for a recorded source grant.
