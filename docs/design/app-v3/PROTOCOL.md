@@ -1399,3 +1399,5 @@ Successful creation, individual Set and `caps.raise` publish `Agent.budget` on `
 so other windows update without polling. Ordinary list enrichment does not query the engine.
 
 Ledger display names are optional and limited to 4096 UTF-8 bytes. An oversized title is omitted rather than truncated; the original subject IDs and billing figures remain in the row and CSV. Automation-name caching is therefore bounded by both its 256 entries and the per-title byte limit.
+
+For task report cells without a recorded `root`, optional `session` preserves the recorded session identity; these tasks are never merged solely because their numeric task IDs match. An absent root remains absent.
