@@ -933,6 +933,7 @@ naming it, and refuses a field it does not know.
 | `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
 | `spend.report` | `{from, to, filters…}` | `{from, to, totals, cells, models, gaps, not_recorded, limits}` — the ledger added up by local day, model and subject; see Spending report below |
 | `providers.balance` | `{provider}` | `{provider, name?, supported, status, remaining_usd?, account_remaining_usd?, key_limit_remaining_usd?, stale?, last_success_at?, last_error_at?, error_kind?, message?, retry_after_ms?, busy?}` — what the provider itself reports; see Provider balance below |
+| `spend.calls.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped, not_recorded}` — one CSV row per matching ledger record; see Spending calls export below |
 | `models.pin` | `{ids}` | `{settings}` |
 Accounts (providers and keys) are Wave 2's `providers.list` / `keys.*`; GitHub sign-in is not served yet.
 
@@ -1099,6 +1100,28 @@ drops them. A changed or removed key is a different account: the first ask under
 once and nothing of the earlier account is returned. `last_success_at` and `last_error_at` are RFC
 3339 and absent until the first such event. Nothing is written to disk and no events are emitted;
 the screen asks, about once a minute while it is showing the figure.
+
+## Spending calls export
+
+`spend.calls.export` takes `spend.ledger.export`'s params (the same filter, `agent` included — a chat's
+own lines and its tasks' lines both count — an absolute clean `destination` used byte for byte, and
+`overwrite?`) and writes **one row per ledger record**, in the order recorded, with exactly these
+columns: `date,time,crew,agent,task,model,provider,outcome,amount_usd,requests,tokens_in,tokens_out`.
+`date` and `time` (`15:04:05`) are the call's instant in the engine's zone, the zone the filter's days
+were read in. `agent` is the recorded root conversation, else the line's session; `task` and `model` are
+the ids the ledger wrote, with no title joined. `amount_usd` is the full-precision price and **blank**
+where nobody priced the call (not 0). `requests` is what the line says: an older line covering 41
+requests is one row with 41, never split. **`crew`, `provider` and `outcome` are blank on every row**
+because the ledger records none of them; the answer's `not_recorded` (`crew`, `provider`, `outcome`)
+says so. `totals` is `{records, calls, tokens_in, tokens_out, cost_usd?, unpriced_records,
+unbilled_records}` of exactly the rows written; it carries no run count, because the single pass keeps
+no set of runs. An empty range is a valid file holding the header alone.
+
+The file is written whole or not at all, by the same writer as `spend.ledger.export` (0600 sibling,
+synced, linked into place without `overwrite` — a folder that cannot link is refused rather than
+checked-then-renamed). Figures that cannot be added up (negative, overflowing, non-finite) are
+`bad_params` and leave the destination as it was; a third concurrent ledger reading is `busy`. An
+engine without the capability answers `unknown_method`; `spend.ledger.export` is unchanged.
 
 ## Wave 9: Collections (V75)
 
