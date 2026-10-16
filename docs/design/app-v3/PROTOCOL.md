@@ -1527,8 +1527,23 @@ schema is generated from them, and the call is read-only. An engine that does no
   but no record). A figure in `metrics` is `{value, known, partial, counted, of}`: a scope read whole with
   nothing in it is a known zero, a figure nothing established is unknown and never 0, and a sum over some of the
   work says `partial`.
+* **State.** `state` is the engine's word (queued, running, done, failed, unverified, interrupted). Where the
+  producing store has finer words, `state_detail` is its own: a plan row says `pending` (waiting on a hard
+  dependency), `ready` (free to start), `claimed`, `running`, `done`, `failed` or `cancelled`, so queued-and-waiting
+  is told from queued-and-free by a fact and not by a guess. Absent where `state` is already the store's word.
+* **Route.** `route[]` is the crew the record accepted, per seat: `role`, `model`, `pinned`, and `price`
+  (`{prompt, completion, cache_read}`, dollars per token) — the accepted route's own published tariff at
+  admission. `price` absent is UNKNOWN (an older record, or a route nobody prices), never a price of nothing, and
+  it is never read from Settings.
+* **Memory.** The engine holds the graph in at most 128 MiB however many scopes are asked at once: conversations
+  32, check indexes 8, raw files being decoded 32, snapshots 56 (each priced by a conservative estimate of its
+  fields, strings counted in full). A scope whose snapshot does not fit the share is answered whole and not
+  remembered, so each ask pays the build; nothing is ever cut to fit. At most 8 distinct builds may be pending
+  and 16 requests may wait for room: past either, `busy` — the same ask a moment later is served. A conversation
+  yields at most 20 000 facts and its checkpoint is read to 16 MiB; past either it is `partial` or `too_large`.
 * **Errors.** `bad_params` (scope, view, limit, cursor, focus), `not_found` (unknown agent, crew or task), `busy`
-  and `closed` as elsewhere, `engine` (cancelled, or longer than 10 s).
+  and `closed` as elsewhere (`busy` also when the engine is already building as many scopes as it admits),
+  `engine` (cancelled, or longer than 10 s).
 
 A wait on a task of another conversation is recorded with `Agent.WaitOnTask` (there is no wire verb that writes
 one). The task must be queued; the link is stored in its record (`waits_external`) and the engine's frontier
