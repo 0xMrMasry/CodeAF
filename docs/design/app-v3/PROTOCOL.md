@@ -186,7 +186,8 @@ result or an event, `?` marks a field that may be absent.
 | `crews.get` | `{id}` | `{crew}` |
 | `crews.items` | `{id}` | `{items}` |
 | `crews.link` | `{id, kind, ref, title}` | `{item}` |
-| `crews.list` | `{archived, closed}` | `{crews}` |
+| `crews.archived` | `{}` | `{crews}` |
+| `crews.list` | `{closed}` | `{crews}` |
 | `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
 | `crews.log.at` | `{agent, post, crew_name?, crew?, around?}` | `{anchor: {crew, closed?, lines}}` — one line a conversation's own record points at (a handoff's or a delivery's `post`) with up to `around` (default 2, ≤10) neighbours each side, read by seeking to its id. The crew is the one the agent is a member of, with that name, whose log holds that id written by or to it; never matched by words or time. With `crew` (a handoff's, for a post up) that crew's log is read when the agent is in it (any line written by or to it) or in a crew under it (only a line naming its own membership); `crew_name` is then not matched. `not_found` when the line left the log, the crew is gone, or the agent left the crew or is in neither; `conflict` when two of its crews qualify |
 | `crews.manager` | `{agent, id}` | `{crew}` |
@@ -752,7 +753,8 @@ and `stop`.
 
 | method | params | result | engine call |
 |---|---|---|---|
-| `crews.list` | `{closed?: bool, archived?: bool}` | `{crews}` | `File.Open()` / closed and not archived / `File.ArchivedTeams()` (`archived` wins; a closed list leaves archived crews out) |
+| `crews.list` | `{closed?: bool}` | `{crews}` | `File.Open()` / closed and not archived (a closed list leaves archived crews out) |
+| `crews.archived` | `{}` | `{crews}` | `File.ArchivedTeams()`, newest archived first. A host without archive answers `unknown_method`: the app reads that as "archive unsupported", never as an empty list |
 | `crews.get` | `{id}` | `{crew}` | `File.Team` + `Effective` + `TeamSpend` |
 | `crews.create` | `{name, agents: [id], manager?: id, parent?, hue?}` | `{crew}` | `Update`: a new `Team` with `NewID`, `AddMember` per agent, `SetManager`, `SetParent` (refused past `depth_limit`: `CanNest`) |
 | `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
