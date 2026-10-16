@@ -1028,6 +1028,7 @@ naming it, and refuses a field it does not know.
 | `spend.ledger` | `{from, to, filters…, limit?, cursor?}` | `{from, to, totals, rows, next?, skipped}` — see Spending ledger below; unchanged `spend.export` stays the raw call CSV |
 | `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
 | `spend.report` | `{from, to, filters…}` | `{from, to, totals, cells, models, gaps, not_recorded, limits}` — the ledger added up by local day, model and subject; see Spending report below |
+| `slash.catalog` | – | `{commands: [{name, aliases?, forms: [{args?, description}], source: "table"\|"program", door?, brief_optional?, lands?, host}], skipped?, limits}` — the words the terminal chat answers to; see Slash catalogue below. An engine that does not serve it answers `unknown_method` (check `hello.features` for `slash.catalog`) |
 | `providers.balance` | `{provider}` | `{provider, name?, supported, status, remaining_usd?, account_remaining_usd?, key_limit_remaining_usd?, stale?, last_success_at?, last_error_at?, error_kind?, message?, retry_after_ms?, busy?}` — what the provider itself reports; see Provider balance below |
 | `spend.calls.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped, not_recorded}` — one CSV row per matching ledger record; see Spending calls export below |
 | `models.pin` | `{ids}` | `{settings}` |
@@ -1840,3 +1841,30 @@ oversized ones `too_large`, never an empty list.
 An index row whose `deliver.id` is not a shape the engine issues (`dlv_` and 32
 hex, or `dll_` and 24 hex) is not a deliverable, and no update under such an id
 is applied.
+
+## Slash catalogue
+
+`slash.catalog` (no params) lists the slash commands the terminal chat accepts so a client draws its command
+menu from the engine's words. It **lists words and runs nothing**: the terminal's `app.slash` is a Bubble Tea
+dispatcher, not an engine call, and nothing on the wire interprets a command line — `agents.send` with `/cost`
+sends a message. Where a typed method already does what a command stands for, the client calls it; where none
+does, the action is the client's own. `slash.catalog` is read-only and takes no model call, file walk,
+transcript read or watcher.
+
+- **One table.** `commands` with `source: "table"` are `internal/slashcat`'s rows — the same rows the terminal
+  dispatches on — folded by name: one entry per command, `forms` in table order (the bare form has no `args`),
+  `aliases` in the order written. At this contract the table is 48 commands, 82 rows, 28 aliases.
+- **Programs.** `source: "program"` entries are the running build's programs (`/review`, `/sec`,
+  `/senior-dev` in a full build), reported by the engine after the table, by name. One form, `args`
+  `<brief>` unless the program says otherwise. `brief_optional`: a bare `/<name>` runs the program's default
+  brief. `lands` is `tree` or `text`. A program whose word is already a command, an alias, or not a word is left
+  out and named in `skipped`.
+- **`description` is the terminal's wording**, key names included (`ctrl+.`), except that a page the terminal
+  opens with an alt+digit chord has the chord left off. Icons, groups and fates are the client's.
+- **`host`** is whether the command works against a connection to another machine. That is the terminal client's
+  state and this engine cannot see it, so it is always `"unknown"`; it is a field so a later engine can say more.
+- **`door: "task"`** marks `/task`: it also acts inside a sentence.
+- **Bounds.** At most 128 commands, 16 forms and 8 aliases per command, 64-byte names and 512-byte text;
+  `limits` repeats them. A program row over a bound is skipped, never cut.
+
+A client that sees no `slash.catalog` feature in `hello` has no catalogue to read and must not guess one.
