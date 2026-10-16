@@ -403,7 +403,20 @@ Types:
 ```
 Task (adds) { proposed?: bool, clock_until?: time, irreversible?: bool,
               your_call?: bool, result?, files?: [{path, add, del}], budget_usd?, spent_usd? }
-TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, read_at_step?}], brief }
+TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, from?, read_at_step?}], brief }
+           log: ONE ENTRY PER STEP, each a tool `Entry` carrying its call's facts (see "Work log
+           detail" below), so a task's log is grouped, folded and timed by exactly the rules a
+           conversation's is. A step the record holds with NO TOOL PAYLOAD — an older journal or
+           trajectory that kept a command and nothing else — stays a quiet notice with its own
+           words and is never given a `tool_kind` it never declared. Facts are present only where
+           they were recorded: no `ended_at` without a recorded end, no `exit_code` without a
+           reported exit, no `ok` for a step still running or one a killed session left unsettled.
+           notes.from: "you" | "task" — who said it, from the engine's own record of each note's
+           origin, never read back out of its words. ABSENT IS UNKNOWN AND NOT "you": a note from a
+           record that never labelled one is drawn without attribution, because a surface that
+           defaulted to the person put a worker's handoff in their mouth.
+           task.steps: the count the record kept, SENT WHEN KNOWN AND OMITTED WHEN NOT — a known
+           zero is sent, so "took no steps" and "nobody wrote down how many" stay different facts
 Quick    { id, agent, title, files: [{path, add, del}], state: "running"|"done"|"undone"|"grew"|"conflict",
            grew?: {files, reason}, conflict?: {changed: string[]} }
 Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped",
