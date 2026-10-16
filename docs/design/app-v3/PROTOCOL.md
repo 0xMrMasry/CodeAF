@@ -805,6 +805,7 @@ field below is marked **app** on the wire's Crew/Member; everything else is **te
 |---|---|---|
 | Crew `goal?`, `ends_at?` | app | stored; `ends_at` passing raises nothing by itself (shown only) |
 | Crew `history: [task id]` | app | the manager agent's tasks at the moment the crew was made |
+| Crew `history_tasks: [{task, owner}]` | app | the same ids with `owner`, the agent that held them (the manager at creation; never moves with the seat). A layer from before the owner was kept uses the team's `Founder`; with neither, absent. `task` is the id in `owner`'s `tasks.list` (not paged); open it from there |
 | Crew `items: Item[]`; `crews.items` · `crews.link {id, kind, ref, title?}` · `crews.unlink {id, item}` | app | `Item {id, crew, kind: "job"\|"issue"\|"pr"\|"file", ref, title, at}`; links only, nothing is fetched |
 | Member `role?` and `Role {id, name, instructions, model?, made_at, copies: [{crew, agent}]}`; `roles.list` · `roles.update {id, name?, instructions?, model?}` | app | a member given a role gets the role's instructions as a message in its own conversation and the role's model as its model; editing a role sends each copy the new instructions the same way |
 | Member `cap_usd?`; `members.cap {crew, agent, cap_usd}` | app (the agent's app budget) | the same per-agent budget `agents.create` sets: bound to the member's conversation as its spend limit, so the engine stops it at the cap with a budget ask, as for any agent |
