@@ -242,6 +242,8 @@ result or an event, `?` marks a field that may be absent.
 | `checkout.status` | `{agent, cursor, limit}` | `{repo, head?, branch?, detached?, unborn?, upstream?, ahead?, behind?, operation?, entries, counts?, revision?, next?, incomplete?, land}` |
 | `branches.land.plan` | `{agent, branch}` | `{plan, revision, expires_at, task, title?, branch, branch_head, base, target, head, repository, fast_forward, files?, added?, removed?, counts_capped?, hooks}` |
 | `branches.land` | `{agent, plan, revision}` | `{branch, target, head_before, head_after, fast_forward}` |
+| `checkout.diff` | `{agent, path, revision?}` | `{diff, entry, revision, repo, workspace_path?, open?}` |
+| `checkout.locate` | `{agent, path, revision?}` | `{entry, revision, repo, workspace_path?, open?}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.handle` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -2140,6 +2142,42 @@ refuse changed, dirty or unsupported checkouts.
 Review of a branch is what `branches.list` gives (name, head, base, counts);
 a per-file diff of a branch against its base is not offered, and `files.diff`
 compares the working tree only.
+`checkout.diff {agent, path, revision?}` and `checkout.locate {agent, path, revision?}`
+are Review and Open/Reveal of ONE row of the checkout status. `path` is exactly a
+current `checkout.status` entry's `path`: repository-root-relative, "/"-spelled,
+whatever folder the workspace is (workspace `repo/sub`, row `root.txt` is
+`repo/root.txt`, never `repo/sub/root.txt`). A client never joins it to anything:
+the engine reads ONE status, finds the row byte for byte, and only then touches
+the file. An empty, absolute, `.`/`..`/empty-segment, NUL, backslash or
+over-4096-byte path is `bad_params`; a path that is not a changed row is
+`not_found`; a status cut at its byte bound that does not contain the path is
+`too_large` (it never pages). `revision` is optional on the wire and a client
+that displays a row MUST send the revision it displayed: a checkout that has since
+moved is `conflict` with `detail.reason: stale_revision` and nothing is diffed;
+omitted means an explicit fresh lookup, and the reply's `revision` says which one
+was used. `checkout.diff` answers the existing `FileDiff` for the row against the
+status's base (its HEAD commit, or the empty tree when unborn) from read-only
+`git diff-index` run at the repository root (no external diff, textconv,
+fsmonitor or clean filter; the index is never written): changed, renamed (the
+row's own `old_path`), deleted, untracked (read through an `os.Root` anchored at
+the toplevel, every parent a real directory, the leaf opened no-follow and
+non-blocking and checked to be the same regular file, bounded by `FileReadMax`;
+anything else is `unavailable` / `unreadable`). A row whose net content equals the
+base is `unchanged`, never an empty diff. `copied`, `conflicted` and submodule
+rows are `unavailable` with `reason: unsupported_row` (a stated M1 limitation).
+A path a configured filter governs is `unavailable` / `filter`. After the diff the
+status is read again and the index's and the path's stamps compared; a difference
+is `unavailable` / `changed_during_read` (not a content hash). Everything shares the
+one 3 s clock, the 6 MiB byte pool and the two admission slots of `checkout.status`.
+`workspace_path` is the row relative to the workspace folder, absent outside it.
+`open` is an absolute path inside `repo` to an existing regular file, not a link,
+reached through real directories, valid UTF-8; absent otherwise and on platforms
+that cannot prove it. THE REPLY IS FACTS, NOT A GRANT: a native host must not take
+`open` back from a renderer as authority. It receives agent, row path and the
+displayed revision, calls `checkout.locate` itself, validates the answer against
+the trusted repository, and only then acts. `files.diff` is unchanged and takes a
+workspace-relative path; it is not for status rows.
+
 An index row whose `deliver.id` is not a shape the engine issues (`dlv_` and 32
 hex, or `dll_` and 24 hex) is not a deliverable, and no update under such an id
 is applied.
