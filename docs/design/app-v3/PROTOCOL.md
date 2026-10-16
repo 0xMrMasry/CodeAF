@@ -932,6 +932,7 @@ naming it, and refuses a field it does not know.
 | `spend.ledger` | `{from, to, filters…, limit?, cursor?}` | `{from, to, totals, rows, next?, skipped}` — see Spending ledger below; unchanged `spend.export` stays the raw call CSV |
 | `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
 | `spend.report` | `{from, to, filters…}` | `{from, to, totals, cells, models, gaps, not_recorded, limits}` — the ledger added up by local day, model and subject; see Spending report below |
+| `providers.balance` | `{provider}` | `{provider, name?, supported, status, remaining_usd?, account_remaining_usd?, key_limit_remaining_usd?, stale?, last_success_at?, last_error_at?, error_kind?, message?, retry_after_ms?, busy?}` — what the provider itself reports; see Provider balance below |
 | `models.pin` | `{ids}` | `{settings}` |
 Accounts (providers and keys) are Wave 2's `providers.list` / `keys.*`; GitHub sign-in is not served yet.
 
@@ -1061,6 +1062,43 @@ overflowing, non-finite) are `bad_params`, and a third concurrent ledger reading
 | method | params | result |
 |---|---|---|
 | `spend.report` | `{from, to, model?, kind?, subject?, session?, root?, task?, automation?, run?, workspace?}` | `{from, to, totals: {cells, records, calls, tokens_in, tokens_out, cost_usd?, runless_records, unpriced_records, unbilled_records}, cells: [{day, model?, kind?, subject?, root?, records, calls, tokens_in, tokens_out, cost_usd?, unpriced_records?, unbilled_records?}], models, gaps: {dropped_since_start, malformed, oversized, days_derived}, not_recorded, limits: {max_cells, max_bytes}}` |
+
+## Provider balance
+
+`providers.balance` asks what a provider **itself reports** an account has left. Only OpenRouter
+reports one today; any other well-formed provider id (lowercase letters, digits, `.`, `_`, `-`, 1–64
+characters; anything else is `bad_params`, as is an unknown param — there is no `force`) answers
+`supported: false`, `status: "unavailable"`, `error_kind: "unsupported"`, with no request made.
+A custom connection that is labelled OpenRouter is not OpenRouter. The method is optional: an engine
+without it answers `unknown_method`.
+
+**Amounts, never guessed.** `account_remaining_usd` is `total_credits − total_usage` and is present
+only when the provider reported both; `key_limit_remaining_usd` is the key's own cap left, present
+only when the key has a cap. `remaining_usd` is the lesser of the two when both are present, else
+the one that is. A figure the provider did not send is absent, never `0`; a negative figure is the
+provider's and is not clamped; a non-finite one makes the answer `invalid`. No plan or OAuth
+subscription is read as a balance.
+
+**Status** describes the latest attempt: `known` (at least one figure), `unavailable` (no key
+connected — `not_connected`; the provider answered without any figure — `not_reported`; or
+unsupported), `unauthorized` (`key_rejected` for a 401, `key_expired` when the provider says the key
+expired), `unreachable` (`timeout`, `unreachable`, or `provider_error` for 408, 429 and 5xx),
+`invalid` (`bad_response` for a body that is over 64 KiB, malformed or non-finite;
+`unexpected_status` for any other status). `message` appears only where there is something to do,
+never carries a response body, key or address, and every string is at most 256 bytes; the reply is at
+most 4 KiB and is refused, never cut.
+
+**Cache and rate limit, in engine memory only.** One entry per account, identified by provider,
+address and a digest of the key as read at the call. At most one request per account per 60 seconds,
+failed or not; an ask sooner is answered from memory with `retry_after_ms`. Concurrent asks share
+one request (at most 8 wait; a ninth, or any ask while the 8-account cache is full of requests in
+flight, is answered from memory with `busy: true`). The request has a 10-second deadline and ends
+with the engine. After a transient failure (`unreachable`, `invalid`) the last good figures stay,
+with `stale: true` and `last_success_at`; a rejected or expired key, or an answer without figures,
+drops them. A changed or removed key is a different account: the first ask under it is made at
+once and nothing of the earlier account is returned. `last_success_at` and `last_error_at` are RFC
+3339 and absent until the first such event. Nothing is written to disk and no events are emitted;
+the screen asks, about once a minute while it is showing the figure.
 
 ## Wave 9: Collections (V75)
 
