@@ -370,7 +370,7 @@ result or an event, `?` marks a field that may be absent.
 | `turn.started` | `{agent, turn}` |
 | `turn.thinking` | `{agent, text, turn}` |
 | `turn.thinking_done` | `{agent, seconds, turn}` |
-| `turn.tool` | `{agent, ask?, batch?, call, connector?, detail?, ended_at?, exit_code?, files?, input?, lines?, name, ok?, phase, retried_of?, started_at?, summary?, tail?, task?, title?, tool_kind?, turn}` |
+| `turn.tool` | `{agent, ask?, batch?, call, connector?, detail?, ended_at?, exit_code?, files?, input?, lines?, name, ok?, phase, invoked?, harness_made?, refused?, rejected_before_run?, retried_of?, started_at?, summary?, tail?, task?, title?, tool_kind?, turn}` |
 
 ## Identity and de-duplication (rev 2)
 
@@ -406,6 +406,13 @@ result or an event, `?` marks a field that may be absent.
 - Engine notices (e.g. "skills carried: …") are `kind: "notice"` with
   `quiet: true` when the TUI shows them as a dim line; the app renders quiet
   notices as one muted line, not a card.
+  The engine's two typed notices also carry facts, set only where the engine
+  produces them and never parsed from `text`: `notice_kind: "skills"` with
+  `skills: [name…]` (the skills a turn carried), and `notice_kind: "memory"`
+  with `unrecorded: true` (a memory line no transcript record redraws, so it
+  is not repeated after reopen). Other notices stay unclassified ordinary quiet lines. Actual `skills` or
+  `unrecorded` producer facts can still travel without a recognized kind; their
+  presence never authorizes classifying a notice from its words.
 - `models.list` returns every model the user can pick in the TUI's model
   picker for their configured providers, plus the current default, each with
   `{id, name, provider, default?: bool}`; never empty when a turn can run.
@@ -525,9 +532,16 @@ the engine supplies the facts per call. `turn.tool` and tool `Entry` gain:
 ```
 tool_kind: "read" | "search" | "run" | "edit" | "web" | "connector" | "task" | "asks_first" | "other"
                                  (named tool_kind so it never clashes with Entry.kind)
-started_at, ended_at?            wall clock; duration = ended - started
+started_at, ended_at?            server-observed event wall times; absent history times stay unknown
+                                event interval is not actual handler execution duration
 batch?                           same value for calls the agent started together (parallel)
 exit_code?                       run
+rejected_before_run?: true       the tool turned the call's arguments away before it did any of its
+                                 work (malformed JSON, a missing or invalid argument), by the engine's own
+                                 typed marker at the validation return. True-only; never read from the
+                                 output text, so a command that RAN and printed "Invalid arguments", a
+                                 nonzero exit, an HTTP error or a timeout omit it. Set on the end row and
+                                 the tool entry (live and after reopen); legacy rows omit it = unknown.
 retried_of?                      call id this one re-runs (a later pass of the same command)
 files?: [{path, add, del}]       edit
 connector?                       e.g. "GitHub" (connector kind)
@@ -544,6 +558,17 @@ handoff?: {crew_name?, crew?, to, post?, answers?, delivered, reason?, up?, from
                                  the member's crew): `crew` is then that crew's id. A post up
                                  answered by an older build has no `post` and no `crew`
 ```
+
+#### Tool-result provenance
+
+`invoked: true` means the engine actually dispatched the handler; it does not
+prove a process or network request occurred. A validator can be invoked and return
+`rejected_before_run: true`. `harness_made` and `refused` retain the engine's own
+distinct gate/permission facts. A failed row may be treated as a known dispatched
+failure only with `invoked: true` and without those rejection/refusal facts.
+All are true-only optional facts: absence on legacy or ambiguous occurrences is
+unknown, never evidence that the tool ran. These facts follow the exact result
+message through journal replay/compaction; provider call IDs alone are not identity.
 
 A notice entry that is a crew's delivery also carries `team: [{crew_name?, from, to?, kind,
 text, post?}]`: each delivered line as facts (`kind` note · directive · start · brief (a brief
