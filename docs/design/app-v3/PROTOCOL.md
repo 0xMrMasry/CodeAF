@@ -2260,9 +2260,15 @@ here and says so by having none.
   claimed. `everywhere` is offered wherever memory is: the far engine answers a project line and an everywhere line
   through one memory door.
 - **`memory.remember`** keeps authored text as given (`scope` `project`, or `everywhere` where offered). No model
-  rewrites it; the answer carries the producer's receipt sentence and no id (the producer has none).
+  rewrites it; the answer carries the producer's receipt sentence and no id (the producer has none). The answer's
+  `memory.scope` is OPTIONAL and present only where the method fixes where the line holds: `"everywhere"` for an
+  everywhere line. A project line holds for the project, or for the person everywhere when the conversation has
+  no project of its own, and the producer says which only in its receipt sentence, so its `scope` is absent
+  (unknown) on the answer, a replay and a read — never `"project"`, and never read out of that sentence.
 - **One `client_id` is one attempt, ever.** It is claimed durably (digest of the request, never its words)
-  before the producer runs. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
+  before the producer runs. Before every claim the claims folder's entry in `<home>/app` and that folder's entry
+  in `<home>` are synced, and a failed sync is `engine` with nothing claimed or run; `<home>`'s own entry is not
+  synced here. So a claim survives a process crash, and a power loss once `<home>` itself is on disk. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
   `client_id` with other words, another action or for another conversation is `conflict`; a
   claimed attempt whose outcome is not known is `state: "uncertain"` and is never run again by the engine. A
   record that cannot be read is `uncertain` (code), never "new"; so is a `client_id` another process claimed whose
