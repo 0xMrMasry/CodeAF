@@ -490,6 +490,11 @@ default; none when the clock is off, the stakes are irreversible, or the project
 for choices): the card reads "Picks Suggested in 12s", and when the clock runs out the engine takes
 the suggestion and the ask closes. A proposed task its clock started closes with the receipt
 "Started on its own after 12s · 15:04".
+`holding_up` is set only on an ask whose `source` is a task: that task's id, then every open task
+(neither `done` nor `failed`) whose `waits_on` reaches it, nearest first, each once however the
+graph loops, at most 256 — the same dependency graph `Task.holding_up` is read from, as it stood
+when the ask was raised or restated. It is never read from work a model names as blocked, nor from
+how many tasks are open; an ask from no task carries none.
 | method | params | result |
 |---|---|---|
 | `asks.answer` (adds) | `{…, why?, batch_item?, later?: bool, you_decide?: bool}` | `{}` |
