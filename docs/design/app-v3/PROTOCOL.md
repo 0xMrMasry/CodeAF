@@ -944,8 +944,11 @@ call's instant, with the engine's offset); `end` is the last call's.
 
 **Unknown stays absent.** `kind`, `subject` and the ids are present where the ledger wrote them
 and, on a run, only where every call agreed. `name` is present only where the engine holds a
-title: a conversation's settled title, a task's index title in the conversation named by `root`
-(a task row with no `root` is not named), an automation's title. Nothing names who asked for a
+title it can look up for that row alone: the title the app holds for the agent, a task's title
+in the conversation named by `root` while that conversation is held open (a task row with no
+`root` is not named), an automation's title in the store. No list of every conversation is read
+to name a page, so an older conversation the app is not holding has no `name` here, and the
+client falls back to the id. Nothing names who asked for a
 call, so there is no `by`. `cost_usd` is absent when no record in the row was priced;
 `unpriced_records` counts records with no figure and `unbilled_records` those marked as a
 missing receipt — neither is $0.
@@ -957,11 +960,29 @@ counts ledger lines passed over: `malformed` (did not parse) and `oversized` (ov
 last line still being written is not read.
 
 **Reading costs.** Every request reads the ledger from its first byte, line by bounded line; there
-is no index, so a long history is a slower answer, not a larger one. Memory is a page plus the
-runs in the range, under a budget: a range holding more than 100 000 runs (or 64 MiB of them) is
-`bad_params` asking for a shorter range — never a truncated answer. At most two readings run at
-once; a third is `busy`, to be retried. A later page is a later reading: rows recorded meanwhile
-newer than the cursor are not shown again, and the totals may have grown.
+is no index, so a long history is a slower answer, not a larger one. What is held is the runs
+in the range, under a budget, and a page chosen from them without sorting them all: a range
+holding more than 100 000 runs (or an estimated 64 MiB of them) is `bad_params` asking for a
+shorter range — never a truncated answer. The budget is an estimate used to refuse early, not a
+bound on the engine's memory. At most two readings run at once; a third is `busy`, to be retried.
+
+**Reply size.** One `spend.ledger` answer is at most 2 MiB of JSON. A page past it — a run that
+met tens of thousands of models, or very long ids — is `bad_params` naming its size and asking
+for a smaller `limit` or a narrower filter (`model`, `run`, a shorter range); models and rows are
+never dropped to make it fit. The export has no such cap: it is streamed to disk.
+
+**Figures.** A range whose figures cannot be added up truthfully — a negative token count, or
+sums past what a 64-bit count or a finite dollar figure holds — is `bad_params` on both methods,
+never a wrapped number, an infinite cost or a zero; a refused export leaves the destination as it
+was.
+
+**One paging, one reading.** Every page after the first reads exactly the bytes of the ledger the
+first page read — the cursor carries that length and a hash of its first and last 4 KiB — so
+`totals` are the same on every page and paging to the end visits exactly `totals.rows` rows. What
+is recorded meanwhile appears in the next paging from no cursor. A ledger shorter than that
+length, or whose first or last 4 KiB before it differ (rotated, restored, rewritten), refuses
+the cursor as `bad_params` ("start again without a cursor"). A rewrite that keeps the length and
+both ends is not detected; codeaf only ever appends to the ledger.
 
 **Export.** `destination` is an absolute, clean path whose folder exists; the file is the CSV
 below, written to a temporary sibling (mode 0600), synced, and moved into place. An existing
@@ -972,7 +993,14 @@ rows'. Columns: `time, kind, name, models, tokens_in, tokens_out, cost_usd, by, 
 subject, session, root, task, automation, workspace, end_time, records, calls, unpriced_records,
 unbilled_records, unnamed_model_records`. `name` falls back to `subject`, then `run`; `models`
 is `;`-joined; `by` is always empty; an unpriced cost is an empty cell; a text cell starting
-`=`, `+`, `-` or `@` gets a leading `'`.
+`=`, `+`, `-` or `@` gets a leading `'`. `cost_usd` is written at full precision (the shortest
+decimal that reads back as the same number), not rounded to four places: most calls cost less
+than a hundredth of a cent, and a rounded column would sum to a different bill from `totals`.
+
+Without `overwrite` the file is placed by a hard link, which refuses a destination that appeared
+while the export was writing. A folder whose filesystem cannot make links is refused —
+`bad_params`, "choose another folder, or pass overwrite" — rather than checked and renamed,
+which could replace a file created between the two steps.
 
 | method | params | result |
 |---|---|---|
