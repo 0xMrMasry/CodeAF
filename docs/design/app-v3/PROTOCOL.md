@@ -1262,6 +1262,9 @@ naming it, and refuses a field it does not know.
 | `spend.ledger.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped}` the same rows as CSV, written whole at `destination` |
 | `spend.report` | `{from, to, filters…}` | `{from, to, totals, cells, models, gaps, not_recorded, limits}` — the ledger added up by local day, model and subject; see Spending report below |
 | `slash.catalog` | – | `{commands: [{name, aliases?, forms: [{args?, description}], source: "table"\|"program", door?, brief_optional?, lands?, host}], skipped?, limits}` — the words the terminal chat answers to; see Slash catalogue below. An engine that does not serve it answers `unknown_method` (check `hello.features` for `slash.catalog`) |
+| `session.actions` | `{agent}` | `{agent, actions: [{action, available, why?, programs?, scopes?, efforts?}]}` — what the conversation's own engine can do of `task.start`, `program.start`, `memory.remember`; see Session actions below. `unknown_method` without the `session.actions` feature |
+| `session.act` | `{action, agent, client_id, task? \| program? \| memory?}` | `{action, agent, client_id, digest, state: "done"\|"uncertain"\|"in_progress", replayed?, at, task?, memory?, producer_error?, note?}` — runs ONE of the three through the producer the terminal uses, once per `client_id`; unknown params fields are `bad_params` |
+| `session.action.get` | `{agent, client_id}` | the persisted receipt of that `client_id`; `not_found` is not proof nothing was sent |
 | `providers.balance` | `{provider}` | `{provider, name?, supported, status, remaining_usd?, account_remaining_usd?, key_limit_remaining_usd?, stale?, last_success_at?, last_error_at?, error_kind?, message?, retry_after_ms?, busy?}` — what the provider itself reports; see Provider balance below |
 | `spend.calls.export` | `{from, to, filters…, destination, overwrite?}` | `{path, rows, bytes, totals, skipped, not_recorded}` — one CSV row per matching ledger record; see Spending calls export below |
 | `models.pin` | `{ids}` | `{settings}` |
@@ -2225,6 +2228,43 @@ transcript read or watcher.
   `limits` repeats them. A program row over a bound is skipped, never cut.
 
 A client that sees no `slash.catalog` feature in `hello` has no catalogue to read and must not guess one.
+
+## Session actions
+
+`session.act` is the typed door for three things the terminal does with `/task <brief>`, `/<program> <brief>`
+and `/remember <text>`. It is **not** a command interpreter: the actions are named for what they do
+(`task.start`, `program.start`, `memory.remember`), and `agents.send` with a slash line is still a message to
+the model. Everything else in the slash catalogue (rewind, export, delete, land, cache, skills, …) has no verb
+here and says so by having none.
+
+- **The producers are the terminal's own** (`StartTask`/`StartTaskEffort`, `StartDelegate`, `Remember`/
+  `RememberAlways`), called through the open conversation's engine handle, so over `--host` they run on the far
+  machine against its build and its program catalogue. Their admission — spending caps, a blocked provider, a task
+  that cannot hand work on, a full memory — is the whole authority; there is no force or skip field and an
+  unknown field is `bad_params`.
+- **A producer error is `uncertain`, never a refusal.** No producer proves by type that its error came before any
+  effect (a task id is reserved, a run registered, a line written before some of their errors), so an error is a
+  successful answer with `state: "uncertain"`, `producer_error.message` (the producer's words, secrets removed,
+  ≤1 KiB) and a `note`; it is never run again. The ONLY refusals are the ones the engine can prove before it claims
+  or calls anything — malformed or unknown fields, a door the conversation lacks, a program not in its catalogue, a
+  program that needs a brief, memory off, `busy`, `closed`, a claim that could not be written (`engine`) — and they
+  are RPC errors that leave no record.
+- **`program.start` takes a program NAME** from `session.actions`' `programs` (the engine's own rows); never a
+  path or command. A program without `brief_optional` needs a brief.
+- **`memory.remember`** keeps authored text as given (`scope` `project`, or `everywhere` where offered). No model
+  rewrites it; the answer carries the producer's receipt sentence and no id (the producer has none).
+- **One `client_id` is one attempt, ever.** It is claimed durably (digest of the request, never its words)
+  before the producer runs. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
+  `client_id` with other words, another action or for another conversation is `conflict`; a
+  claimed attempt whose outcome is not known is `state: "uncertain"` and is never run again by the engine. A
+  record that cannot be read is `uncertain` (code), never "new". To try again after an uncertain attempt, read `tasks.*` or the memory, then use a new `client_id`.
+- **`done` means admitted**, not finished: the work's own events (`task.changed`) and `tasks.*` say the rest. The
+  answer that ran the producer carries `task.title`/`note` and the memory receipt; a replay carries the ids
+  (`task.id` is `"<agent>:<n>"`) and the scope only.
+- **`session.action.get`** reads the record. `not_found` means only that this engine's home has none: it does not
+  prove nothing was sent from elsewhere.
+- **Bounds.** `client_id` ≤128 bytes, brief ≤32 KiB, memory text ≤8 KiB; one action per conversation and eight per
+  process at a time (`busy` otherwise); no goroutine, queue or poller is added.
 
 ## Teams deliverable scope
 
