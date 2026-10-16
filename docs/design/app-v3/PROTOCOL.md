@@ -580,9 +580,11 @@ TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage
            its own came before them, before is the cursor for tasks.program_actions (present only when
            there are earlier ones), last_stage is its newest stage record's own name, ending is present
            only when its own last line is the ending. "partial" (read_cut says why: over the budget, a
-           damaged or overlong line among its lines, a disk refusal, the deadline) = the actions carried
-           are some of its own, and there is NO earlier_actions, before, last_stage or ending — no
-           claim of none either. "unknown" = no line can be tied to the record's process (a run from
+           damaged or overlong line among its lines, a disk refusal, the deadline) = actions are carried
+           ONLY under read_cut "damaged" (the read went past the bad line to the launch's end, so they
+           are its newest, or the page before the cursor, minus what could not be read); under every
+           other cut no actions are carried, because a read stopped early has no true window. There is
+           NO earlier_actions, before, last_stage or ending — no claim of none either. "unknown" = no line can be tied to the record's process (a run from
            before launches were, a relaunch before its hello): no actions at all. calls: how many of
            that process's calls reached a model, PRESENT ONLY WHEN EVERY ONE WAS READ (its whole
            conversation log within 32 MiB, every line parsed); 0 is a real zero, absent is unknown.
