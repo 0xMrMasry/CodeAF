@@ -340,6 +340,7 @@ result or an event, `?` marks a field that may be absent.
 | `queue.changed` | `{agent, queued}` |
 | `quick.changed` | `{quick}` |
 | `render.changed` | `{agent, render}` |
+| `media.changed` | `{agent, source, run?, call?}`; a successful immutable source-index append, with its actual source ID and known producer IDs. No path permission is granted. |
 | `settings.changed` | `{settings, task_models?}` |
 | `spend.changed` | `{spend}` |
 | `task.changed` | `{task}` |
@@ -1599,3 +1600,6 @@ held.
 ### Connected media admission refusals
 
 Connected image/video admission refusals also appear in render history with `state:"failed"`, `committed:false`, `charge:"not_charged"`, optional structured `refusal` and bounded `options` (up to 8 model IDs). This is an actual tool invocation rejected before any provider request, not a generated source or a guessed user intent. Image refusal records may use `job:0`; no cancellable process was created. A missing model remains the empty string, never a substituted paid model. Ordinary synchronous image successes/failures are not yet covered by this additive admission seam.
+### Source invalidation
+
+`media.changed` is emitted after a source record was successfully appended. It carries the actual source identity and known immutable run/call IDs; consumers still obtain descriptors from `media.list`/`media.get`. Empty or failed writes emit no invented source. Turn-stream and standing-lane duplicate delivery is filtered through a bounded 128-ID recent window; this is not a retained all-history source cache. A reopened view first reads its snapshot, fences replies with event sequence, and may coalesce newly reported IDs into one page reconciliation. No token, prose, tool-name heuristic or filesystem path from this event authorizes a media read.
