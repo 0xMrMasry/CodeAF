@@ -650,7 +650,8 @@ question, options: [{id, label, consequence}], recommendation?: {option, reason}
 state: open|escalated|decided, decided_by?, decision?, reason?, trail: [{from, to, by, reason?,
 at}], raised, at}`. A packet waiting on you is also an Ask (`kind: "question"`, `subkind:
 "crew_decision"`, `path` = the crew names from `Origin` up the `trail` to you, "Backend → Release
-→ you"), so it reaches the dock and the Inbox. A member's permission prompt never becomes a
+→ you", `decision_kind` = the packet's `kind`: `question`, `conflict`, `cap`, `judgement` or
+`closing`; no other ask carries `decision_kind`), so it reaches the dock and the Inbox. A member's permission prompt never becomes a
 packet: it stays the member's own ask, as in the terminal.
 
 **Report** is `Packet.report` of a `closing` packet: `{done, left?, files?, spend_usd?,
