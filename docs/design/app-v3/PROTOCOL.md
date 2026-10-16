@@ -588,7 +588,7 @@ TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage
            before launches were, a relaunch before its hello): no actions at all. calls: how many of
            that process's calls reached a model, PRESENT ONLY WHEN EVERY ONE WAS READ (its whole
            conversation log within 32 MiB, every line parsed); 0 is a real zero, absent is unknown.
-           The metadata record is limited to 1 MiB; unsafe, corrupt or over-budget metadata carries
+           The metadata record is limited to 5 MiB (a whole hello line plus its fields); unsafe, corrupt or over-budget metadata carries
            no authoritative launch. Reads accept only ordinary files, including links to ordinary
            files; pipes, devices and other special files are unavailable, never a known empty log.
            EndingFacts are typed and allow-listed (a count nobody said is absent, not 0), every key the
