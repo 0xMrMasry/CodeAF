@@ -218,6 +218,7 @@ result or an event, `?` marks a field that may be absent.
 | `keys.set` | `{key, provider}` | `{}` |
 | `media.get` | `{agent, source}` | `{source}` |
 | `media.attach` | `{agent, source, version}` | `{attachment}` |
+| `media.attach_frame` | `{agent, source, version, at_ms, png}` | `{attachment}` |
 | `media.list` | `{agent, cursor, limit}` | `{incomplete?, next?, sources}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -1653,3 +1654,21 @@ Accepted or uncertain deliveries retain their image file, including after shutdo
 a later explicit refusal never clears uncertainty from an earlier attempt.
 An engine without this optional door answers `unknown_method`; a surface must not
 substitute a path-based staging request for a recorded source grant.
+
+### Captured video frames
+
+An engine implementing optional `MediaFrameAttacher` advertises `media.attach_frame`.
+`media.attach_frame {agent, source, version, at_ms, png}` returns `{attachment}` for one
+frame of the exact recorded VIDEO version of that conversation. `png` is base64 of at most
+3,000,000 bytes (checked on the encoded length before decoding); the engine validates the
+signature, every chunk CRC, IHDR-first, an IDAT and a final IEND, at most 4096 a side and
+8 Mpx, without decoding a pixel. A caller supplies bytes and never a path, so a direct client
+can offer a picture but cannot make the engine read a file. The video must be recorded,
+still the recorded version, in scope and a video; stale, changed, legacy, foreign or
+non-video sources are refused before any file exists. The frame is written create-new into
+owned private storage under the same admission as `media.attach` (two active, ten per
+conversation, 64 process-wide, `busy` before I/O). The attachment's typed source names the
+clip and `atMs`; ordinary `agents.send` carries it as an image with the digest the engine
+computed, and `attachments.remove` abandons a definitely-unsent frame. Accepted or uncertain
+deliveries keep their file. The clip is never modified.
+
