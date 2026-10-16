@@ -2099,6 +2099,26 @@ whose original path was cut away is dropped, never sent without `old_path`), no 
 `repo: false` only for no workspace or git's own "not a git repository"; any
 other refusal is `engine`.
 
+`checkout.status` entries carry optional line counts, `added` and `removed`
+(absent = unknown, never zero) and `binary`. For a changed or renamed path they
+are the NET change of the work tree (staged and unstaged together) against the
+status's base, the HEAD commit it names or the empty tree when unborn; the index
+is not the base, so edits staged and unstaged that cancel read 0 and 0. A rename
+counts the edits since its original path (paired old/new only). Untracked files
+have no counts and are never opened; conflicted, copied, submodule,
+unreadable-path and filter-governed entries have none either. Counts are for the
+page's entries only and come from fixed read-only `git diff-index --numstat`
+runs (no external diff, textconv or clean filter; the index is not written).
+When the reply cannot carry them, no entry does and `lines_unavailable` says why:
+`incomplete` (status cut), `changed_during_read`, `timeout`, `too_large`,
+`git_failed`. Every git read of one call, both status reads included, spends
+from one 6 MiB budget, so a status too big to be read twice is `too_large`.
+"Same checkout" is NOT a content hash: counts are attached only if the status
+text, the index file's stamp and each counted path's stamp (type and mode bits,
+size, nanosecond modification time, or absent) are identical before and after
+the diff. A write that preserves all of those between the two reads is not
+detected.
+
 `checkout.status` answers `land: {available: false, reason: "no_producer"}` on
 every reply, and there is no land method. The only producer that merges work
 into a checkout, `Agent.Land`, lands the standing copy of a referred folder:
