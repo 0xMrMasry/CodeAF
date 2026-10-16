@@ -1614,3 +1614,13 @@ older journals. A background media notification does not acquire the run of a
 foreground turn merely because it arrived during that turn. Reused provider call
 IDs must be disambiguated with actual run identity; no nearest-message inference
 is part of this contract.
+
+Media sources may additionally carry `input_messages`, at most 64 distinct,
+known user-message IDs found in the successful provider request that returned
+the tool call. `input_messages_omitted: true` means further known IDs exceeded
+that bound. This is an input set, not proof of one causal message: `message`
+remains absent unless a producer separately knows that relationship. Unknown
+legacy message identities are never synthesized. The snapshot belongs to that
+request; later steering cannot change a background job's inputs. Early warm
+reads that started before the successful response keep their existing unknown
+input provenance. These fields do not grant access to paths or message bodies.
