@@ -386,13 +386,19 @@ result or an event, `?` marks a field that may be absent.
 
 Types:
 ```
-Provider { id, name, signed_in: bool, key_hint?: "…a91f", sign_in?: bool }
+Provider { id, name, signed_in: bool, key_hint?: "…a91f", sign_in?: bool,
+           auth_kind?: "account", sign_in_attempt?: string, sign_in_state?: "pending"|"saving"|"signed_in"|"failed"|"cancelled", sign_in_error? }
 Settings { default_model, budget_usd, asks_before, day_cap_usd, work_folder,
            task_cap_usd, proposed_task_clock_s, idle_close_days, effort? }
 Setup    { step: 1|2|3|4|"done", provider?, default_model?, day_cap_usd?, start?: "agents" }
 ```
 Keys never touch disk in codeaf: the app keeps them in the macOS Keychain and
 hands them to codeaf at every launch with `keys.set`; codeaf holds them in memory.
+Account authentication (`auth_kind:"account"`) uses the same engine-owned owner-only
+rotating token store and Codex browser flow as the CLI/TUI. Account tokens never
+appear in this protocol or the app keychain bridge. Account providers refuse
+`keys.check`, `keys.set`, and `keys.remove`; cancellation is not sign-out.
+One active account flow is shared, with a ten-minute deadline and no polling.
 
 | method | params | result |
 |---|---|---|
@@ -401,6 +407,8 @@ hands them to codeaf at every launch with `keys.set`; codeaf holds them in memor
 | `keys.set` | `{provider, key}` | `{}` (memory only; models.list / turns use it) |
 | `keys.remove` | `{provider}` | `{}` |
 | `providers.sign_in` | `{provider}` | `{url}` browser sign-in where the engine supports it; completion arrives as `provider.changed` |
+| `providers.sign_in_start` | `{provider}` | `{url, attempt}` starts/joins the one account sign-in, returning its non-secret operation identity |
+| `providers.sign_in_cancel` | `{provider, attempt}` | `{}` cancels a pending account sign-in; `busy` during its authorized save boundary; does not sign out an existing account; stale attempts have no effect |
 | `setup.get` / `setup.set` | – / `Setup` | `{setup: Setup}` (persisted by codeaf so quitting mid-setup resumes at the same step) |
 | `settings.set` | partial `Settings` | `{settings}`; emits `settings.changed` |
 | `caps.raise` | `{scope: "agent"\|"day", id?, to_usd, for: "today"\|"good"}` | `{}` |
