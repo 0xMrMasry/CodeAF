@@ -2268,7 +2268,8 @@ here and says so by having none.
 - **One `client_id` is one attempt, ever.** It is claimed durably (digest of the request, never its words)
   before the producer runs. Before every claim the claims folder's entry in `<home>/app` and that folder's entry
   in `<home>` are synced, and a failed sync is `engine` with nothing claimed or run; `<home>`'s own entry is not
-  synced here. So a claim survives a process crash, and a power loss once `<home>` itself is on disk. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
+  synced here. So a claim survives a process crash, and a power loss once `<home>` itself is on disk. On Windows
+  a folder cannot be synced this way and the step does nothing, so there it claims a process crash only. A repeat is answered from the record (`replayed: true`) and runs nothing; the same
   `client_id` with other words, another action or for another conversation is `conflict`; a
   claimed attempt whose outcome is not known is `state: "uncertain"` and is never run again by the engine. A
   record that cannot be read is `uncertain` (code), never "new"; so is a `client_id` another process claimed whose
@@ -2279,7 +2280,7 @@ here and says so by having none.
   MAY say `uncertain`: the rewrite may or may not have reached the disk before it failed.
 - **`done` means admitted**, not finished: the work's own events (`task.changed`) and `tasks.*` say the rest. The
   answer that ran the producer carries `task.title`/`note` and the memory receipt; a replay carries the ids
-  (`task.id` is `"<agent>:<n>"`) and the scope only.
+  (`task.id` is `"<agent>:<n>"`) and the memory scope only — for a project line an empty `memory: {}`.
 - **`session.action.get`** reads the record. `not_found` means only that this engine's home has none: it does not
   prove nothing was sent from elsewhere.
 - **Bounds.** `client_id` ≤128 bytes, brief ≤32 KiB, memory text ≤8 KiB; one action per conversation and eight per
