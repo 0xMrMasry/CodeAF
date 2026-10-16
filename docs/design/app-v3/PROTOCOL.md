@@ -187,6 +187,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.link` | `{id, kind, ref, title}` | `{item}` |
 | `crews.list` | `{closed}` | `{crews}` |
 | `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
+| `crews.log.at` | `{agent, post, crew_name?, around?}` | `{anchor: {crew, closed?, lines}}` — one line a conversation's own record points at (a handoff's or a delivery's `post`) with up to `around` (default 2, ≤10) neighbours each side, read by seeking to its id. The crew is the one the agent is a member of, with that name, whose log holds that id written by or to it; never matched by words or time. `not_found` when the line left the log or the agent left the crew; `conflict` when two of its crews qualify |
 | `crews.manager` | `{agent, id}` | `{crew}` |
 | `crews.message` | `{attachments, client_id, crew, reads, said, text, to}` | `{entry}` |
 | `crews.move` | `{ids, parent}` | `{}` |
@@ -252,7 +253,8 @@ result or an event, `?` marks a field that may be absent.
 | `quick.promote` | `{id}` | `{task}` |
 | `quick.undo` | `{id}` | `{}` |
 | `roles.list` | `{}` | `{roles}` |
-| `members.brief` | `{crew, agent}` | `{brief: {text?, from?, at?}}` — the start line a manager wrote for a started member, read on demand; empty when none is recorded |
+| `members.brief` | `{crew, agent}` | `{brief: {text?, from?, at?, revisions?}}` — the member's brief: its start line, or the newest change since; `revisions: [{text, before?, by, at, post?}]` oldest first (≤16), absent when it never changed (no edit date is inferred for older records) |
+| `members.brief.set` | `{crew, agent, text, base?}` | `{brief}` — changes the member's brief in place, as the person: a `brief` line to the member in the crew log (`post`), read at its next step; it wakes nobody, restarts nothing, posts nothing in its conversation, and leaves its role alone (the brief replaces the start line; a role is told on its own and stays in force). `base` is the `post` of the revision the person edited (`""` for a brief never changed): a brief changed since is `conflict` and nothing is written. `bad_params` for unchanged words, over 12000 characters, or the crew's manager; `closed` for a closed crew; `not_found` for a member that left |
 | `roles.update` | `{id, instructions, model, name}` | `{role}` |
 | `rules.list` | `{}` | `{rules}` |
 | `rules.remove` | `{id}` | `{}` |
@@ -473,7 +475,8 @@ handoff?: {crew_name?, to, post?, answers?, delivered, reason?, up?, from_crew?}
 ```
 
 A notice entry that is a crew's delivery also carries `team: [{crew_name?, from, to?, kind,
-text, post?}]`: each delivered line as facts (`kind` note · directive · start; `from` manager ·
+text, post?}]`: each delivered line as facts (`kind` note · directive · start · brief (a brief
+changed in place); `from` manager ·
 you · system · a handle; `post` the line's LogLine id). Its `text` is the same lines worded.
 
 An entry's `answer`/`update` kind is the live pump's: a message whose own tool calls ran after
@@ -738,6 +741,7 @@ and `stop`.
 | `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
 | `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; to an agent mid-turn they are queued (`agents.queue`) and `entry.turn` is 0; words to a member are also told to the manager by the app layer (below) |
 | `crews.log` | `{id, after?, limit?}` | `{lines, cursor}` | `ReadTraffic` (oldest first, cursor = last id) |
+| `crews.log.at` | `{agent, post, crew_name?, around?}` | `{anchor}` | `ReadAround` + `Involves` on each crew the agent is in |
 | `crews.decisions` | `{id?, all?}` | `{decisions}` | `Packets(id)` / `OpenPackets(scope)`; `all` includes decided ones (`History`) |
 | `crews.decide` | `{packet, option?, text?, reason?}` | `{decision}` | `Decide(id, "you", …)`; a decided `closing` packet with close/close-now then `AcceptClosing` |
 | `members.add` | `{crew, agent, handle?}` | `{member}` | `AddMember` (+ `SetHandle`), as `team_add` |
