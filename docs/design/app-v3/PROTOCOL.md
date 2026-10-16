@@ -2152,17 +2152,25 @@ the file. An empty, absolute, `.`/`..`/empty-segment, NUL, backslash or
 over-4096-byte path is `bad_params`; a path that is not a changed row is
 `not_found`; a status cut at its byte bound that does not contain the path is
 `too_large` (it never pages). `revision` is optional on the wire and a client
-that displays a row MUST send the revision it displayed: a checkout that has since
-moved is `conflict` with `detail.reason: stale_revision` and nothing is diffed;
-omitted means an explicit fresh lookup, and the reply's `revision` says which one
-was used. `checkout.diff` answers the existing `FileDiff` for the row against the
+that displays a row MUST send the revision it displayed: a checkout whose status
+has since moved is `conflict` with `detail.reason: stale_revision` and nothing is
+diffed; omitted means an explicit fresh lookup, and the reply's `revision` says
+which one was used. THE REVISION NAMES THE STATUS TEXT (rows, kinds, HEAD and
+index object ids), NOT the content of a work-tree file that was already modified:
+such a file edited again keeps its revision, so the diff can show newer content
+than the list's counts did. No immutable-content promise is made. A path that
+names more than one row (`git rm --cached f` leaves a staged deletion and an
+untracked `f`) is `conflict` with `detail.reason: ambiguous_row` for both
+methods, with no diff and no `open`; such a row cannot be reviewed until an
+additive row selector exists. A status cut at its bound confirms no path
+(`too_large`), because a second row could lie past the cut. `checkout.diff` answers the existing `FileDiff` for the row against the
 status's base (its HEAD commit, or the empty tree when unborn) from read-only
 `git diff-index` run at the repository root (no external diff, textconv,
 fsmonitor or clean filter; the index is never written): changed, renamed (the
 row's own `old_path`), deleted, untracked (read through an `os.Root` anchored at
 the toplevel, every parent a real directory, the leaf opened no-follow and
 non-blocking and checked to be the same regular file, bounded by `FileReadMax`;
-anything else is `unavailable` / `unreadable`). A row whose net content equals the
+anything else is `unavailable` / `unreadable`; the read draws on the call's 6 MiB pool and a file that does not fit what is left is `too_large` with detail "the byte budget of this call is spent"). A row whose net content equals the
 base is `unchanged`, never an empty diff. `copied`, `conflicted` and submodule
 rows are `unavailable` with `reason: unsupported_row` (a stated M1 limitation).
 A path a configured filter governs is `unavailable` / `filter`. After the diff the
