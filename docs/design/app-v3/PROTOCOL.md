@@ -239,6 +239,7 @@ result or an event, `?` marks a field that may be absent.
 | `deliverables.remove` | `{agent, id}` | `{}` |
 | `deliverables.snapshot` | `{agent, path, url, process}` | `Deliverable` (bare) |
 | `branches.list` | `{agent, cursor, limit}` | `{repo, head?, recorded?, branches, next?, incomplete?}` |
+| `checkout.status` | `{agent, cursor, limit}` | `{repo, head?, branch?, detached?, unborn?, upstream?, ahead?, behind?, operation?, entries, counts?, revision?, next?, incomplete?, land}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.handle` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -2064,6 +2065,50 @@ git failure, a refused or unreadable folder, or a HEAD naming nothing is
 the engine's overall CPU. Counts are absent when git could not give them, never zero;
 `counts_capped` counts are lower bounds. Unreadable task records are `engine`,
 oversized ones `too_large`, never an empty list.
+
+`checkout.status {agent, cursor?, limit?}` reads the agent's own workspace
+checkout (the one files.diff and branches.list use; the caller never names a
+path) as typed facts, read-only. `entries` are in git's order, 100 a page and
+200 at most: `kind` changed · renamed · copied · untracked · conflicted, with
+`index` and `worktree` each modified · added · deleted · typechange · renamed ·
+copied (absent when that side is unchanged), `old_path` for a rename or copy,
+`conflict` (both_modified, both_added, both_deleted, added_by_us, added_by_them,
+deleted_by_us, deleted_by_them) and `submodule` (only its recorded commit is
+compared; its own work tree is never entered). A path that is not valid UTF-8
+has no `path` and says `path_unreadable`. `upstream`, `ahead` and `behind` are
+absent when git has none, never zero; `operation` (merge · rebase ·
+cherry_pick · revert · bisect) is read by stat from the files git itself leaves
+while one is under way. `counts` {staged, unstaged, untracked, conflicted} are
+present only when the whole status was read; a path both staged and edited
+again is counted in both of the first two. `revision` names the exact status; `next`
+is `<revision>:<offset>` and a cursor is refused `bad_params` ("read the
+status again from the start") once the status differs, never re-aimed. Git
+runs read-only (no optional locks, no fsmonitor, submodules by recorded commit
+only) and runs no program the repository's configuration names: every
+configured filter driver is set empty on the command line before git compares a
+file, and the index is never written. One 3 s deadline covers every git of the
+call (a timeout is `busy`, never `repo: false`); status text past 4 MiB kills
+the process and answers `incomplete` with the part read, no `counts` and no
+`next` past it; at most 2 are read at once and a third is `busy` at once.
+`repo: false` only for no workspace or git's own "not a git repository"; any
+other refusal is `engine`.
+
+`checkout.status` answers `land: {available: false, reason: "no_producer"}` on
+every reply, and there is no land method. The only producer that merges work
+into a checkout, `Agent.Land`, lands the standing copy of a referred folder:
+it is not the producer of the task branches `branches.list` names, it binds no
+plan or revision (it re-reads what was written at the moment it is told to
+land), and the app's consent flow (`QuestionConsent`) approves a model tool
+call, not a plan. Review of a branch is what `branches.list` gives (name,
+head, base, counts); a per-file diff of a branch against its base is not
+offered, and `files.diff` compares the working tree only. PROPOSED, NOT BUILT:
+a two-phase protocol, `checkout.land.plan {agent, branch}` (read-only, answering
+a plan id, the HEAD and branch heads it was judged against, and whether it
+would conflict) then `checkout.land.confirm {agent, plan_id, revision}` that
+merges only if the revision still equals a fresh read and only on the person's
+explicit act through the native host. It needs two things that do not exist: a
+session door that lands a named kept task branch, and a consent question that
+carries a plan instead of a tool call.
 An index row whose `deliver.id` is not a shape the engine issues (`dlv_` and 32
 hex, or `dll_` and 24 hex) is not a deliverable, and no update under such an id
 is applied.
