@@ -361,6 +361,19 @@ result or an event, `?` marks a field that may be absent.
 - `agents.create` and `agents.send` accept `client_id` (string chosen by the app).
   The engine echoes it on the user `Entry` (`client_id`) so the app replaces its
   optimistic bubble instead of adding a second one.
+- Where the conversation's engine keeps it (the remote welcome's
+  `messageClientIds`; always, for a conversation held in the app process), the
+  `client_id` is written on the accepted user message's own journal line and
+  read back on its `Entry` after any restart — so an entry listed by a fresh
+  process still names the message the app sent. It is at most 256 bytes of
+  valid UTF-8 with no control characters, kept exactly as sent; one that does not
+  fit is refused `bad_params` before the turn starts and nothing is recorded.
+  An entry with no persisted id falls back to the sending process's own memory
+  of it, and a message from before this carries none. **It is correlation and
+  not idempotency**: the engine never deduplicates, skips or retries a send
+  because of it, two messages with one id are two messages, the model is sent
+  nothing of it, and an entry that carries no id says only that the engine
+  cannot tell — never that the message was not sent.
 - `agents.create` answers at once (target under 50 ms): it returns the Agent
   (state `working` when `text` was given) before the conversation engine has
   finished loading; loading continues in the background and failures arrive as
