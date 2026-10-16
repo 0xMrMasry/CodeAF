@@ -165,7 +165,7 @@ result or an event, `?` marks a field that may be absent.
 | `agents.rename` | `{id, title}` | `{agent}` |
 | `agents.reopen` | `{id}` | `{agent}` |
 | `agents.retry` | `{id}` | `{turn}` |
-| `agents.send` | `{attachments, client_id, id, text}` | `{turn}` |
+| `agents.send` | `{attachments, client_id, id, reads, said, text}` | `{turn}` |
 | `agents.set_effort` | `{effort, id}` | `{agent}` |
 | `agents.set_model` | `{id, model}` | `{agent}` |
 | `agents.steer` | `{client_id, id, text}` | `{}` |
@@ -188,7 +188,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.list` | `{closed}` | `{crews}` |
 | `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
 | `crews.manager` | `{agent, id}` | `{crew}` |
-| `crews.message` | `{attachments, client_id, crew, text, to}` | `{entry}` |
+| `crews.message` | `{attachments, client_id, crew, reads, said, text, to}` | `{entry}` |
 | `crews.move` | `{ids, parent}` | `{}` |
 | `crews.propose` | `{agent}` | `{}` |
 | `crews.reopen` | `{id}` | `{crew}` |
@@ -565,6 +565,30 @@ a paste over the first bound). The same bounds hold at every door:
   must be staged on that agent (`not_found` otherwise). A message with attachments to a target
   mid-turn is refused `busy` and NOT queued — the queue keeps words only; words alone still
   queue as before.
+
+Reads on a message (2026-10-15, hello feature `messages.reads`). `agents.send` and
+`crews.message` take `said` (the person's own words; absent means `text` is theirs, `""` a
+message of attachments or reads alone) and `reads`, the reads of references the app performed
+to write `text` — a collection expanded at send time — as it found them then:
+```
+MessageRead { source: MessageReference, count, missing, unavailable, unread, more, complete,
+              warnings?: [string], items?: [MessageReference] }
+MessageReference { kind, id?, name?, owner?, path?, url? }
+```
+- The model is sent `text` and nothing else; `said` is never replaced by it. The engine never
+  reads a reference again: the person's user `Entry` carries `text` = `said` and `reads` as sent,
+  on the live `entry.added` and on every history page after a restart. A message sent without
+  them has no `reads`, however many links its words hold.
+- `count` is exactly the references the read returned; `items` the first of them, at most 8 and
+  never more than `count`, descriptors only. `missing`/`unavailable`/`unread` count what it
+  could not return, `more` says it was cut. `complete` is the app's answer and may not be true
+  while `unavailable`, `unread` or `more` is set; `missing` alone may be complete.
+- Bounds, all refusing the whole message `bad_params` before anything is recorded or sent: 16
+  reads, 8 items and 8 warnings per read, 4,096 bytes per reference field, 512 per warning,
+  counts 0 to 1,000,000, 128 KiB of read strings in all. Nothing is trimmed to fit.
+- An engine without `messages.reads` answers a send carrying `said` or `reads` `unknown_method`.
+  A crew message carrying either to a busy target is refused `busy`, never queued.
+  `agents.steer`, `agents.queue` and `queue.edit` keep words only.
 
 Tasks as conversations (V65, V66) add:
 ```
