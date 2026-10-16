@@ -557,7 +557,21 @@ Types:
 ```
 Task (adds) { proposed?: bool, clock_until?: time, irreversible?: bool,
               your_call?: bool, result?, files?: [{path, add, del}], budget_usd?, spent_usd? }
-TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, from?, read_at_step?}], brief }
+TaskPage { task: Task, result?, files, log: Entry[], notes: [{id, text, at, from?, read_at_step?}], brief,
+           program?: TaskProgram }
+TaskProgram { name, started_at?, ended_at?, stages?: [{name, word?}], last_stage?, ceiling_usd?, calls?,
+              models?, effort?, listens, listening, started, inbox_closed?,
+              actions: [{at, step?, text, outcome?, added?, removed?, steer?, memory?, model?, reason?}] (newest 60),
+              earlier_actions?, ending?: {at, status?, text, outcome?, facts?: EndingFacts} }
+           program: present ONLY for a task a specialist was handed. Absent is not "none was run":
+           an engine that predates it omits it too. Stages are the hello's own list and count; a
+           stage with no word keeps the word before it; the APP groups consecutive equal words
+           (senior-dev's 15 stages are 7 consecutive words, not 6). last_stage is the newest stage
+           record's own name; there is no index, percent, attempt number or auto: the record is the
+           latest process, not a history. earlier_actions says how many came before the list.
+           ending is present only while the log's last line is the ending. EndingFacts are typed
+           and allow-listed (a count nobody said is absent, not 0); reports are display names, not a
+           file handle and not for the renderer to open.
            log: ONE ENTRY PER STEP, each a tool `Entry` carrying its call's facts (see "Work log
            detail" below), so a task's log is grouped, folded and timed by exactly the rules a
            conversation's is. A step the record holds with NO TOOL PAYLOAD — an older journal or
