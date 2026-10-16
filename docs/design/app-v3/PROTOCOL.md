@@ -161,14 +161,14 @@ result or an event, `?` marks a field that may be absent.
 | `agents.move_to_closed` | `{ids}` | `{}` |
 | `agents.move_to_task` | `{id, turn}` | `{moving?, task?}` |
 | `agents.open` | `{id}` | `{agent}` |
-| `agents.queue` | `{client_id, id, text}` | `{queued}` |
+| `agents.queue` | `{attachments, client_id, id, reads, said, text}` | `{queued}` |
 | `agents.rename` | `{id, title}` | `{agent}` |
 | `agents.reopen` | `{id}` | `{agent}` |
 | `agents.retry` | `{id}` | `{turn}` |
 | `agents.send` | `{attachments, client_id, id, reads, said, text}` | `{turn}` |
 | `agents.set_effort` | `{effort, id}` | `{agent}` |
 | `agents.set_model` | `{id, model}` | `{agent}` |
-| `agents.steer` | `{client_id, id, text}` | `{}` |
+| `agents.steer` | `{attachments, client_id, id, reads, said, text}` | `{}` |
 | `agents.stop` | `{id}` | `{}` |
 | `asks.answer` | `{agent, batch_item, id, later, option, text, why, you_decide}` | `{}` |
 | `asks.hold` | `{agent, id}` | `{}` |
@@ -246,7 +246,7 @@ result or an event, `?` marks a field that may be absent.
 | `processes.unfollow` | `{id}` | `{}` |
 | `providers.list` | `{}` | `{providers}` |
 | `providers.sign_in` | `{provider}` | `{url}` |
-| `queue.edit` | `{agent, id, text, to}` | `{queued}` |
+| `queue.edit` | `{agent, attachments, id, reads, said, text, to}` | `{queued}` |
 | `queue.move` | `{agent, id, text, to}` | `{queued}` |
 | `queue.remove` | `{agent, id, text, to}` | `{queued}` |
 | `quick.promote` | `{id}` | `{task}` |
@@ -532,10 +532,10 @@ how many tasks are open; an ask from no task carries none.
 Queue and steer (V69):
 | method | params | result |
 |---|---|---|
-| `agents.steer` | `{id, text, client_id}` | `{}` lands after the current step (`steer` entry pending → consumed / fell_through) |
-| `agents.queue` | `{id, text, client_id}` | `{queued: Queued[]}` sent when the turn ends |
-| `queue.edit` · `queue.remove` · `queue.move` | `{agent, id, text?/to?}` | `{queued}`; edit after send → error `sent` |
-Events `queue.changed {agent, queued: [{id, text}]}`.
+| `agents.steer` | `{id, text, client_id, said?, reads?}` | `{}` lands after the current step (`steer` entry pending → consumed / fell_through) |
+| `agents.queue` | `{id, text, client_id, said?, reads?}` | `{queued: Queued[]}` sent when the turn ends |
+| `queue.edit` · `queue.remove` · `queue.move` | `{agent, id, text?/to?, said?, reads?}` | `{queued}`; edit after send → error `sent` |
+Events `queue.changed {agent, queued: [{id, text, reads?}]}`.
 
 Files and links in the composer (V69 @ reference, chips):
 | method | params | result |
@@ -588,7 +588,24 @@ MessageReference { kind, id?, name?, owner?, path?, url? }
   counts 0 to 1,000,000, 128 KiB of read strings in all. Nothing is trimmed to fit.
 - An engine without `messages.reads` answers a send carrying `said` or `reads` `unknown_method`.
   A crew message carrying either to a busy target is refused `busy`, never queued.
-  `agents.steer`, `agents.queue` and `queue.edit` keep words only.
+
+Reads on a correction and a queued message (2026-10-15, hello features `agents.steer.reads` and
+`agents.queue.reads`, each its own door: an engine with `messages.reads` need not have them).
+`agents.steer`, `agents.queue` and `queue.edit` take `said` and `reads` as `agents.send` does,
+with the same bounds; `text` is still required and is what the model reads.
+- `attachments` on any of the three is `bad_params`, plain or not; a correction and a queued
+  message carry none. Send them with `agents.send`.
+- `said` or `reads` to an engine without the feature, or to a conversation whose hosted engine
+  cannot keep them, is `unknown_method` before anything is steered, queued or changed.
+- `Queued.text` is the person's words (`said` when given), never `text`; `Queued.reads` the
+  reads. The queue keeps the whole message and sends `text` when the turn ends.
+- `queue.edit` with neither `said` nor `reads` replaces the message with plain words and drops
+  the old ones. With either, the whole replacement is checked before the queue changes. An edit
+  of a message already sent answers `sent` and queues nothing; any refusal leaves the queue as
+  it was.
+- The `steer` entry carries `text` = `said` and `reads`; a correction that falls through starts
+  a turn whose user entry carries the same. A queued message, once sent, is an ordinary user
+  entry carrying them. Both are said again on every history page after a restart or compaction.
 
 Tasks as conversations (V65, V66) add:
 ```
