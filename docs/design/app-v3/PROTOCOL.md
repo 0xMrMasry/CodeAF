@@ -240,6 +240,8 @@ result or an event, `?` marks a field that may be absent.
 | `deliverables.snapshot` | `{agent, path, url, process}` | `Deliverable` (bare) |
 | `branches.list` | `{agent, cursor, limit}` | `{repo, head?, recorded?, branches, next?, incomplete?}` |
 | `checkout.status` | `{agent, cursor, limit}` | `{repo, head?, branch?, detached?, unborn?, upstream?, ahead?, behind?, operation?, entries, counts?, revision?, next?, incomplete?, land}` |
+| `branches.land.plan` | `{agent, branch}` | `{plan, revision, expires_at, task, title?, branch, branch_head, base, target, head, repository, fast_forward, files?, added?, removed?, counts_capped?, hooks}` |
+| `branches.land` | `{agent, plan, revision}` | `{branch, target, head_before, head_after, fast_forward}` |
 | `members.add` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.cap` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
 | `members.handle` | `{agent, brief, cap_usd, crew, handle, model, reason, role, to}` | `{member}` |
@@ -2138,6 +2140,64 @@ carries a plan instead of a tool call.
 An index row whose `deliver.id` is not a shape the engine issues (`dlv_` and 32
 hex, or `dll_` and 24 hex) is not a deliverable, and no update under such an id
 is applied.
+
+### Landing a task branch
+
+`branches.land.plan` and `branches.land` merge one of the conversation's own
+task branches into its checkout, at a person's explicit word. `branch` is a key
+into the conversation's task records (any other name is `not_found`); no path,
+repository, target or ref is taken from the caller. The repository is the one
+the conversation's folder resolves to, and the target is the branch that
+checkout is on, whichever it is.
+
+- **Plan.** Reads and binds, and writes nothing to the checkout: the branch's
+  commit and merge base, the target and its HEAD, the resolved repository
+  (top level, git directory and common directory), the whole git configuration,
+  every hook a merge can run (`pre-merge-commit`, `prepare-commit-msg`,
+  `commit-msg`, `post-merge`, `reference-transaction`, `post-index-change`,
+  where git looks for them, `core.hooksPath` honoured) by name, size, executable
+  bit and SHA-256, any other worktree the branch is checked out in, and the tree
+  `git merge-tree --write-tree` says the merge makes. `revision` is the digest of
+  all of it. A plan is held 120 s, 8 per agent (the oldest goes) and 64 in all
+  (`busy` past that), and is used once.
+- **Refusals** are `conflict` with `detail: {reason, paths?}`, and a refused
+  plan has no id. Reasons: `dirty` (anything `git status` reports, untracked
+  included), `ignored_in_way` (an untracked or ignored file or directory where
+  the branch adds a file), `conflict` (merge-tree's paths), `merged`, `gone`,
+  `detached` (no branch, or no commit yet), `operation` (a merge, rebase,
+  cherry-pick, revert, bisect or index lock in progress), `held` (a program's
+  run is working there), `task_copy_dirty`, `custom_merge` (any configured merge
+  driver), `filter` (any configured clean, smudge or process filter), `sparse`,
+  `submodule`, `signing` (`commit.gpgSign` on a merge commit), `ff_only`,
+  `merge_options` (the target sets `branch.<name>.mergeOptions`),
+  `hook_unbounded` (a hook that is not a regular file of at most 1 MiB),
+  `unrelated`, `outside`, `git_old` (git older than 2.38), `too_large`.
+- **Land** is the native host's only, sent after its own confirmation dialog
+  has shown the plan — the target, the branch, the counts and every hook that
+  will run. The plan is taken out first; an unknown, spent, expired or other
+  agent's plan is `conflict` `expired`, and a revision that differs is
+  `changed`. Under the repository's lock (`busy` when it cannot be had within
+  15 s, never unserialized) every fact is read again and any difference is
+  `changed`. Then `git merge --no-edit --no-autostash --no-overwrite-ignore
+  -s ort --ff|--no-ff <branch_head>` runs on the planned commit, never the
+  branch name, with a 60 s ceiling of its own. Every git a land runs has
+  `core.fsmonitor`, `maintenance.auto` and `gc.auto` off, so no automatic gc
+  (and no `pre-auto-gc` hook) starts after the merge; each read is one process
+  group killed whole at its 3 s deadline. A land answers only when it is
+  proved: the target still checked out, HEAD the planned commit (fast-forward)
+  or a merge of exactly `head` and `branch_head`, its tree the predicted one, no
+  merge in progress. A merge git refused, when no hook was there to run and
+  afterwards HEAD, the target, the index and `git status` are all as planned,
+  is `conflict` `refused`; its message says what was read and that ignored
+  files were not, and never that nothing changed (git has written `ORIG_HEAD`
+  by then). With a hook present, or anything else, it is `uncertain` with
+  `detail: {head?, target?, merge_in_progress?, index_locked?, clean?,
+  conflicted?}`; nothing is aborted,
+  reset, stashed or retried, and a merge left in progress is the person's to
+  finish or undo with `git merge --abort`.
+- **What is not covered.** A write by an editor in the instant between the last
+  check and the merge is not serialized; git refuses to overwrite a changed
+  tracked file, and the answer is then `uncertain` rather than a refusal.
 
 ## Slash catalogue
 
