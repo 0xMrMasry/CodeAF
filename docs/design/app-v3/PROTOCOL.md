@@ -298,6 +298,7 @@ result or an event, `?` marks a field that may be absent.
 | `tools.follow` | `{agent, call, from_line, limit}` | `{}` |
 | `tools.output` | `{agent, call, from_line, limit}` | `{lines, next_line, total}` |
 | `tools.unfollow` | `{agent, call, from_line, limit}` | `{}` |
+| `work.graph` | `{cluster, cursor, focus, if_revision, limit, scope, view}` | `{contract, view, revision, as_of?, unchanged?, scope, about, totals, coverage, nodes?, edges?, clusters?, crews?, members?, metrics?, diagnostics, next_cursor?, returned, cut?}` — see "Work graph" below; an engine that does not serve it answers `unknown_method` (check `hello.features` for `work.graph`) |
 
 | event | data |
 |---|---|
