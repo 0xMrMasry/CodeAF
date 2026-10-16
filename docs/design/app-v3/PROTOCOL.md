@@ -187,7 +187,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.link` | `{id, kind, ref, title}` | `{item}` |
 | `crews.list` | `{closed}` | `{crews}` |
 | `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
-| `crews.log.at` | `{agent, post, crew_name?, around?}` | `{anchor: {crew, closed?, lines}}` — one line a conversation's own record points at (a handoff's or a delivery's `post`) with up to `around` (default 2, ≤10) neighbours each side, read by seeking to its id. The crew is the one the agent is a member of, with that name, whose log holds that id written by or to it; never matched by words or time. `not_found` when the line left the log or the agent left the crew; `conflict` when two of its crews qualify |
+| `crews.log.at` | `{agent, post, crew_name?, crew?, around?}` | `{anchor: {crew, closed?, lines}}` — one line a conversation's own record points at (a handoff's or a delivery's `post`) with up to `around` (default 2, ≤10) neighbours each side, read by seeking to its id. The crew is the one the agent is a member of, with that name, whose log holds that id written by or to it; never matched by words or time. With `crew` (a handoff's, for a post up) that crew's log is read when the agent is in it (any line written by or to it) or in a crew under it (only a line naming its own membership); `crew_name` is then not matched. `not_found` when the line left the log, the crew is gone, or the agent left the crew or is in neither; `conflict` when two of its crews qualify |
 | `crews.manager` | `{agent, id}` | `{crew}` |
 | `crews.message` | `{attachments, client_id, crew, reads, said, text, to}` | `{entry}` |
 | `crews.move` | `{ids, parent}` | `{}` |
@@ -468,10 +468,13 @@ ask?                             ask id (asks_first kind: the log pauses here)
 input?: {cwd?, timeout_s?, text} what was asked (command, query, path)
 tail?: string[]                  last ≤3 output lines while running, ≤12 when ended
 lines?                           total output lines
-handoff?: {crew_name?, to, post?, answers?, delivered, reason?, up?, from_crew?}
+handoff?: {crew_name?, crew?, to, post?, answers?, delivered, reason?, up?, from_crew?}
                                  team_post only, once it has an answer: the crew log entry
                                  (`post`, a LogLine id) the line became and the one it answers;
-                                 delivered false carries the engine's own words in `reason`
+                                 delivered false carries the engine's own words in `reason`.
+                                 `up` is a post to the manager of the crew above (`from_crew`
+                                 the member's crew): `crew` is then that crew's id. A post up
+                                 answered by an older build has no `post` and no `crew`
 ```
 
 A notice entry that is a crew's delivery also carries `team: [{crew_name?, from, to?, kind,
@@ -741,7 +744,7 @@ and `stop`.
 | `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
 | `crews.message` | `{crew, to: "manager"\|agent, text, client_id}` | `{entry}` | the person's words go INTO that conversation (`agents.send` to the manager's or the member's agent), exactly as typing in its chat; to an agent mid-turn they are queued (`agents.queue`) and `entry.turn` is 0; words to a member are also told to the manager by the app layer (below) |
 | `crews.log` | `{id, after?, limit?}` | `{lines, cursor}` | `ReadTraffic` (oldest first, cursor = last id) |
-| `crews.log.at` | `{agent, post, crew_name?, around?}` | `{anchor}` | `ReadAround` + `Involves` on each crew the agent is in |
+| `crews.log.at` | `{agent, post, crew_name?, crew?, around?}` | `{anchor}` | `ReadAround` + `Involves` on each crew the agent is in; with `crew`, that crew for a member of it or of a crew under it (`Descendants`) |
 | `crews.decisions` | `{id?, all?}` | `{decisions}` | `Packets(id)` / `OpenPackets(scope)`; `all` includes decided ones (`History`) |
 | `crews.decide` | `{packet, option?, text?, reason?}` | `{decision}` | `Decide(id, "you", …)`; a decided `closing` packet with close/close-now then `AcceptClosing` |
 | `members.add` | `{crew, agent, handle?}` | `{member}` | `AddMember` (+ `SetHandle`), as `team_add` |
