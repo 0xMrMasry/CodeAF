@@ -127,7 +127,7 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
 | `turn.started` | `{agent, turn}` |
 | `turn.delta` | `{agent, turn, kind: "text" \| "thinking", text}` |
 | `turn.tool` | `{agent, turn, run_id?, call, name, phase: "begin" \| "end", ok?, summary?}` |
-| `turn.done` | `{agent, turn, ok, error?, error_kind?: "provider" \| "budget" \| "stopped" \| "other", status?}` (provider: the provider failed 3 times in a row; message is the provider's own words) |
+| `turn.done` | `{agent, turn, ok, error?, error_kind?: "provider" \| "budget" \| "stopped" \| "uncertain" \| "other", status?}` (provider: the provider failed 3 times in a row; message is the provider's own words. uncertain: a created agent's first message was handed to its conversation and no answer came back — it MAY have been sent, so `agents.retry` is not armed for it) |
 | `ask.opened` | `{ask: Ask}` (agent state becomes `needs_you`) |
 | `ask.closed` | `{agent, id, by: "app" \| "elsewhere" \| "stopped", option?, at}`; a receipt Entry follows as `entry.added` |
 | `entry.added` | `{entry: Entry}` (user message, final answer, receipt, notice, error; streaming text still uses turn.delta) |
@@ -921,6 +921,41 @@ field below is marked **app** on the wire's Crew/Member; everything else is **te
 | `crews.propose {agent}` and the Bring in helpers card (`Proposal`) | app | the app asks the agent, in its own chat, for a crew proposal as one JSON block `{name, helpers: [{handle, role, brief, model?}]}`; the answer becomes an Ask (`subkind: "crew_proposal"`) with options `create`, `edit`, `keep` ("Keep it one agent"), carrying the whole proposal as `ask.proposal: Proposal {id, agent, name, hue?, helpers: [{handle, role, brief, model?}], existing?, cap_usd_day?, goal?, ends_at?, at}`. The proposal is kept in `<home>/app/crews.json` until it is answered, so after a restart its ask is opened again (`ask.opened`) and listed by `asks.list` |
 | `Proposal {id, agent, name, hue, helpers: [{handle, role, brief, model?}], existing?: [agent], cap_usd_day?, goal?, ends_at?}` → `crews.create {from: "proposal", proposal, edits?}` | app → teams | create = a team with the agent as manager; each helper is a manager's start (`start` line from `manager`, its brief the manager's own words from the proposal) which the app performs; `existing` agents are added |
 | Crew `plan?` | not kept | needs engine work: the manager keeps no plan text the app can read |
+
+### Starting a crew with its own manager, and the global manager (`crews.start`)
+
+Hello advertises `crews.start` when the engine serves both halves; otherwise a
+`start_manager` create and `crews.root.start` answer `unknown_method` before anything is made.
+
+`crews.create {…, start_manager: true, manager_starts_members, request_id, goal?, said?,
+client_id?, attachments?, workspace?, model?}` makes ONE new manager conversation for the crew and,
+with a goal or attachments, hands the goal to it as its first message at most once. `said` is the
+person's words exactly as given (not trimmed; an empty `said` is an empty entry); `goal` is what
+the model is sent. The result adds `start {request_id, replayed?, manager, goal: {state,
+client_id?, error?}}`.
+
+`request_id` is claimed durably (`<home>/app/crew-starts/<sha256>.json`, exclusive link, synced)
+BEFORE the crew is committed, and the goal is handed over only after that claim is rewritten to
+say it may be. `goal.state`:
+
+| state | meaning |
+|---|---|
+| `none` | no goal; nothing sent |
+| `starting` | the first turn is starting behind the answer; `turn.done` says how it went (`error_kind: "uncertain"` = may have been sent) |
+| `not_sent` | the crew and manager exist; the goal was provably never handed over (`error` says why). It is never sent later by itself |
+| `unknown` | a repeat (`replayed: true`) of a request whose goal may have been handed over. Never sent again; read the manager's entries by `client_id` |
+
+A repeat with the same `request_id` and the same ask is a lookup that makes and sends nothing; a
+different ask is `bad_params`. A repeat whose earlier outcome cannot be read (claim, teams file or
+crew unreadable; claimed but not committed; two earlier records) is `uncertain`, never new. A
+request whose crew was deleted is `bad_params`; use a new `request_id`. One start runs per engine
+at a time; a concurrent one is `busy`.
+
+`crews.root.start {workspace?, model?}` → `{crew, manager, root_created?, manager_created?}` makes
+the root (All teams) and its manager on the person's call. An existing manager whose conversation
+is there is returned with both flags false. One whose folder is gone or carries the
+permanent-deletion mark is replaced, and leaves the root. One whose folder cannot be checked is an
+error, not a replacement. No first message is sent to the global manager.
 
 ## Wave 7: closing, archiving, finding (V21, V22, J03, J04, X4)
 
