@@ -99,7 +99,7 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
 | `shutdown` | – | `{}` then exit |
 | `agents.labels` | `{ids: string[]}` (at most 32) | `{labels:[{id,title}], incomplete?}`; optional metadata-only lookup, no transcript reads. Missing names stay unknown; incomplete means a scan bound was reached. |
 | `agents.list` | `{workspace?}` | `{agents: Agent[]}` (recent conversations, newest first) |
-| `agents.create` | `{workspace?, model?, budget_usd?, text?}` | `{agent: Agent}`; with `text` the first turn starts at once (`turn.started` follows) and `title` is the first words of `text`, cut to 40 characters with "…". No workspace: the user's home folder. |
+| `agents.create` | `{workspace?, model?, budget_usd?, text?}` | `{agent: Agent}`; with `text` the first turn starts at once (`turn.started` follows) and `title` is the opening name — the words of `text`, or the names of the files attached when there are none, cut to 40 characters with "…" — until the engine's own name arrives as `agent.changed`: one request to the model configured for titles, asked once from those words and file names only, which replaces it unless the person renamed the agent first. No workspace: the user's home folder. |
 | `agents.entries` | `{id, before?, limit?}` | `{entries: Entry[], more: bool}` (oldest first; works for agents not held) |
 | `agents.set_model` | `{id, model}` | `{agent: Agent}` |
 | `agents.retry` | `{id}` | `{turn}` (re-run the last failed turn) |
