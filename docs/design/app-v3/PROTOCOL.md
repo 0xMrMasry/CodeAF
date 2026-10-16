@@ -176,6 +176,7 @@ result or an event, `?` marks a field that may be absent.
 | `attachments.add` | `{agent, kind, path, text, url}` | `{attachment}` |
 | `attachments.remove` | `{agent, id}` | `{}` |
 | `caps.raise` | `{for, id, scope, to_usd}` | `{}` |
+| `crews.archive` | `{id}` | `{crew}` |
 | `crews.close` | `{id}` | `{}` |
 | `crews.create` | `{agents, cap_usd_day, edits, ends_at, from, goal, hue, manager, name, parent, proposal, settings, tint}` | `{crew}` |
 | `crews.decide` | `{option, packet, reason, text}` | `{decision}` |
@@ -185,7 +186,7 @@ result or an event, `?` marks a field that may be absent.
 | `crews.get` | `{id}` | `{crew}` |
 | `crews.items` | `{id}` | `{items}` |
 | `crews.link` | `{id, kind, ref, title}` | `{item}` |
-| `crews.list` | `{closed}` | `{crews}` |
+| `crews.list` | `{archived, closed}` | `{crews}` |
 | `crews.log` | `{after, id, limit}` | `{cursor, lines}` |
 | `crews.log.at` | `{agent, post, crew_name?, crew?, around?}` | `{anchor: {crew, closed?, lines}}` — one line a conversation's own record points at (a handoff's or a delivery's `post`) with up to `around` (default 2, ≤10) neighbours each side, read by seeking to its id. The crew is the one the agent is a member of, with that name, whose log holds that id written by or to it; never matched by words or time. With `crew` (a handoff's, for a post up) that crew's log is read when the agent is in it (any line written by or to it) or in a crew under it (only a line naming its own membership); `crew_name` is then not matched. `not_found` when the line left the log, the crew is gone, or the agent left the crew or is in neither; `conflict` when two of its crews qualify |
 | `crews.manager` | `{agent, id}` | `{crew}` |
@@ -751,7 +752,7 @@ and `stop`.
 
 | method | params | result | engine call |
 |---|---|---|---|
-| `crews.list` | `{closed?: bool}` | `{crews}` | `File.Open()` / `File.ClosedTeams()` |
+| `crews.list` | `{closed?: bool, archived?: bool}` | `{crews}` | `File.Open()` / closed and not archived / `File.ArchivedTeams()` (`archived` wins; a closed list leaves archived crews out) |
 | `crews.get` | `{id}` | `{crew}` | `File.Team` + `Effective` + `TeamSpend` |
 | `crews.create` | `{name, agents: [id], manager?: id, parent?, hue?}` | `{crew}` | `Update`: a new `Team` with `NewID`, `AddMember` per agent, `SetManager`, `SetParent` (refused past `depth_limit`: `CanNest`) |
 | `crews.update` | `{id, name?, hue?/tint?, settings?}` | `{crew}` | `Update`: rename, `SetHue`, `SetSettings` (bands: cap ≥ 0, depth 1–10, share (0,1]) |
@@ -769,7 +770,8 @@ and `stop`.
 | `crews.move` | `{ids, parent}` | `{}` | `MoveCheck` then `Move` (re-parent crews; `""` = top level) |
 | `crews.wrap_up` | `{id, text?}` | `{}` | `WrapUpRequest(text)` to Traffic; the manager wakes and raises a `closing` packet → `decision.opened` |
 | `crews.close` | `{id}` | `{}` | `Disband` (cascades to sub-crews; conversations keep working) + Traffic `close` |
-| `crews.reopen` | `{id}` | `{crew}` | `Reopen` (refused while the parent is closed) + Traffic `reopen` |
+| `crews.archive` | `{id}` | `{crew}` | `File.Archive`: only a closed crew (open → `bad_params`, root refused); marks that crew alone with `archived_at` (state stays `closed`; sub-crews are not archived, nothing is closed, stopped or deleted; no Traffic line) |
+| `crews.reopen` | `{id}` | `{crew}` | `Reopen` (refused while the parent is closed; clears `archived_at` on every crew it reopens) + Traffic `reopen` |
 | `crews.delete` | `{id}` | `{ids}` | `Delete` (closed crews only; conversations are never deleted) |
 | `crews.defaults` · `crews.set_default` | – / `{key, value}` | `{defaults}` | `DefaultsAt` / `config.ApplyTeamDefault` (the five `teams.` rows) |
 
