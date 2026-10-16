@@ -123,7 +123,7 @@ Ask    { id, agent, kind, subkind?, title, detail?, options?: [{id, label}], irr
 | `agent.changed` | `{agent: Agent}` |
 | `turn.started` | `{agent, turn}` |
 | `turn.delta` | `{agent, turn, kind: "text" \| "thinking", text}` |
-| `turn.tool` | `{agent, turn, call, name, phase: "begin" \| "end", ok?, summary?}` |
+| `turn.tool` | `{agent, turn, run_id?, call, name, phase: "begin" \| "end", ok?, summary?}` |
 | `turn.done` | `{agent, turn, ok, error?, error_kind?: "provider" \| "budget" \| "stopped" \| "other", status?}` (provider: the provider failed 3 times in a row; message is the provider's own words) |
 | `ask.opened` | `{ask: Ask}` (agent state becomes `needs_you`) |
 | `ask.closed` | `{agent, id, by: "app" \| "elsewhere" \| "stopped", option?, at}`; a receipt Entry follows as `entry.added` |
@@ -1603,3 +1603,14 @@ Connected image/video admission refusals also appear in render history with `sta
 ### Source invalidation
 
 `media.changed` is emitted after a source record was successfully appended. It carries the actual source identity and known immutable run/call IDs; consumers still obtain descriptors from `media.list`/`media.get`. Empty or failed writes emit no invented source. Turn-stream and standing-lane duplicate delivery is filtered through a bounded 128-ID recent window; this is not a retained all-history source cache. A reopened view first reads its snapshot, fences replies with event sequence, and may coalesce newly reported IDs into one page reconciliation. No token, prose, tool-name heuristic or filesystem path from this event authorizes a media read.
+
+### Producing runs on conversation entries
+
+`Entry.run_id` and `turn.tool.run_id`, when present, name the immutable engine
+execution that produced the assistant message or tool call. They join media
+source `run` facts to actual work; they are independent of the app's numeric
+`turn` and survive journal reopen and compaction. Missing means unknown, including
+older journals. A background media notification does not acquire the run of a
+foreground turn merely because it arrived during that turn. Reused provider call
+IDs must be disambiguated with actual run identity; no nearest-message inference
+is part of this contract.
