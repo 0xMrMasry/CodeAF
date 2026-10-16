@@ -295,12 +295,14 @@ result or an event, `?` marks a field that may be absent.
 | `tasks.brief` | `{id, text}` | `{}` |
 | `tasks.decide` | `{id, text, verdict}` | `{}` |
 | `tasks.decline` | `{id}` | `{}` |
+| `tasks.dismiss` | `{id}` | `{}` |
 | `tasks.entries` | `{before, id, limit}` | `{entries, more}` |
 | `tasks.get` | `{id}` | `{page}` |
 | `tasks.hold` | `{id}` | `{}` |
 | `tasks.list` | `{agent}` | `{tasks}` |
 | `tasks.note` | `{client_id, id, text}` | `{entry?}` |
 | `tasks.pause` | `{id}` | `{}` |
+| `tasks.restore` | `{id}` | `{}` |
 | `tasks.resume` | `{id}` | `{}` |
 | `tasks.retry` | `{id}` | `{}` |
 | `tasks.since` | `{after, id}` | `{at?, entries, files?, first?, found, last_at?, turns?}` |
@@ -477,6 +479,7 @@ Process  { id, agent, title, command, state: "running"|"ended"|"failed"|"stopped
 | `tasks.routing.options` | `{id}` | `{options: {task_id, scope: "next_step"\|"rerun"\|"before_start"\|"waiting"\|"none", stronger?: Preview, best?: Preview, pick, auto, retry}}` V80: what Change models… / Rerun with… offers, each change worked out by the engine with the same policy as `tasks.routing.act` and moving nothing. Preview: `{moves: [{role, from, to, to_price: {in_per_m, out_per_m}\|null, to_estimate_usd}], estimate_usd: number\|null, cap_usd: number\|null, over_cap, refused?}`; `refused` is the refusal the change would meet (strongest, no_eligible, unchanged…). A not-started task's `best` carries no preview |
 | `tasks.note` | `{id, text}` | `{}` |
 | `tasks.stop` | `{id}` | `{}` |
+| `tasks.dismiss` · `tasks.restore` | `{id}` | `{}` V92: hide a settled failure from the default view, and bring it back. A visibility fact only — the task's state, failure, result, files and spend are untouched, and nothing is retried, stopped, declined, deleted or dispatched (no paid operation). `tasks.dismiss` is refused with `bad_params` unless the task is a settled failure (`failed`, stopped or declined; not `done`, running, waiting, proposed or in Your call) and nothing live waits on it or hangs under it (the refusal names which). Dismissing a dismissed task and restoring a task that is not dismissed succeed and change nothing. The change is written to the conversation's checkpoint before it is answered (a failed write is an error and changes nothing) and is said as `task.changed` (the task, with `dismissed`) and in the next `work.graph` read (`nodes[].dismissed`, `totals.dismissed`; the revision moves). Undo is `tasks.restore`, an explicit call. Works on a task, a run row and a plan row alike |
 | `quick.undo` | `{id}` | `{}` or error `conflict` with the changed files |
 | `quick.promote` | `{id}` | `{task}` Make it a task |
 | `processes.list` | `{agent}` | `{processes: Process[]}` running and ended (7 days) |
@@ -687,6 +690,26 @@ Tasks as conversations (V65, V66) add:
 Task { …, paused?: bool, waits_on?: [task], holding_up?: [task], model?, steps?, cost_usd?,
        tokens?, started_at?, started_by?, instructions?, children_done?, children?, finished_at? }
 ```
+Many tasks at one level (V92) add, optional on `Task` and on `work.graph`'s `GraphNode`:
+```
+Task { …, source?: TaskSource, dismissed?: bool }
+TaskSource { id, kind: "message"|"directive", text?, cut?: bool, at?: time }
+work.graph totals { …, dismissed?: int }
+```
+`source` is the message (kind `message`) or the `/task` directive (kind `directive`) that started
+the task, captured by the engine when the work was admitted and persisted with the task: `id` is
+shared by every task made from the same message or directive (compare it, do not parse it); `text`
+is the first 4096 bytes of the person's words with secrets redacted (`cut` says it was shortened);
+`at` is when the session heard it, absent when unknown. A task made by a task (`parent`), a division's
+part and a plan row dispatched into the graph carry their parent's source, never the conversation's
+current message; a plan row of a run carries its run's. **Absent means unknown**: a task from before
+sources were captured, or work nobody typed into (a woken turn), has none, and the engine never
+infers one from a title, the words, a time or an id range. `dismissed` is the V92 reversible hide
+(`tasks.dismiss`/`tasks.restore` below); a dismissed task is still listed and still counted in
+`work.graph`'s `totals.nodes`/`by_state` — `totals.dismissed` says how many, so a surface leaves them
+out of its default counts. `finished_at` is the recorded end of the work for a task or run row; plan
+rows carry none yet.
+
 | method | params | result |
 |---|---|---|
 | `tasks.pause` · `tasks.resume` · `tasks.retry` | `{id}` | `{}` · also on a handed-over task (a moved reply, a run): pause holds the run, nothing new starts and the step in hand is the last until resume |
