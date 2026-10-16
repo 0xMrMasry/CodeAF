@@ -300,6 +300,7 @@ result or an event, `?` marks a field that may be absent.
 | `tasks.pause` | `{id}` | `{}` |
 | `tasks.resume` | `{id}` | `{}` |
 | `tasks.retry` | `{id}` | `{}` |
+| `tasks.since` | `{after, id}` | `{at?, entries, files?, first?, found, last_at?, turns?}` |
 | `tasks.start` | `{id}` | `{}` |
 | `tasks.stop` | `{id}` | `{}` |
 | `tasks.typing` | `{id}` | `{}` |
@@ -570,7 +571,8 @@ person pauses defers its clock and starts it when it shows the ask:
 |---|---|---|
 | `asks.defer` | `{agent, id}` | `{ask?}` the clock stops (`clock_until` absent) until `asks.shown`, or by itself after 5 min; `bad_params` for an ask not known to be `blocking: false`; `engine` from a conversation that cannot defer, and the surface then shows the ask at once |
 | `asks.shown` | `{agent, id}` | `{ask?}` a deferred clock starts now for its whole length; any other ask comes back as it stands. A person's hold is never undone |
-| `agents.since` | `{id, after}` | `{found, at?, entries, turns, files?, first?, last_at?}` counted after one entry of the record from the same cached shapes a page is cut from: `turns` is the person's messages after it plus one for what the conversation did on its own before the first of them; `files` the distinct paths the tool calls changed, absent past 400 calls; `found: false` for an entry the record does not hold |
+| `agents.since` | `{id, after}` | `{found, at?, entries, turns?, files?, first?, last_at?}` counted after one entry (a finished turn's last) from the same cached shapes a page is cut from: `turns` is told by the record's own marks — a person's message, a wake or landing note the session wrote, or a crew's delivery opens a turn; a reply marked complete or cut short by a stop ends one; work after an end is a new one — and is absent where the marks cannot tell one turn from two (a note inside a turn that never ended, an unmarked reply followed by more work); `files` the distinct paths the tool calls changed, absent past 400 calls; `found: false` for an entry the record does not hold |
+| `tasks.since` | `{id, after}` | as `agents.since`, over the task's own record: the same room journal tail `tasks.entries` reads, once per call; `after` and `first` are the task's entry ids (`<task>/<entry>`); `entries` counts the record's entries only (the notes and sub-task rows `tasks.entries` lists after them are not in it); an anchor that is not on the record (a note, a sub-task row, a step line, older than the tail) is `found: false`; an engine without it answers `unknown_method` |
 
 Queue and steer (V69):
 | method | params | result |
