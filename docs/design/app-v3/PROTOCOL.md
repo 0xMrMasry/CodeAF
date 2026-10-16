@@ -168,11 +168,14 @@ result or an event, `?` marks a field that may be absent.
 | `agents.send` | `{attachments, client_id, id, reads, said, text}` | `{turn}` |
 | `agents.set_effort` | `{effort, id}` | `{agent}` |
 | `agents.set_model` | `{id, model}` | `{agent}` |
+| `agents.since` | `{after, id}` | `{at?, entries, files?, first?, found, last_at?, turns}` |
 | `agents.steer` | `{attachments, client_id, id, reads, said, text}` | `{}` |
 | `agents.stop` | `{id}` | `{}` |
 | `asks.answer` | `{agent, batch_item, id, later, option, text, why, you_decide}` | `{}` |
+| `asks.defer` | `{agent, id}` | `{ask?}` |
 | `asks.hold` | `{agent, id}` | `{}` |
 | `asks.list` | `{agent}` | `{asks}` |
+| `asks.shown` | `{agent, id}` | `{ask?}` |
 | `attachments.add` | `{agent, kind, path, text, url}` | `{attachment}` |
 | `attachments.remove` | `{agent, id}` | `{}` |
 | `caps.raise` | `{for, id, scope, to_usd}` | `{}` |
@@ -556,6 +559,18 @@ how many tasks are open; an ask from no task carries none.
 |---|---|---|
 | `asks.answer` (adds) | `{…, why?, batch_item?, later?: bool, you_decide?: bool}` | `{}` |
 | `asks.hold` | `{agent, id}` | `{}` stops the choice clock (H / typing) |
+
+Calm attention (V84). `Ask.blocking?: bool` is what the engine KNOWS waits on an ask: `true` for
+a permission and for the model's own question that parks its turn or names tasks; `false` only for
+the model's own question whose turn carries on and that names no task (its answer arrives later as
+a message). It is absent for every other kind and from older engines, and absent means waiting. An
+empty `holding_up` never means `false`. A surface that holds a `blocking: false` ask until the
+person pauses defers its clock and starts it when it shows the ask:
+| method | params | result |
+|---|---|---|
+| `asks.defer` | `{agent, id}` | `{ask?}` the clock stops (`clock_until` absent) until `asks.shown`, or by itself after 5 min; `bad_params` for an ask not known to be `blocking: false`; `engine` from a conversation that cannot defer, and the surface then shows the ask at once |
+| `asks.shown` | `{agent, id}` | `{ask?}` a deferred clock starts now for its whole length; any other ask comes back as it stands. A person's hold is never undone |
+| `agents.since` | `{id, after}` | `{found, at?, entries, turns, files?, first?, last_at?}` counted after one entry of the record from the same cached shapes a page is cut from: `turns` is the person's messages after it plus one for what the conversation did on its own before the first of them; `files` the distinct paths the tool calls changed, absent past 400 calls; `found: false` for an entry the record does not hold |
 
 Queue and steer (V69):
 | method | params | result |
