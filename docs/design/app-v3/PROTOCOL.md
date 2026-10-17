@@ -2368,3 +2368,60 @@ conversation owners and 16384 membership pairs under the operation's shared
 deadline. This scope does not add a union Changes feed.
 
 Stamped process mutations refuse an engine without the corresponding stamped door; `processes.stop` never falls back to an unverified `Cancel`. A caller deadline travels on the private engine action wire and an expired rerun is refused before launch. Cancellation after dispatch remains an uncertain RPC outcome and never causes an automatic retry.
+
+
+## Factory: attached remote connections
+
+Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Local hosting, runners and job writes are not exposed by this protocol slice.
+
+| method | params | result |
+|---|---|---|
+| `factory.capabilities` | none | FactoryCapabilities |
+| `factory.list` | none | FactoryList (state: ok, unreachable, signed_out, github_expired) |
+| `factory.attach` | url, token? | FactoryConnection |
+| `factory.detach` | factory | empty |
+| `factory.me` | factory | api.Me (session_id always empty) |
+| `factory.queue` | factory | api.Queue |
+| `factory.job` | factory, job | api.Job |
+| `factory.repos` | factory | FactoryRepos (no checkout path) |
+| `factory.pipeline` | factory, repo (owner/name) | FactoryPipeline |
+| `factory.runners` | factory | api.Runners |
+| `factory.people` | factory | api.People (empty in solo) |
+| `factory.activity` | factory, since?, limit? (default 200, max 1000) | FactoryActivity |
+| `factory.setup` | factory | api.FactorySetup (server-side first-run progress only) |
+| `factory.access_check` | link, caller | FactoryAccess |
+| `factory.access_sign_in` | link, caller | FactoryAccess |
+| `factory.access_cancel` | link, caller | FactoryAccess |
+| `factory.sign_in_start` | factory, caller | FactorySignIn |
+| `factory.sign_in_poll` | flow, caller | FactorySignInState (pending, signed_in, expired, denied) |
+| `factory.sign_in_cancel` | flow, caller | empty |
+
+Types come from `internal/factory/api` where the server has one; `appwire/factory.go` defines the rest. The schema carries enum values from both appwire `enum:` tags and the reused factory API `jsonschema:` tags.
+
+## Rules the app can rely on
+
+- **Credentials stay engine-side.** `token` on attach is input only. No result, event or error carries a token, session, device code, cookie, or the access link. `FactoryAccess` has no `link` or `access_token` field by construction. A frame test searches for each.
+- **Sessions are memory-only.** A restart keeps the connection (url, name) and loses the sign-in: the factory reads `signed_out` until the person signs in again.
+- **`caller`** is any stable string the app chooses per window (at most 128 characters). A sign-in flow or access-link flow belongs to the caller that started it. Another caller polling or cancelling it gets `not_found`, the same as a flow that never existed. A session is per factory, not per caller.
+- **Sign-in:** `factory.sign_in_start` returns `user_code` and `verification_uri` to show, and `flow` to poll no sooner than `interval` seconds (earlier polls answer `pending` without a request). `signed_in` carries the person's `me`. `denied.message` is the factory's reason when it gave one (not on the team, link is for someone else).
+- **Access links:** `access_check` asks, `access_sign_in` starts, `access_check` again polls, `access_cancel` ends. `joined` and `already_joined` save the connection; `factory.id` in the answer is the id `factory.list` uses.
+- **Bounds:** 32 connections; 256 pending flows (sign-ins plus access links), 8 sign-ins per caller; flows expire (sign-in with the code, access link 10 minutes of silence); one call 25 s; one request to a factory 20 s; answers over 8 MiB (1 MiB for small ones) are `too_large`; no ambient proxy; redirects are refused (`unreachable`). Plain `http` is accepted only for loopback; the address may not carry credentials, path or query.
+- **Recovery codes (in wire.go):** `unreachable`, `signed_out`, `github_expired` (the screen shows "Reconnect GitHub"). Also `too_large`, `busy`, `not_found`, `bad_params` as elsewhere.
+- **Persistence:** `<home>/app/factories.json`, 0600 in a 0700 folder, urls and names only.
+
+## Gaps
+
+- Server routes the brief names that this slice does not carry: job verbs, new job, hand-off cards, step edits, pipeline PR, runner add/pause/remove and presence, access-link creation and revoke, settings, session lists, factory events stream. `factory.queue` is a poll; there is no `factory.changed` event yet.
+- Setup verbs (connect, pick repos, retry, clone, skip, done) and this Mac's checkout state are not carried; only the server's progress is readable.
+- Device sign-in against a factory that refuses unauthenticated callers needs the connection's token or session as the credential (the factory binds a flow to it). Renewal after `github_expired` through that route is unproven against a real expired session: the server answers `github_expired` on the same bearer. The access link flow is the proven way back.
+- Sessions do not survive a restart; `config.AppCredentials` has no slot for factory sessions, so the app cannot hand them back at launch yet.
+- `codeaf attach` (CLI, attach.json) and the app registry are separate stores; neither reads the other.
+
+
+## Scoped memory reading
+
+| method | params | result |
+|---|---|---|
+| `memory.applies` | agent | MemoryScopeSnapshot |
+
+Available when hello includes `memory.applies`; other engines answer `unknown_method`. This reads the memory scope applicable to an existing agent.
