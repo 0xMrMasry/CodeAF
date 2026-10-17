@@ -302,14 +302,14 @@ result or an event, `?` marks a field that may be absent.
 | `search.all` | `{limit_per_group, query}` | `{groups}` |
 | `services.get` | `{id}` | `{process}` |
 | `services.list` | `{agent}` | `{processes}` |
-| `services.output` | `{from_line, id, max_lines}` | `{first_line, lines, next_line, total_lines, truncated?}` |
+| `services.output` | `{from_line, id, max_lines}` | `{first_line, lines, next_line, total_lines, truncated?, partial?}` |
 | `services.policy` | `{id, policy}` | `{process}` |
 | `services.remove` | `{id}` | `{}` |
 | `services.restart` | `{id}` | `{process}` |
 | `services.start` | `{id}` | `{process}` |
 | `services.stop` | `{id}` | `{process}` |
 | `services.stop_all` | `{}` | `{stopped}` |
-| `services.tail` | `{id, lines}` | `{first_line, lines, next_line, total_lines, truncated?}` |
+| `services.tail` | `{id, lines}` | `{first_line, lines, next_line, total_lines, truncated?, partial?}` |
 | `settings.get` | `{}` | `{settings}` |
 | `settings.models.get` | `{}` | `{task_models}` |
 | `settings.models.list` | `{allowed_only, cursor, limit, provider, q, role}` | `{models, next_cursor, read_at, revision, total}` |
