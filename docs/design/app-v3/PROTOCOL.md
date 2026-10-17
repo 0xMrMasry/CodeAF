@@ -2380,7 +2380,7 @@ Feature `factory.remote` is present only when the engine serves the typed factor
 | `factory.list` | none | FactoryList (state: ok, unreachable, signed_out, github_expired) |
 | `factory.attach` | url, token? | FactoryConnection |
 | `factory.detach` | factory | empty |
-| `factory.me` | factory | api.Me (session_id always empty) |
+| `factory.me` | factory | FactoryMe (public identity, github_signed_in, can_sign_out) |
 | `factory.queue` | factory | api.Queue |
 | `factory.job` | factory, job | api.Job |
 | `factory.repos` | factory | FactoryRepos (no checkout path) |
@@ -2395,6 +2395,8 @@ Feature `factory.remote` is present only when the engine serves the typed factor
 | `factory.sign_in_start` | factory, caller | FactorySignIn |
 | `factory.sign_in_poll` | flow, caller | FactorySignInState (pending, signed_in, expired, denied) |
 | `factory.sign_in_cancel` | flow, caller | empty |
+
+`factory.me` never returns session identifiers, machines, runners or checkout paths. Its `github_signed_in` comes only from the serving factory's explicit attestation of a GitHub-verified caller profile; a credential ID, handle or operator flag cannot imply it. An older factory omitting the attestation yields no GitHub claim without changing the connection's actual authentication state. `can_sign_out` separately indicates a caller session that the session endpoint can end: a verified legacy access grant can identify a person without supporting that action. Desktops offer Sign out only with both explicit flags.
 
 Runner and activity reads optionally carry `people`, keyed by the normalized GitHub handles referenced in their returned rows. Names and photos come from recorded GitHub sign-ins; unknown handles have no invented profile. The activity limit also limits this profile map. Join previews optionally carry `factory.operator_name` and `factory.operator_avatar_url` after the access link matches.
 
