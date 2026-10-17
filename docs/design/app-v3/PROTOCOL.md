@@ -2362,3 +2362,5 @@ an oversized union is an error, never a truncated complete result. File reads
 are bounded to the shared two-MiB team snapshot; unions admit at most 4096
 conversation owners and 16384 membership pairs under the operation's shared
 deadline. This scope does not add a union Changes feed.
+
+Stamped process mutations refuse an engine without the corresponding stamped door; `processes.stop` never falls back to an unverified `Cancel`. A caller deadline travels on the private engine action wire and an expired rerun is refused before launch. Cancellation after dispatch remains an uncertain RPC outcome and never causes an automatic retry.
