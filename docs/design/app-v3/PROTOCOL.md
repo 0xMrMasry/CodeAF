@@ -2372,7 +2372,7 @@ Stamped process mutations refuse an engine without the corresponding stamped doo
 
 ## Factory: attached remote connections
 
-Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Local hosting, runners and job writes are not exposed by this protocol slice.
+Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Local hosting and runners are not exposed by this protocol slice. Job writes are a separate optional feature, `factory.job_actions` (below); `FactoryCapabilities.writes` stays `false` until an app binds them end to end.
 
 | method | params | result |
 |---|---|---|
@@ -2398,6 +2398,41 @@ Feature `factory.remote` is present only when the engine serves the typed factor
 
 Types come from `internal/factory/api` where the server has one; `appwire/factory.go` defines the rest. The schema carries enum values from both appwire `enum:` tags and the reused factory API `jsonschema:` tags.
 
+### Factory job actions (`factory.job_actions`)
+
+Feature `factory.job_actions` is present only when the engine implements `FactoryActor` on top of the factory interface; otherwise every method below answers `unknown_method`. Each method is one POST to one `/v1/jobs` route of the attached factory and answers `FactoryJobActed`. There is no method that takes a path, verb or body, none that acts on more than one job, and unknown params are `bad_params` (a field this wire does not carry is refused, not ignored).
+
+| method | params (all but create also `factory`, `job`, `expect`) | factory route |
+|---|---|---|
+| `factory.job_start` | | `POST /v1/jobs/{id}/start_now` (assignee only; queues, never asks a model here) |
+| `factory.job_stop` | | `…/stop` |
+| `factory.job_dismiss` | | `…/dismiss` (personal) |
+| `factory.job_drop` | words? | `…/drop` (assignee only; the branch is kept) |
+| `factory.job_unassign` | | `…/unassign` (assignee only) |
+| `factory.job_assign_to_me` | | `…/assign_to_me` (only an unassigned job) |
+| `factory.job_change_assignee` | assignee (login, `@` optional) | `…/change_assignee` (assignee only) |
+| `factory.job_set_priority` | priority: urgent, high, medium, low | `…/priority` |
+| `factory.job_set_budget` | budget: 5, 10, 20 or 30 (US dollars, raise only) | `…/raise_budget` (assignee only) |
+| `factory.job_approve` | commit? (the head the person saw), words?, edited? | `…/approve` (assignee only) |
+| `factory.job_undo` | | `…/undo` (your own approval or stop, within the Undo window) |
+| `factory.job_request_changes` | words | `…/request_changes` |
+| `factory.job_retry_publish` | | `…/retry_publish` (assignee only; only after a failed publish) |
+| `factory.job_step_stop` | step | `…/steps/{step}/stop` (assignee only) |
+| `factory.job_step_rerun` | step | `…/steps/{step}/rerun` (assignee only) |
+| `factory.job_create` | factory, repo (owner/name), title, text?, assignee?, start? (`backlog`\|`now`) | `POST /v1/jobs` |
+
+**Result.** `FactoryJobActed {factory, action, job, approval?, undo_until?, event?, current?}`. `current` is the job as the factory shows it after the action (one extra GET, never a retry); when it is absent the action still happened. The next write on the job carries `current.version`.
+
+**Guards.** `expect.version` is required on every job write (`bad_params` without it); `expect.state` and `expect.step` are passed through. The factory refuses a mismatch, and the engine does not resend. `job_approve` carries `commit`, which the factory compares with the job's head: another head is `stale` (`detail.reason` `changed_since_opened`, `detail.head_commit`). Only the job's assignee (anyone while it has none) approves, publishes, starts, drops, raises the budget and stops or reruns a step; the factory answers anyone else `forbidden`.
+
+**Undo.** `job_approve` does not act at once. The factory holds the decision for 5 s (`approval.state` `approving`, `undo_until`) and acts when the window ends. `job_undo` by the same person inside the window withdraws it (or a stop, restoring the run); after the window, or by another person, it is `conflict`. Approval is per job: there is no bulk approve.
+
+**New job.** `job_create` adds a backlog job: nothing starts, no model is asked, no GitHub issue is opened (the wire has no issue flag). `start: "now"` is the only way to also start it and requires `assignee` to be present (`""` for no one; a team factory refuses that with `bad_params`).
+
+**Errors.** `forbidden` and `stale` are new codes; both, and `conflict`, carry `detail` = `FactoryRefusal {reason, by, job_person, at, now_state, taker, machine, approved_by, event, commit, current_commit, head_commit, request_id}`. `stale` means read the job again and let the person decide again; nothing retries. `conflict` also covers a refusal like "already approved by @x" or "already taken". `uncertain` answers a write that may have reached the factory without an answer (dropped connection, timeout, any 5xx): read the job before doing anything. `unreachable` is only a connection that was never made. `signed_out`, `github_expired`, `not_found`, `busy` and `bad_params` map as for reads; a factory that lacks a verb answers `engine` ("this factory does not provide that action").
+
+**Not carried:** sync (it opens a GitHub issue), step edits, hand-off cards, the pipeline pull request, answering a question, and any arbitrary job verb.
+
 ## Rules the app can rely on
 
 - **Credentials stay engine-side.** `token` on attach is input only. No result, event or error carries a token, session, device code, cookie, or the access link. `FactoryAccess` has no `link` or `access_token` field by construction. A frame test searches for each.
@@ -2411,7 +2446,7 @@ Types come from `internal/factory/api` where the server has one; `appwire/factor
 
 ## Gaps
 
-- Server routes the brief names that this slice does not carry: job verbs, new job, hand-off cards, step edits, pipeline PR, runner add/pause/remove and presence, access-link creation and revoke, settings, session lists, factory events stream. `factory.queue` is a poll; there is no `factory.changed` event yet.
+- Server routes the brief names that this slice does not carry: hand-off cards, step edits, pipeline PR, runner add/pause/remove and presence, access-link creation and revoke, settings, session lists, factory events stream. `factory.queue` is a poll; there is no `factory.changed` event yet.
 - Setup verbs (connect, pick repos, retry, clone, skip, done) and this Mac's checkout state are not carried; only the server's progress is readable.
 - Device sign-in against a factory that refuses unauthenticated callers needs the connection's token or session as the credential (the factory binds a flow to it). Renewal after `github_expired` through that route is unproven against a real expired session: the server answers `github_expired` on the same bearer. The access link flow is the proven way back.
 - Sessions do not survive a restart; `config.AppCredentials` has no slot for factory sessions, so the app cannot hand them back at launch yet.
