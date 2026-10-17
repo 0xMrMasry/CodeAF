@@ -2372,7 +2372,7 @@ Stamped process mutations refuse an engine without the corresponding stamped doo
 
 ## Factory: attached remote connections
 
-Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Runners are not exposed as a list-and-manage surface by this protocol slice; the local factory, its setup and the one door that turns this engine's own runner on are a separate optional feature, `factory.local` (below). Job writes are a separate optional feature, `factory.job_actions` (below); `FactoryCapabilities.writes` stays `false` until an app binds them end to end.
+Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Runners are not exposed as a list-and-manage surface by this protocol slice; the local factory, its setup and the one door that turns this engine's own runner on are a separate optional feature, `factory.local` (below). Job writes are a separate optional feature, `factory.job_actions` (below); signing out and revoking sessions are another, `factory.admin` (below); `FactoryCapabilities.writes` stays `false` until an app binds them end to end.
 
 | method | params | result |
 |---|---|---|
@@ -2434,6 +2434,17 @@ Feature `factory.job_actions` is present only when the engine implements `Factor
 **Errors.** `forbidden` and `stale` are new codes; both, and `conflict`, carry `detail` = `FactoryRefusal {reason, by, job_person, at, now_state, taker, machine, approved_by, event, commit, current_commit, head_commit, request_id}`. `stale` means read the job again and let the person decide again; nothing retries. `conflict` also covers a refusal like "already approved by @x" or "already taken". `uncertain` answers a write that may have reached the factory without an answer (dropped connection, timeout, any 5xx): read the job before doing anything. `unreachable` is only a connection that was never made. `signed_out`, `github_expired`, `not_found`, `busy` and `bad_params` map as for reads; a factory that lacks a verb answers `engine` ("this factory does not provide that action").
 
 **Not carried:** sync (it opens a GitHub issue), step edits, hand-off cards, the pipeline pull request, answering a question, and any arbitrary job verb.
+
+## Factory: signing out and revoking sessions (`factory.admin`)
+
+Feature `factory.admin` is present only when the engine implements `FactoryAdmin` on top of the factory interface; `FactoryCapabilities.admin` is then `true` and is `false` for every other engine. `writes` is unchanged. Both methods take exactly `{factory}`; a session id, a path or a body is `bad_params`, and no session id is ever answered. Each makes ONE write to ONE fixed route and is never retried.
+
+| method | params | result |
+|---|---|---|
+| `factory.sign_out` | | `FactoryAdminDone {factory, action: sign_out, signed_out: true}`. The engine asks `GET /v1/me` with the held credential, then `DELETE /v1/me/sessions/{own id}` with the same credential, and drops the held session only after the factory said yes. The row stays, so the person can sign in again. `conflict` for the machine's own factory (the app made its key; nothing is detached or stopped) and for a connection that holds a key or access link rather than a sign-in; `signed_out` when nothing is held (no request is sent) |
+| `factory.revoke_sessions` | | `FactoryAdminDone {factory, action: revoke_sessions, signed_out}`. `POST /v1/access/revoke-sessions` with the credential held for that factory, only when `GET /v1/me` says it is the operator's (`forbidden` otherwise, no request sent). `signed_out` is true when the caller's own sign-in ended with the rest and is dropped; false when the connection holds a key, which revoking sessions does not end and which is kept. `conflict` for the machine's own factory |
+
+An outcome the engine cannot confirm (a dropped connection after the request left, a timeout, a 5xx) is `uncertain`: the person may or may not still be signed in, the held credential is kept, and nothing is claimed. A refused connection is `unreachable` (nothing was sent). `busy` answers a second call for the same connection while one is in flight. Nothing here reads the terminal's attach record, the host key or the loopback owner, so restarting or resuming the machine's factory never undoes a sign-out.
 
 ## Factory: the local factory and its first run (`factory.local`)
 
