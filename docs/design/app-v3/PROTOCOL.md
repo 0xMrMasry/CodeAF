@@ -2372,7 +2372,7 @@ Stamped process mutations refuse an engine without the corresponding stamped doo
 
 ## Factory: attached remote connections
 
-Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Local hosting and runners are not exposed by this protocol slice. Job writes are a separate optional feature, `factory.job_actions` (below); `FactoryCapabilities.writes` stays `false` until an app binds them end to end.
+Feature `factory.remote` is present only when the engine serves the typed factory interface. Other engines answer these methods with `unknown_method`. Runners are not exposed as a list-and-manage surface by this protocol slice; the local factory, its setup and the one door that turns this engine's own runner on are a separate optional feature, `factory.local` (below). Job writes are a separate optional feature, `factory.job_actions` (below); `FactoryCapabilities.writes` stays `false` until an app binds them end to end.
 
 | method | params | result |
 |---|---|---|
@@ -2433,6 +2433,35 @@ Feature `factory.job_actions` is present only when the engine implements `Factor
 
 **Not carried:** sync (it opens a GitHub issue), step edits, hand-off cards, the pipeline pull request, answering a question, and any arbitrary job verb.
 
+## Factory: the local factory and its first run (`factory.local`)
+
+Feature `factory.local` is present only when the engine implements `FactoryLocal` on top of the factory interface; `FactoryCapabilities.local` and `FactoryCapabilities.runner` are then `true` and are `false` for every other engine. `writes` is unchanged. Every method takes `caller` (required, at most 128 characters), refuses unknown params as `bad_params`, and speaks one fixed route of the factory; none takes a path, verb or body.
+
+| method | params | result |
+|---|---|---|
+| `factory.local_start` | | `FactoryLocalStatus`. The only door that serves or joins the machine's factory; idempotent |
+| `factory.local_status` | | `FactoryLocalStatus` `{state: stopped\|running, authority?: this_app\|other_codeaf, factory?, name?, url?, runner, attachment}`; `runner` is true only after `factory.local_run` |
+| `factory.local_run` | | `FactoryLocalStatus`. The ONLY door that turns this engine's runner on; idempotent; starts no job. `not_found` before `factory.local_start`; `conflict` when another codeaf serves the factory (its runner takes the jobs) or when GitHub is not connected (the factory takes no worker without a handle); `closed` while the engine stops |
+| `factory.local_adopt` | | `FactoryLocalStatus`. Shows the factory `codeaf attach` named in the app's list (bearer kept in memory) |
+| `factory.setup_read` | | `FactorySetupView` |
+| `factory.setup_discover` | | `FactorySetupView` (lists the repos GitHub shows; reads only) |
+| `factory.setup_connect` | source: `gh`\|`token`, token? (with `token` only) | `FactorySetupView` |
+| `factory.setup_select` | repos (1 to 100, owner/name) | `FactorySetupView`; begins reading open issues into Backlog |
+| `factory.setup_retry_read` | repo | `FactorySetupView` (only after the 40 s wait the factory enforces) |
+| `factory.setup_clone` | repo, folder (`/…` or `~/…`) | `FactorySetupView` (`clone` becomes `cloning`, then `found` or `failed`) |
+| `factory.setup_use_folder` | repo, folder | `FactorySetupView` (keeps a checkout already there; its origin must match) |
+| `factory.setup_skip` | repo | `FactorySetupView` (clone later) |
+| `factory.setup_back` | | `FactorySetupView` |
+| `factory.setup_done` | | `FactorySetupView` (unfound checkouts become skipped) |
+
+**View.** `FactorySetupView {state: github\|repos\|reading\|checkouts\|done, github {connected, gh_login?, organization?, visible_repos, error?}, repos[] {id, open_issues, pipeline?, archived, selected, read, read_count, waiting_s?, resumes_at?, clone, clone_error?, clone_mb?, folder?, suggested_folder?}}`. There is no clone percentage: the factory reports only `clone` (`missing`, `cloning`, `found`, `skipped`, `failed`) and the megabytes GitHub quoted. `folder` and `suggested_folder` are shown paths (`~/code/acme-api`, or `.../name` outside the home folder) and are empty for anything inside codeaf's own folders. The factory's checkout path, `gh` path, and server address are never carried.
+
+**Authority.** One factory serves per machine, elected through the same `serve.json`/`serve.lock` the terminal uses. If another codeaf serves, `authority` is `other_codeaf` and this engine opens no second service; otherwise it serves on `127.0.0.1` with a bearer made for the launch. The service is quiet: no triage (a model call), no GitHub poll, no runner election. Setup starts no job and spends nothing; a job starts only through `factory.job_start`, and it runs only once a person has turned the runner on with `factory.local_run`: not launch, `factory.local_start` or `factory.setup_done` start one. The runner is the worker loop terminal windows already use, behind the same worker lock (one runner per home), serving this factory with this engine's own keys (the app's memory) and the profile's model settings; a runner that waits behind another process's lock still reports `runner: true`. Quitting the engine stops the runner (waited for at most 10 s), the service, and forgets the list row this engine made; a job the runner held returns to the queue when its lease expires. The list marks that one row as the engine's own (`local` in `<home>/app/factories.json`): a row a person attached by address, solo or not, and the session held for it, is never replaced or forgotten by a start or a quit, and only a row carrying the mark and not this factory's is dropped as stale. The app's home, not the environment's profile, decides where GitHub custody and the floor live.
+
+**Attachment.** `attachment.state` is `none`, `available` (a safe `codeaf attach` exists), `adopted` (the app lists it) or `unsafe` (plain http to another machine, never adopted: `forbidden`). `factory.local_adopt` is explicit; the bearer in `attach.json` is read once, held in memory, and not written to `<home>/app/factories.json`.
+
+**Errors.** Setup before start is `not_found` ("the factory on this machine is not started"). A folder inside codeaf's own folders, or the filesystem root, is `forbidden`; a relative one is `bad_params`. The factory's own refusals pass on as `engine` (`busy` while its setup worker runs) with its sentence and no secret. A pasted token is registered with the redactors before it is sent and is never in a result, event or error.
+
 ## Rules the app can rely on
 
 - **Credentials stay engine-side.** `token` on attach is input only. No result, event or error carries a token, session, device code, cookie, or the access link. `FactoryAccess` has no `link` or `access_token` field by construction. A frame test searches for each.
@@ -2447,7 +2476,7 @@ Feature `factory.job_actions` is present only when the engine implements `Factor
 ## Gaps
 
 - Server routes the brief names that this slice does not carry: hand-off cards, step edits, pipeline PR, runner add/pause/remove and presence, access-link creation and revoke, settings, session lists, factory events stream. `factory.queue` is a poll; there is no `factory.changed` event yet.
-- Setup verbs (connect, pick repos, retry, clone, skip, done) and this Mac's checkout state are not carried; only the server's progress is readable.
+- `factory.setup` (an attached remote's progress) is read-only. Setup verbs exist only for the local factory (`factory.setup_*`); a team member's checkout on this Mac is not carried. The local service runs no poll or triage, so issues opened after setup are not read until a later slice decides who polls. There is no stop or pause verb for the local runner: it ends with the engine.
 - Device sign-in against a factory that refuses unauthenticated callers needs the connection's token or session as the credential (the factory binds a flow to it). Renewal after `github_expired` through that route is unproven against a real expired session: the server answers `github_expired` on the same bearer. The access link flow is the proven way back.
 - Sessions do not survive a restart; `config.AppCredentials` has no slot for factory sessions, so the app cannot hand them back at launch yet.
 - `codeaf attach` (CLI, attach.json) and the app registry are separate stores; neither reads the other.
